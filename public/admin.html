@@ -1,0 +1,1620 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arena Games — Admin Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0A0C10;
+      --surface-1: #12161F;
+      --surface-2: #1A202C;
+      --surface-hover: #242C3D;
+      --border: #232B3E;
+      --primary: #00E676;
+      --primary-hover: #19ff8c;
+      --primary-glow: rgba(0, 230, 118, 0.15);
+      --gold: #FFD700;
+      --gold-glow: rgba(255, 215, 0, 0.15);
+      --danger: #FF4757;
+      --info: #00B0FF;
+      --warning: #FFA502;
+      --text-main: #FFFFFF;
+      --text-muted: #8F9CAE;
+      --sidebar-width: 260px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ----------------------------------------------------- */
+    /* LOGIN MODAL OVERLAY                                  */
+    /* ----------------------------------------------------- */
+    #login-overlay {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at center, #161D2B 0%, #080A0E 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      padding: 20px;
+    }
+
+    .login-box {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px 32px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    .login-box h2 {
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 6px;
+    }
+
+    .login-box p {
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-bottom: 24px;
+    }
+
+    .form-group {
+      margin-bottom: 18px;
+      text-align: left;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: white;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      border-color: var(--primary);
+    }
+
+    /* ----------------------------------------------------- */
+    /* LAYOUT WRAPPER                                        */
+    /* ----------------------------------------------------- */
+    .app-layout {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      width: var(--sidebar-width);
+      background: var(--surface-1);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 100;
+      transition: transform 0.3s ease;
+    }
+
+    .sidebar-header {
+      padding: 24px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sidebar-logo-icon {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--primary), #00A859);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 4px 12px var(--primary-glow);
+    }
+
+    .sidebar-brand h2 {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+    }
+
+    .sidebar-brand span {
+      font-size: 11px;
+      color: var(--primary);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .nav-list {
+      list-style: none;
+      padding: 20px 12px;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #53627A;
+      text-transform: uppercase;
+      padding: 12px 12px 6px;
+      letter-spacing: 0.8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 14px;
+      border-radius: 10px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 13.5px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .nav-item:hover {
+      background: var(--surface-2);
+      color: #FFF;
+    }
+
+    .nav-item.active {
+      background: var(--primary-glow);
+      color: var(--primary);
+      border: 1px solid rgba(0, 230, 118, 0.3);
+    }
+
+    .nav-item .icon {
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .nav-item .badge-pill {
+      margin-left: auto;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .sidebar-footer {
+      padding: 16px 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .btn-logout {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: rgba(255, 71, 87, 0.12);
+      color: var(--danger);
+      border: 1px solid rgba(255, 71, 87, 0.3);
+      padding: 11px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .btn-logout:hover {
+      background: var(--danger);
+      color: white;
+    }
+
+    /* MAIN CONTENT */
+    .main-wrapper {
+      margin-left: var(--sidebar-width);
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* TOPBAR */
+    .topbar {
+      height: 70px;
+      background: var(--surface-1);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 90;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .mobile-menu-btn {
+      display: none;
+      background: transparent;
+      border: none;
+      font-size: 22px;
+      color: white;
+      cursor: pointer;
+    }
+
+    .page-title {
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--primary);
+      background: var(--primary-glow);
+      padding: 6px 12px;
+      border-radius: 20px;
+      border: 1px solid rgba(0, 230, 118, 0.2);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 8px var(--primary);
+    }
+
+    /* CONTENT BODY */
+    .content-area {
+      padding: 28px;
+      flex: 1;
+    }
+
+    /* METRIC CARDS */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+      margin-bottom: 28px;
+    }
+
+    .metric-card {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .metric-card::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 60px;
+      height: 60px;
+      background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .metric-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .metric-val {
+      font-size: 28px;
+      font-weight: 800;
+      margin-top: 8px;
+    }
+
+    /* PANELS */
+    .tab-section {
+      display: none;
+    }
+
+    .tab-section.active {
+      display: block;
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .card {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px;
+      margin-bottom: 24px;
+    }
+
+    .card-header-flex {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .card-header-flex h2 {
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .card-header-flex p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* SEARCH INPUT */
+    .search-bar {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: white;
+      padding: 9px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      width: 280px;
+      outline: none;
+    }
+
+    .search-bar:focus {
+      border-color: var(--primary);
+    }
+
+    /* TABLES */
+    .table-container {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+
+    th {
+      background: #10141D;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    /* BADGES */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 9px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .badge-active {
+      background: var(--primary-glow);
+      color: var(--primary);
+      border: 1px solid rgba(0, 230, 118, 0.3);
+    }
+
+    .badge-banned {
+      background: rgba(255, 71, 87, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(255, 71, 87, 0.3);
+    }
+
+    .badge-creator {
+      background: var(--gold-glow);
+      color: var(--gold);
+      border: 1px solid rgba(255, 215, 0, 0.4);
+    }
+
+    .badge-creator img {
+      width: 14px;
+      height: 14px;
+    }
+
+    .badge-stone {
+      background: #2A1F40;
+      color: #D8B4FE;
+      border: 1px solid #9D4EDD;
+    }
+
+    /* BUTTONS */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #080A0E;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-outline-gold {
+      background: transparent;
+      border: 1px solid var(--gold);
+      color: var(--gold);
+    }
+
+    .btn-outline-gold:hover {
+      background: var(--gold-glow);
+    }
+
+    .btn-action {
+      padding: 5px 10px;
+      font-size: 11.5px;
+      font-weight: 700;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      margin-right: 4px;
+      margin-bottom: 4px;
+      transition: 0.15s;
+    }
+
+    .btn-action:hover {
+      opacity: 0.85;
+      transform: translateY(-1px);
+    }
+
+    .btn-act-reward {
+      background: #9D4EDD;
+      color: white;
+    }
+
+    .btn-act-creator {
+      background: var(--gold);
+      color: #000;
+    }
+
+    .btn-act-streak {
+      background: var(--warning);
+      color: white;
+    }
+
+    .btn-act-coins {
+      background: var(--primary);
+      color: #080A0E;
+    }
+
+    .btn-act-pass {
+      background: var(--info);
+      color: white;
+    }
+
+    .btn-act-danger {
+      background: var(--danger);
+      color: white;
+    }
+
+    .btn-act-gray {
+      background: #404859;
+      color: white;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 900px) {
+      .sidebar {
+        transform: translateX(-100%);
+      }
+
+      .sidebar.open {
+        transform: translateX(0);
+      }
+
+      .main-wrapper {
+        margin-left: 0;
+      }
+
+      .mobile-menu-btn {
+        display: block;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- 1. LOGIN OVERLAY -->
+  <div id="login-overlay">
+    <div class="login-box">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+        <div class="sidebar-logo-icon">🎮</div>
+        <div>
+          <h2>Arena Games</h2>
+          <span style="font-size: 11px; color: var(--primary); font-weight: 700;">CENTRAL ADMIN CONSOLE</span>
+        </div>
+      </div>
+      <p>Enter administrator credentials to authenticate.</p>
+
+      <div class="form-group">
+        <label>Admin Username</label>
+        <input type="text" id="admin-user" placeholder="admin" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>Master Password</label>
+        <input type="password" id="admin-pass" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary" onclick="attemptLogin()" style="width: 100%; padding: 12px; margin-top: 6px;">Sign
+        In to Console</button>
+      <p id="login-error"
+        style="color: var(--danger); text-align: center; margin-top: 14px; font-size: 12px; display: none;"></p>
+    </div>
+  </div>
+
+  <!-- 2. PROTECTED ADMIN APPLICATION -->
+  <div id="admin-content" style="display: none;" class="app-layout">
+
+    <!-- FIXED SLIDEBAR MENU -->
+    <aside class="sidebar" id="app-sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo-icon">🎮</div>
+        <div class="sidebar-brand">
+          <h2>Arena Games</h2>
+          <span>Master Admin</span>
+        </div>
+      </div>
+
+      <ul class="nav-list">
+        <div class="nav-label">Core Operations</div>
+        <li class="nav-item active" onclick="switchTab('tab-dashboard', this)">
+          <span class="icon">📊</span>
+          <span>Dashboard</span>
+        </li>
+        <li class="nav-item" onclick="switchTab('tab-creators', this)">
+          <span class="icon">⭐</span>
+          <span>Creator Management</span>
+          <span class="badge-pill" id="nav-creator-count">0</span>
+        </li>
+        <li class="nav-item" onclick="switchTab('tab-creator-rewards', this)">
+          <span class="icon">🏆</span>
+          <span>Reward History</span>
+        </li>
+
+        <div class="nav-label">Player Management</div>
+        <li class="nav-item" onclick="switchTab('tab-users', this)">
+          <span class="icon">👥</span>
+          <span>All Users Registry</span>
+          <span class="badge-pill" id="nav-users-count">0</span>
+        </li>
+        <li class="nav-item" onclick="switchTab('tab-withdrawals', this)">
+          <span class="icon">💸</span>
+          <span>Redemptions</span>
+          <span class="badge-pill" id="nav-redeem-count" style="color: var(--warning);">0</span>
+        </li>
+
+        <div class="nav-label">Platform Control</div>
+        <li class="nav-item" onclick="switchTab('tab-gateways', this)">
+          <span class="icon">💳</span>
+          <span>Payout Gateways</span>
+        </li>
+        <li class="nav-item" onclick="switchTab('tab-version', this)">
+          <span class="icon">⚙️</span>
+          <span>System & Updates</span>
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <button class="btn-logout" onclick="logout()">
+          <span>🚪</span> Sign Out Admin
+        </button>
+      </div>
+    </aside>
+
+    <!-- MAIN PAGE CONTAINER -->
+    <div class="main-wrapper">
+
+      <!-- TOP NAVIGATION BAR -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="mobile-menu-btn" onclick="toggleMobileSidebar()">☰</button>
+          <div class="page-title" id="current-page-title">Dashboard Overview</div>
+        </div>
+        <div class="topbar-right">
+          <div class="status-indicator">
+            <div class="status-dot"></div>
+            <span>Server Live</span>
+          </div>
+          <button class="btn btn-outline-gold" onclick="loadDashboard()" style="padding: 6px 12px; font-size: 12px;">🔄
+            Refresh</button>
+        </div>
+      </header>
+
+      <!-- CONTENT BODY -->
+      <main class="content-area">
+
+        <!-- 4 OVERVIEW METRIC CARDS -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-title">Registered Players</div>
+            <div class="metric-val" id="stat-users" style="color: white;">...</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Verified Creators</div>
+            <div class="metric-val" id="stat-creators" style="color: var(--gold);">...</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Total Wallet Capital</div>
+            <div class="metric-val" id="stat-coins" style="color: var(--primary);">...</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Pending Redemptions</div>
+            <div class="metric-val" id="stat-withdrawals" style="color: var(--warning);">...</div>
+          </div>
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- TAB 1: DASHBOARD VIEW                                    -->
+        <!-- ======================================================== -->
+        <section id="tab-dashboard" class="tab-section active">
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>Quick Overview</h2>
+                <p>High-level system status and immediate actions.</p>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;">
+              <div
+                style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
+                <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--gold);">⭐ Creator Program</h3>
+                <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
+                  Creators who reached 500+ subscribers on external platforms can receive the verified creator badge and
+                  monthly rewards.
+                </p>
+                <button class="btn btn-primary" onclick="switchTabByName('tab-creators', 'Creator Management')"
+                  style="font-size: 12px; padding: 7px 12px;">Go to Creators</button>
+              </div>
+
+              <div
+                style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
+                <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--warning);">💸 Pending Payouts</h3>
+                <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
+                  Review withdrawal claims against client gameplay logs and authorize or reject payment requests.
+                </p>
+                <button class="btn btn-primary" onclick="switchTabByName('tab-withdrawals', 'Redemptions Pipeline')"
+                  style="font-size: 12px; padding: 7px 12px;">Review Requests</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- TAB 2: CREATOR MANAGEMENT                                -->
+        <!-- ======================================================== -->
+        <section id="tab-creators" class="tab-section">
+          <div class="card" style="border-color: rgba(255, 215, 0, 0.3);">
+            <div class="card-header-flex">
+              <div>
+                <h2>⭐ Verified Creators & Badge Assignment</h2>
+                <p>Assign badges and send monthly custom rewards based on subscriber milestones.</p>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <button class="btn btn-outline-gold" onclick="openBadgeSettingsModal()">⚙️ Badge Icon</button>
+                <input type="text" id="creator-search" class="search-bar" placeholder="Search by username or email..."
+                  onkeyup="filterCreatorsList()">
+              </div>
+            </div>
+
+            <div
+              style="background: var(--surface-2); border-radius: 8px; padding: 10px 16px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px; border: 1px solid var(--border);">
+              <span style="font-size: 12px; color: var(--text-muted);">Active App Badge Asset:</span>
+              <img id="active-badge-preview" src="https://cdn-icons-png.flaticon.com/512/7653/7653930.png"
+                style="width: 22px; height: 22px;">
+              <span id="active-badge-name" style="font-weight: 700; color: var(--gold); font-size: 13px;">Official
+                Creator</span>
+            </div>
+
+            <div class="table-container">
+              <table id="creators-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>User</th>
+                    <th>Full Name</th>
+                    <th>Wallet Balance</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="6">Loading creators registry...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- TAB 3: CREATOR REWARDS HISTORY                           -->
+        <!-- ======================================================== -->
+        <section id="tab-creator-rewards" class="tab-section">
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>🏆 Monthly Creator Rewards Ledger</h2>
+                <p>Complete record of manual coin payments made to approved creators.</p>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <table id="creator-rewards-table">
+                <thead>
+                  <tr>
+                    <th>Payment Date</th>
+                    <th>Creator</th>
+                    <th>Month Paid</th>
+                    <th>Coins Credited</th>
+                    <th>Admin Note</th>
+                    <th>Ledger Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="6">Loading creator rewards log...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- TAB 4: USERS REGISTRY                                    -->
+        <!-- ======================================================== -->
+        <section id="tab-users" class="tab-section">
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>Registered Users Database</h2>
+                <p>Modify player balances, assign streaks, adjust stone badges, or issue bans.</p>
+              </div>
+              <input type="text" id="user-search" class="search-bar" placeholder="Filter users by username / email..."
+                onkeyup="filterUsersList()">
+            </div>
+
+            <div class="table-container">
+              <table id="users-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Player</th>
+                    <th>Email</th>
+                    <th>Coins</th>
+                    <th>Streak / Stone</th>
+                    <th>Creator</th>
+                    <th>Status</th>
+                    <th>Admin Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="8">Fetching user accounts...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- TAB 5: WITHDRAWALS & REDEMPTIONS                         -->
+        <!-- ======================================================== -->
+        <section id="tab-withdrawals" class="tab-section">
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>Redemptions Pipeline</h2>
+                <p>Approve or deny coin payouts requested by players.</p>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <table id="withdrawals-table">
+                <thead>
+                  <tr>
+                    <th>User ID</th>
+                    <th>Recipient Account</th>
+                    <th>Coins Deducted</th>
+                    <th>Cash Value</th>
+                    <th>Decision</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="5">Fetching pending redemptions...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- TAB 6: PAYOUT GATEWAYS                                   -->
+        <!-- ======================================================== -->
+        <section id="tab-gateways" class="tab-section">
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>Redemption & Payment Gateways</h2>
+                <p>Configure user-facing payout methods (eSewa, Khalti, PayPal, USDT TRC20, Bank, etc.)</p>
+              </div>
+              <button class="btn btn-primary" onclick="openPaymentMethodModal()">+ Add Payout Gateway</button>
+            </div>
+
+            <div class="table-container">
+              <table id="methods-table">
+                <thead>
+                  <tr>
+                    <th>Icon</th>
+                    <th>Gateway ID</th>
+                    <th>Display Name</th>
+                    <th>Min Coins</th>
+                    <th>Rate ($1 USD)</th>
+                    <th>Account Label</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="7">Loading payout gateways...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- TAB 7: APP CONFIG & VERSION                              -->
+        <!-- ======================================================== -->
+        <section id="tab-version" class="tab-section">
+          <div class="card" style="max-width: 600px;">
+            <div class="card-header-flex">
+              <div>
+                <h2>App Version & Force Update</h2>
+                <p>Control client update requirements and store redirection links.</p>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Minimum Version Required</label>
+              <input type="text" id="config-min" value="1.0.0">
+            </div>
+            <div class="form-group">
+              <label>Force Update Store Redirect Link</label>
+              <input type="text" id="config-url" value="https://play.google.com/store">
+            </div>
+            <div class="form-group">
+              <label>Activate Force Update</label>
+              <select id="config-force">
+                <option value="true">Active (true)</option>
+                <option value="false">Inactive (false)</option>
+              </select>
+            </div>
+
+            <button class="btn btn-primary" onclick="updateSystemConfig()" style="margin-top: 10px;">Save Configuration
+              Settings</button>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    const API_BASE = "/api/admin";
+    let allUsersCache = [];
+    let paymentMethodsList = [];
+    let activeBadgeInfo = { id: 1, name: "Official Creator", icon_url: "https://cdn-icons-png.flaticon.com/512/7653/7653930.png" };
+
+    function getHeaders() {
+      const token = localStorage.getItem('admin_token');
+      return {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      };
+    }
+
+    // SLIDE MENU TAB SWITCHING
+    function switchTab(tabId, element) {
+      document.querySelectorAll('.tab-section').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+      const target = document.getElementById(tabId);
+      if (target) target.classList.add('active');
+      if (element) element.classList.add('active');
+
+      const titleEl = document.getElementById('current-page-title');
+      if (element) {
+        titleEl.innerText = element.querySelector('span:nth-child(2)').innerText;
+      }
+
+      // Close sidebar on mobile upon tab select
+      if (window.innerWidth <= 900) {
+        document.getElementById('app-sidebar').classList.remove('open');
+      }
+    }
+
+    function switchTabByName(tabId, titleText) {
+      document.querySelectorAll('.tab-section').forEach(t => t.classList.remove('active'));
+      const target = document.getElementById(tabId);
+      if (target) target.classList.add('active');
+
+      document.querySelectorAll('.nav-item').forEach(n => {
+        n.classList.remove('active');
+        if (n.innerText.includes(titleText)) n.classList.add('active');
+      });
+      document.getElementById('current-page-title').innerText = titleText;
+    }
+
+    function toggleMobileSidebar() {
+      document.getElementById('app-sidebar').classList.toggle('open');
+    }
+
+    // AUTHENTICATION
+    async function attemptLogin() {
+      const username = document.getElementById('admin-user').value;
+      const password = document.getElementById('admin-pass').value;
+      const errorMsg = document.getElementById('login-error');
+
+      try {
+        const res = await fetch(`${API_BASE}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+
+        if (res.status === 200 && data.token) {
+          localStorage.setItem('admin_token', data.token);
+          checkSession();
+        } else {
+          errorMsg.innerText = data.error || "Login credentials failed";
+          errorMsg.style.display = "block";
+        }
+      } catch (err) {
+        errorMsg.innerText = "Cannot connect to server API";
+        errorMsg.style.display = "block";
+      }
+    }
+
+    function checkSession() {
+      const token = localStorage.getItem('admin_token');
+      if (token) {
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('admin-content').style.display = 'flex';
+        loadDashboard();
+      } else {
+        document.getElementById('login-overlay').style.display = 'flex';
+        document.getElementById('admin-content').style.display = 'none';
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('admin_token');
+      checkSession();
+    }
+
+    async function loadDashboard() {
+      try {
+        const statsRes = await fetch(`${API_BASE}/dashboard`, { headers: getHeaders() });
+        if (statsRes.status === 401 || statsRes.status === 403) return logout();
+
+        const stats = await statsRes.json();
+        document.getElementById('stat-users').innerText = (stats.totalUsers || 0).toLocaleString();
+        document.getElementById('stat-coins').innerText = (stats.totalCoins || 0).toLocaleString() + " Coins";
+        document.getElementById('stat-withdrawals').innerText = stats.pendingWithdrawals || 0;
+        document.getElementById('stat-creators').innerText = stats.totalCreators || 0;
+
+        document.getElementById('nav-users-count').innerText = stats.totalUsers || 0;
+        document.getElementById('nav-creator-count').innerText = stats.totalCreators || 0;
+        document.getElementById('nav-redeem-count').innerText = stats.pendingWithdrawals || 0;
+
+        await loadBadges();
+        await loadUsersList();
+        loadCreatorRewardsHistory();
+        loadPaymentMethods();
+        loadConfig();
+        loadWithdrawals();
+      } catch (err) {
+        console.error("Dashboard refresh error:", err);
+      }
+    }
+
+    // CREATOR BADGES
+    async function loadBadges() {
+      try {
+        const res = await fetch(`${API_BASE}/badges`, { headers: getHeaders() });
+        const badges = await res.json();
+        if (badges && badges.length > 0) {
+          activeBadgeInfo = badges[0];
+          document.getElementById('active-badge-preview').src = activeBadgeInfo.icon_url;
+          document.getElementById('active-badge-name').innerText = activeBadgeInfo.name;
+        }
+      } catch (_) { }
+    }
+
+    async function openBadgeSettingsModal() {
+      const newUrl = prompt("Enter Creator Badge Icon URL:", activeBadgeInfo.icon_url);
+      if (!newUrl || !newUrl.trim()) return;
+
+      const newName = prompt("Enter Badge Title Name:", activeBadgeInfo.name || "Official Creator");
+      if (!newName || !newName.trim()) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/badges`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({
+            id: activeBadgeInfo.id,
+            name: newName.trim(),
+            icon_url: newUrl.trim(),
+            is_enabled: 1
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("Badge settings updated successfully!");
+          loadDashboard();
+        } else {
+          alert(data.error || "Failed to update badge");
+        }
+      } catch (_) { alert("Connection error"); }
+    }
+
+    async function toggleCreatorBadge(userId, currentStatus) {
+      const shouldEnable = !currentStatus;
+      const confirmMsg = shouldEnable
+        ? "Enable Creator Badge for this user?"
+        : "Disable Creator Badge? (The badge icon will be hidden immediately on their profile)";
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/users/${userId}/creator-badge`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ enabled: shouldEnable, badgeId: activeBadgeInfo.id || 1 })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message);
+          loadDashboard();
+        }
+      } catch (_) { alert("Error updating creator badge status"); }
+    }
+
+    async function grantCreatorReward(userId, username) {
+      const defaultMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      const coinsStr = prompt(`Pay Monthly Creator Reward to @${username}\n\nExample amounts:\n500 subs -> 500 coins\n1,000 subs -> 1,000 coins\n5,000 subs -> 5,000 coins\n\nEnter coins amount:`);
+      if (!coinsStr) return;
+
+      const coins = parseInt(coinsStr.trim(), 10);
+      if (isNaN(coins) || coins <= 0) return alert("Please enter a valid positive coin amount.");
+
+      const month = prompt("Enter Reward Month (e.g. September 2026):", defaultMonth);
+      if (!month || !month.trim()) return alert("Month is required.");
+
+      const note = prompt("Admin Note (Optional):", "Monthly creator reward");
+
+      try {
+        const res = await fetch(`${API_BASE}/users/${userId}/creator-reward`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ coin_amount: coins, month: month.trim(), admin_note: note })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message);
+          loadDashboard();
+        } else {
+          alert(data.error || "Failed to issue creator reward");
+        }
+      } catch (_) { alert("Network error while issuing creator reward"); }
+    }
+
+    async function loadCreatorRewardsHistory() {
+      try {
+        const res = await fetch(`${API_BASE}/creator-rewards`, { headers: getHeaders() });
+        const list = await res.json();
+        const tbody = document.querySelector("#creator-rewards-table tbody");
+        tbody.innerHTML = "";
+
+        list.forEach(item => {
+          const date = new Date(item.created_at).toLocaleDateString();
+          tbody.innerHTML += `
+            <tr>
+              <td>${date}</td>
+              <td><strong>@${item.username}</strong> <span style="color:var(--text-muted); font-size:11px;">(${item.full_name})</span></td>
+              <td><span style="color: var(--gold); font-weight: 700;">${item.month}</span></td>
+              <td><strong style="color: var(--primary);">+${item.coin_amount.toLocaleString()} Coins</strong></td>
+              <td style="color: var(--text-muted);">${item.admin_note || '-'}</td>
+              <td><span class="badge badge-active">PAID</span></td>
+            </tr>
+          `;
+        });
+
+        if (list.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No creator monthly rewards issued yet.</td></tr>`;
+        }
+      } catch (err) {
+        console.error("Failed to load creator reward logs", err);
+      }
+    }
+
+    // USERS REGISTRY & CREATOR SEARCH
+    async function loadUsersList() {
+      try {
+        const res = await fetch(`${API_BASE}/users`, { headers: getHeaders() });
+        allUsersCache = await res.json();
+        renderUsersTable(allUsersCache);
+        renderCreatorsTable(allUsersCache);
+      } catch (err) { console.error("Failed to load users database registry"); }
+    }
+
+    function renderCreatorsTable(users) {
+      const tbody = document.querySelector("#creators-table tbody");
+      tbody.innerHTML = "";
+
+      const creators = users.filter(u => u.creator_badge_enabled === 1);
+
+      creators.forEach(u => {
+        const badgeIcon = u.creator_badge_icon || activeBadgeInfo.icon_url;
+        tbody.innerHTML += `
+          <tr>
+            <td>${u.id}</td>
+            <td><strong>@${u.username}</strong></td>
+            <td>${u.full_name}</td>
+            <td><strong>${u.balance.toLocaleString()} Coins</strong></td>
+            <td><span class="badge badge-creator"><img src="${badgeIcon}"> CREATOR</span></td>
+            <td>
+              <button class="btn-action btn-act-reward" onclick="grantCreatorReward(${u.id}, '${u.username}')">🎁 Pay Reward</button>
+              <button class="btn-action btn-act-danger" onclick="toggleCreatorBadge(${u.id}, true)">Revoke</button>
+            </td>
+          </tr>
+        `;
+      });
+
+      if (creators.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No active creators found. Use search or the User Registry below to grant creator badges.</td></tr>`;
+      }
+    }
+
+    function filterCreatorsList() {
+      const q = document.getElementById('creator-search').value.toLowerCase().trim();
+      const filtered = allUsersCache.filter(u =>
+        u.username.toLowerCase().includes(q) ||
+        u.full_name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q)
+      );
+
+      const tbody = document.querySelector("#creators-table tbody");
+      tbody.innerHTML = "";
+
+      filtered.forEach(u => {
+        const isCreator = u.creator_badge_enabled === 1;
+        const statusCol = isCreator
+          ? `<span class="badge badge-creator"><img src="${u.creator_badge_icon || activeBadgeInfo.icon_url}"> CREATOR</span>`
+          : `<span style="color: var(--text-muted);">Standard Player</span>`;
+
+        const actionBtn = isCreator
+          ? `<button class="btn-action btn-act-danger" onclick="toggleCreatorBadge(${u.id}, true)">Revoke</button>`
+          : `<button class="btn-action btn-act-creator" onclick="toggleCreatorBadge(${u.id}, false)">⭐ Grant Badge</button>`;
+
+        tbody.innerHTML += `
+          <tr>
+            <td>${u.id}</td>
+            <td><strong>@${u.username}</strong></td>
+            <td>${u.full_name}</td>
+            <td><strong>${u.balance.toLocaleString()} Coins</strong></td>
+            <td>${statusCol}</td>
+            <td>
+              <button class="btn-action btn-act-reward" onclick="grantCreatorReward(${u.id}, '${u.username}')">🎁 Pay Reward</button>
+              ${actionBtn}
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    function filterUsersList() {
+      const q = document.getElementById('user-search').value.toLowerCase().trim();
+      const filtered = allUsersCache.filter(u =>
+        u.username.toLowerCase().includes(q) ||
+        u.full_name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q)
+      );
+      renderUsersTable(filtered);
+    }
+
+    function renderUsersTable(users) {
+      const tbody = document.querySelector("#users-table tbody");
+      tbody.innerHTML = "";
+
+      users.forEach(u => {
+        const statusBadge = u.is_banned === 1
+          ? `<span class="badge badge-banned">Banned</span>`
+          : `<span class="badge badge-active">Active</span>`;
+
+        const streak = u.current_streak || 0;
+        const stone = u.current_stone || 'NONE';
+        const stoneBadge = `<span class="badge badge-stone">🔥 ${streak}d (${stone})</span>`;
+
+        const isCreator = u.creator_badge_enabled === 1;
+        const creatorBadge = isCreator
+          ? `<span class="badge badge-creator"><img src="${u.creator_badge_icon || activeBadgeInfo.icon_url}"> Creator</span>`
+          : `<span style="color: var(--text-muted); font-size: 11px;">No</span>`;
+
+        const creatorToggleBtn = isCreator
+          ? `<button class="btn-action btn-act-gray" onclick="toggleCreatorBadge(${u.id}, true)">- Badge</button>`
+          : `<button class="btn-action btn-act-creator" onclick="toggleCreatorBadge(${u.id}, false)">+ Creator</button>`;
+
+        const banButton = u.is_banned === 1
+          ? `<button class="btn-action btn-act-gray" onclick="toggleUserBan(${u.id}, false)">Unban</button>`
+          : `<button class="btn-action btn-act-danger" onclick="toggleUserBan(${u.id}, true)">Ban</button>`;
+
+        tbody.innerHTML += `
+          <tr>
+            <td>${u.id}</td>
+            <td><strong>@${u.username}</strong><br><span style="font-size:11px; color:var(--text-muted);">${u.full_name}</span></td>
+            <td>${u.email}</td>
+            <td><strong>${u.balance.toLocaleString()}</strong></td>
+            <td>${stoneBadge}</td>
+            <td>${creatorBadge}</td>
+            <td>${statusBadge}</td>
+            <td>
+              ${creatorToggleBtn}
+              <button class="btn-action btn-act-reward" onclick="grantCreatorReward(${u.id}, '${u.username}')">Reward</button>
+              <button class="btn-action btn-act-streak" onclick="editUserStreak(${u.id}, '${u.username}', ${streak})">Streak</button>
+              <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${u.username}')">Coins</button>
+              <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${u.username}')">PW</button>
+              ${banButton}
+            </td>
+          </tr>
+        `;
+      });
+
+      if (tbody.innerHTML === "") {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No players found.</td></tr>`;
+      }
+    }
+
+    async function editUserStreak(id, username, currentStreak) {
+      const input = prompt(`Set Streak Days for @${username} (Current: ${currentStreak} Days):\n\nMilestones: 5=Agate, 10=Quartz, 20=Jade, 35=Sapphire, 50=Amethyst, 75=Diamond, 100=Ruby\n\nEnter new streak count:`, currentStreak);
+      if (input === null || input.trim() === "") return;
+
+      const streakVal = parseInt(input.trim(), 10);
+      if (isNaN(streakVal) || streakVal < 0) return alert("Please enter a valid positive number.");
+
+      try {
+        const res = await fetch(`${API_BASE}/users/${id}/streak`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ streak: streakVal })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message || "Streak updated!");
+          loadDashboard();
+        }
+      } catch (_) { alert("Connection Error"); }
+    }
+
+    async function editUserCoins(id, username) {
+      const adjustment = prompt(`Adjust Coin balance for @${username}:\nEnter positive (e.g. 500) or negative (e.g. -500):`);
+      if (adjustment === null || adjustment === "") return;
+      const amt = parseInt(adjustment, 10);
+      if (isNaN(amt)) return alert("Please provide a valid integer amount.");
+
+      try {
+        const res = await fetch(`${API_BASE}/users/${id}/coins`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ amount: amt })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`Coin adjustment applied for @${username}`);
+          loadDashboard();
+        }
+      } catch (_) { alert("Connection Error"); }
+    }
+
+    async function resetUserPassword(id, username) {
+      const newPassword = prompt(`Enter new password for @${username} (min 6 chars):`);
+      if (!newPassword || newPassword.trim().length < 6) return alert("Password must be at least 6 characters.");
+
+      try {
+        const res = await fetch(`${API_BASE}/users/${id}/password`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ password: newPassword.trim() })
+        });
+        const data = await res.json();
+        if (data.success) alert(`Password successfully changed for @${username}`);
+      } catch (_) { alert("Connection Error"); }
+    }
+
+    async function toggleUserBan(id, shouldBan) {
+      if (!confirm(`Are you sure you want to ${shouldBan ? "BAN" : "UNBAN"} this user?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/users/${id}/ban`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ isBanned: shouldBan })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("User ban status updated!");
+          loadDashboard();
+        }
+      } catch (_) { alert("Connection Error"); }
+    }
+
+    // PAYMENT GATEWAYS
+    async function loadPaymentMethods() {
+      try {
+        const res = await fetch(`${API_BASE}/payment-methods`, { headers: getHeaders() });
+        paymentMethodsList = await res.json();
+        renderPaymentMethodsTable();
+      } catch (e) { console.error("Failed to load payment gateways", e); }
+    }
+
+    function renderPaymentMethodsTable() {
+      const tbody = document.querySelector("#methods-table tbody");
+      tbody.innerHTML = "";
+
+      paymentMethodsList.forEach((m, idx) => {
+        tbody.innerHTML += `
+          <tr>
+            <td style="font-size: 20px;">${m.icon || '🪙'}</td>
+            <td><strong>${m.id}</strong></td>
+            <td>${m.name}</td>
+            <td>${(m.min || 10000).toLocaleString()} Coins</td>
+            <td>${m.rate || 1000} Coins = $1.00 USD</td>
+            <td>${m.label || m.name}</td>
+            <td>
+              <button class="btn-action btn-act-pass" onclick="editPaymentMethod(${idx})">Edit</button>
+              <button class="btn-action btn-act-danger" onclick="deletePaymentMethod(${idx})">Delete</button>
+            </td>
+          </tr>
+        `;
+      });
+      if (paymentMethodsList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No payout options configured.</td></tr>`;
+      }
+    }
+
+    function openPaymentMethodModal(index = null) {
+      const isEdit = index !== null;
+      const item = isEdit ? paymentMethodsList[index] : {
+        id: "PayPal", name: "PayPal", icon: "🅿️", min: 10000, rate: 1000, label: "PayPal Email", hint: "user@example.com"
+      };
+
+      const id = prompt("Gateway Unique ID (e.g. PayPal, USDT, eSewa):", item.id);
+      if (!id) return;
+      const name = prompt("Display Title:", item.name || id);
+      if (!name) return;
+      const icon = prompt("Emoji Icon (e.g. 🪙, 🅿️, 🟢):", item.icon || "🪙");
+      const min = parseInt(prompt("Minimum Coins for Payout:", item.min || 10000), 10) || 10000;
+      const rate = parseInt(prompt("Rate (Coins = $1.00 USD):", item.rate || 1000), 10) || 1000;
+      const label = prompt("Input Label shown to User:", item.label || `${name} Account`);
+      const hint = prompt("Placeholder Hint:", item.hint || "Enter identifier");
+
+      const newMethod = { id: id.trim(), name: name.trim(), icon: icon.trim(), min, rate, label: label.trim(), hint: hint.trim() };
+
+      if (isEdit) paymentMethodsList[index] = newMethod;
+      else paymentMethodsList.push(newMethod);
+
+      savePaymentMethodsToServer();
+    }
+
+    function editPaymentMethod(index) { openPaymentMethodModal(index); }
+
+    function deletePaymentMethod(index) {
+      if (!confirm(`Delete payout gateway?`)) return;
+      paymentMethodsList.splice(index, 1);
+      savePaymentMethodsToServer();
+    }
+
+    async function savePaymentMethodsToServer() {
+      try {
+        const res = await fetch(`${API_BASE}/payment-methods`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ methods: paymentMethodsList })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("Payment gateways updated!");
+          renderPaymentMethodsTable();
+        }
+      } catch (_) { alert("Connection error"); }
+    }
+
+    // SYSTEM CONFIG
+    async function loadConfig() {
+      try {
+        const configRes = await fetch(`${API_BASE}/config`, { headers: getHeaders() });
+        const config = await configRes.json();
+        document.getElementById('config-min').value = config.min_version || "1.0.0";
+        document.getElementById('config-url').value = config.update_url || "https://play.google.com/store";
+        document.getElementById('config-force').value = config.force_update || "false";
+      } catch (err) { console.error("Error loading updates config"); }
+    }
+
+    async function updateSystemConfig() {
+      const min_version = document.getElementById('config-min').value;
+      const update_url = document.getElementById('config-url').value;
+      const force_update = document.getElementById('config-force').value;
+
+      const res = await fetch(`${API_BASE}/config/update`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ min_version, update_url, force_update })
+      });
+      const data = await res.json();
+      if (data.success) alert("Configurations saved successfully!");
+    }
+
+    // REDEMPTIONS
+    async function loadWithdrawals() {
+      try {
+        const res = await fetch(`${API_BASE}/withdrawals`, { headers: getHeaders() });
+        const withdrawals = await res.json();
+        const tbody = document.querySelector("#withdrawals-table tbody");
+        tbody.innerHTML = "";
+
+        withdrawals.forEach(w => {
+          if (w.status === "PENDING") {
+            tbody.innerHTML += `
+              <tr>
+                <td><strong>@${w.username}</strong><br><span style="font-size:11px; color:var(--text-muted);">UID: ${w.user_id}</span></td>
+                <td><strong>${w.payment_method}:</strong> ${w.account_info}</td>
+                <td><strong style="color:var(--primary);">${w.coin_amount.toLocaleString()} Coins</strong></td>
+                <td><strong>$${w.usd_amount.toFixed(2)} USD</strong></td>
+                <td>
+                  <button class="btn-action btn-act-coins" onclick="resolveWithdrawal(${w.id}, 'APPROVED')">Approve</button>
+                  <button class="btn-action btn-act-danger" onclick="resolveWithdrawal(${w.id}, 'REJECTED')">Reject</button>
+                </td>
+              </tr>
+            `;
+          }
+        });
+        if (tbody.innerHTML === "") {
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No pending withdrawals.</td></tr>`;
+        }
+      } catch (err) { console.error("Failed to fetch withdrawals list"); }
+    }
+
+    async function resolveWithdrawal(id, status) {
+      const res = await fetch(`${API_BASE}/withdrawals/${id}/status`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Withdrawal marked as: ${status}`);
+        loadDashboard();
+      }
+    }
+
+    checkSession();
+  </script>
+</body>
+
+</html>
