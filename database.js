@@ -32,21 +32,25 @@ db.serialize(() => {
   // 1. VPS & SQLite Concurrency Optimizations
   // ==========================================
   db.run('PRAGMA journal_mode = WAL;');         // Allows simultaneous reads/writes
-  db.run('PRAGMA synchronous = NORMAL;');        // Faster disk writes, completely safe in WAL
+  db.run('PRAGMA synchronous = NORMAL;');        // Faster disk writes, safe in WAL mode
   db.run('PRAGMA busy_timeout = 5000;');         // Wait up to 5 seconds before locking error
   db.run('PRAGMA foreign_keys = ON;');           // Enforce relational integrity
   db.run('PRAGMA cache_size = -16000;');         // 16MB in-memory SQLite page cache
 
   // ==========================================
-  // 2. Remove Word Puzzle Data & Old Tables
+  // 2. Schema Definitions (Tables Created First)
   // ==========================================
-  db.run("DELETE FROM games WHERE id IN ('word_puzzle', 'wordpuzzle', 'word');");
-  db.run("DROP TABLE IF EXISTS word_puzzle;");
-  db.run("DROP TABLE IF EXISTS word_puzzles;");
 
-  // ==========================================
-  // 3. Schema Definitions
-  // ==========================================
+  // Games Configuration Table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS games (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      max_daily_reward INTEGER DEFAULT 1000,
+      reward_multiplier REAL DEFAULT 1.0,
+      is_enabled INTEGER DEFAULT 1
+    )
+  `);
 
   // Users Table
   db.run(`
@@ -124,23 +128,6 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
-  `);
-
-  // Games Configuration Table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS games (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      max_daily_reward INTEGER DEFAULT 1000,
-      reward_multiplier REAL DEFAULT 1.0,
-      is_enabled INTEGER DEFAULT 1
-    )
-  `);
-
-  // Ensure default Tic Tac Toe game exists
-  db.run(`
-    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
-    VALUES ('tictac', 'Tic Tac Toe', 1000, 10.0, 1)
   `);
 
   // Active Game Sessions Table
@@ -227,7 +214,44 @@ db.serialize(() => {
   });
 
   // ==========================================
-  // 4. Performance Indexes (Crucial for Speed)
+  // 3. Ensure Allowed Games Exist (Arrow Puzzle + Your Other 2 Games)
+  // ==========================================
+  
+  // Arrow Puzzle
+  db.run(`
+    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
+    VALUES ('arrow_puzzle', 'Arrow Puzzle', 1000, 10.0, 1)
+  `);
+
+  // Other Game 2 (change ID & name to match your app if needed)
+  db.run(`
+    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
+    VALUES ('game_3', 'Game 3', 1000, 10.0, 1)
+  `);
+
+  // Other Game 3 (change ID & name to match your app if needed)
+  db.run(`
+    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
+    VALUES ('game_4', 'Game 4', 1000, 10.0, 1)
+  `);
+
+  // ==========================================
+  // 4. Remove Tic Tac Toe & Word Puzzle Completely
+  // ==========================================
+  // Clear any existing game sessions for removed games first (to avoid foreign key blocks)
+  db.run("DELETE FROM game_sessions WHERE game_id IN ('tictac', 'tictactoe', 'word_puzzle', 'wordpuzzle', 'word');");
+  
+  // Delete the games from games table
+  db.run("DELETE FROM games WHERE id IN ('tictac', 'tictactoe', 'word_puzzle', 'wordpuzzle', 'word');");
+  
+  // Drop any legacy standalone tables
+  db.run("DROP TABLE IF EXISTS word_puzzle;");
+  db.run("DROP TABLE IF EXISTS word_puzzles;");
+  db.run("DROP TABLE IF EXISTS tictac;");
+  db.run("DROP TABLE IF EXISTS tic_tac_toe;");
+
+  // ==========================================
+  // 5. Performance Indexes
   // ==========================================
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`);
@@ -236,7 +260,7 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_creator_rewards_user ON creator_rewards(user_id);`);
 
   // ==========================================
-  // 5. One-Time Database User Reset Flag
+  // 6. One-Time Database User Reset Flag
   // ==========================================
   if (process.env.RESET_DB === 'true') {
     console.log('⚠️ RESET_DB=true detected. Purging all user data...');
