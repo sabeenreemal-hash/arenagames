@@ -1,4 +1,5 @@
 // backend/server.js
+
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
@@ -13,7 +14,6 @@ const gamesRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
 const rewardsRouter = require('./routes/rewards');
 const referralRoutes = require('./routes/referral');
-const spinWheelRoutes = require('./routes/spinWheelRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -63,38 +63,38 @@ app.use('/api/games', gamesRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
-app.use('/api/spin', spinWheelRoutes);
+
 // ============================================================
 // ADSWEDMEDIA S2S POSTBACK ENDPOINT
 // Postback URL: https://api.rubylune.com/api/adswed/postback
 // ============================================================
 app.get('/api/adswed/postback', (req, res) => {
-  // Support both AdswedMedia tester format and standard callback formats
-  const subId = req.query.user_id || req.query.subId || req.query.subid;
-  const transId = req.query.transid || req.query.transId || req.query.trans_id;
-  const reward = req.query.reward !== undefined ? req.query.reward : req.query.amount;
-  const status = req.query.status !== undefined ? req.query.status : 1;
-  const signature = req.query.signature || req.query.sig;
-  const payout = req.query.payout || 0;
+  // Support standard params and escaped HTML entities (&amp;)
+  const subId = req.query.subId || req.query['amp;subId'] || req.query.user_id || req.query['amp;user_id'];
+  const transId = req.query.transId || req.query['amp;transId'] || req.query.transid || req.query['amp;transid'];
+  const reward = req.query.reward !== undefined ? (req.query.reward || req.query['amp;reward']) : req.query.amount;
+  const status = req.query.status !== undefined ? (req.query.status || req.query['amp;status']) : 1;
+  const signature = req.query.signature || req.query['amp;signature'];
+  const payout = req.query.payout || req.query['amp;payout'] || 0;
 
-  // Detect if this is an automated test ping from the dashboard
+  // 1. Dashboard Test Call Handler
   const isTest = req.query.type === 'test' || 
+                 req.query['amp;type'] === 'test' ||
                  (subId && String(subId).includes('subId')) || 
                  (transId && String(transId).includes('auto-id'));
 
-  // 1. Instantly respond OK to dashboard test pings
   if (isTest) {
-    console.log('[ADSWED TEST] Received test ping from AdswedMedia dashboard. Responding OK.');
+    console.log('[ADSWED TEST] Received test ping from dashboard. Responding OK.');
     return res.status(200).send('OK');
   }
 
-  // 2. Validate parameters for real conversions
+  // 2. Validate Required Parameters
   if (!subId || !transId || reward === undefined) {
     console.error('[ADSWED ERROR] Missing required parameters:', req.query);
     return res.status(400).send('ERROR: Missing parameters');
   }
 
-  // 3. MD5 Signature check (if signature is provided in production)
+  // 3. Verify MD5 Signature: md5(subId + transId + reward + SECRET_KEY)
   if (signature) {
     const expectedSignature = crypto
       .createHash('md5')
@@ -107,47 +107,75 @@ app.get('/api/adswed/postback', (req, res) => {
     }
   }
 
-  // 4. Check for duplicate transactions (Idempotency)
+  // 4. Prevent Duplicate Credit (Idempotency)
   db.get('SELECT trans_id FROM adswed_transactions WHERE trans_id = ?', [transId], (err, row) => {
     if (err) {
       console.error('[ADSWED DB ERROR]', err.message);
       return res.status(500).send('DB_ERROR');
     }
 
-    // Return DUP if transaction was already credited
     if (row) {
-      console.log(`[ADSWED DUP] Transaction ${transId} has already been processed.`);
+      console.log(`[ADSWED DUP] Transaction ${transId} already processed.`);
       return res.send('DUP');
     }
 
-    const numReward = parseFloat(reward);
-    const postbackStatus = parseInt(status, 10); // 1 = Credit, 2 = Chargeback/Revoke
-    const balanceDelta = postbackStatus === 1 ? numReward : -numReward;
+    const numReward = parseInt(reward, 10) || Math.round(parseFloat(reward));
+    const postbackStatus = parseInt(status, 10); // 1 = Credit, 2 = Reversal
 
-    // 5. Update user's coins in SQLite users table
-    db.run(
-      `UPDATE users SET coins = COALESCE(coins, 0) + ? WHERE id = ?`,
-      [balanceDelta, subId],
-      function (updateErr) {
-        if (updateErr) {
-          console.error('[ADSWED UPDATE FAILED]', updateErr.message);
-          return res.status(500).send('DB_UPDATE_ERROR');
+    // 5. Verify User Exists
+    db.get('SELECT id, balance FROM users WHERE id = ?', [subId], (userErr, user) => {
+      if (userErr || !user) {
+        console.error(`[ADSWED ERROR] User ID ${subId} does not exist in users table.`);
+        return res.status(404).send('USER_NOT_FOUND');
+      }
+
+      // 6. Execute atomic update to user balance & transaction history
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+
+        if (postbackStatus === 1) {
+          // Add reward to current balance and total earned
+          db.run(
+            `UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?`,
+            [numReward, numReward, subId]
+          );
+
+          // Add to wallet transaction history (visible in app's history screen)
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'OFFERWALL', ?, ?)`,
+            [subId, numReward, transId]
+          );
+        } else {
+          // Reversal / Chargeback: deduct balance
+          db.run(
+            `UPDATE users SET balance = balance - ? WHERE id = ?`,
+            [numReward, subId]
+          );
+
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'OFFERWALL_REVERSAL', ?, ?)`,
+            [subId, -numReward, transId]
+          );
         }
 
-        // 6. Record transaction to prevent duplicates
+        // Record in adswed_transactions to prevent replay attacks
         db.run(
           `INSERT INTO adswed_transactions (trans_id, user_id, reward, status, payout) VALUES (?, ?, ?, ?, ?)`,
-          [transId, subId, numReward, postbackStatus, payout ? parseFloat(payout) : 0],
-          (insertErr) => {
-            if (insertErr) {
-              console.error('[ADSWED RECORD FAILED]', insertErr.message);
+          [transId, subId, numReward, postbackStatus, parseFloat(payout) || 0],
+          function (txErr) {
+            if (txErr) {
+              db.run('ROLLBACK');
+              console.error('[ADSWED DB ERROR]', txErr.message);
+              return res.status(500).send('DB_LOG_FAILED');
             }
-            console.log(`[ADSWED SUCCESS] Credited ${balanceDelta} coins to User: ${subId} (Tx: ${transId})`);
+
+            db.run('COMMIT');
+            console.log(`[ADSWED SUCCESS] Credited ${numReward} coins to User #${subId} (Tx: ${transId})`);
             return res.send('OK');
           }
         );
-      }
-    );
+      });
+    });
   });
 });
 
@@ -212,8 +240,10 @@ const server = app.listen(PORT, '127.0.0.1', () => {
 // --- Graceful Shutdown Handler (Prevents SQLite database corruption) ---
 const handleShutdown = (signal) => {
   console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+
   server.close(() => {
     console.log('HTTP server closed.');
+    // Close SQLite database properly
     if (db && typeof db.close === 'function') {
       db.close((err) => {
         if (err) {
@@ -228,6 +258,7 @@ const handleShutdown = (signal) => {
     }
   });
 
+  // Force exit if hanging after 5 seconds
   setTimeout(() => {
     console.error('Forcefully terminating process.');
     process.exit(1);
