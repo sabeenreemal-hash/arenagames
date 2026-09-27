@@ -214,7 +214,44 @@ db.serialize(() => {
   });
 
   // ==========================================
-  // 3. Ensure Allowed Games Exist (Arrow Puzzle + Your Other 2 Games)
+  // 3. Spin Wheel Schema (User State & Logs)
+  // ==========================================
+
+  // Daily Free Spins, Ad Spins, and Cooldown Tracking
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_spin_state (
+      user_id INTEGER NOT NULL,
+      spin_type TEXT NOT NULL,            -- 'basic' or 'premium'
+      daily_date TEXT NOT NULL,           -- 'YYYY-MM-DD'
+      daily_spins_used INTEGER DEFAULT 0,
+      cooldown_until DATETIME DEFAULT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, spin_type),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Authoritative Audit Log for Every Spin Transaction
+  db.run(`
+    CREATE TABLE IF NOT EXISTS spin_transactions (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      spin_type TEXT NOT NULL,            -- 'basic' or 'premium'
+      segment_index INTEGER NOT NULL,
+      reward_type TEXT NOT NULL,          -- 'COINS' or 'TRY_AGAIN'
+      base_coins INTEGER DEFAULT 0,
+      multiplier INTEGER DEFAULT 1,       -- 1 or 2 (if 2X rewarded ad completed)
+      final_coins INTEGER DEFAULT 0,
+      is_2x_claimed INTEGER DEFAULT 0,    -- 0 = false, 1 = true
+      is_try_again_claimed INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'COMPLETED',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // ==========================================
+  // 4. Ensure Allowed Games Exist
   // ==========================================
   
   // Arrow Puzzle
@@ -223,44 +260,49 @@ db.serialize(() => {
     VALUES ('arrow_puzzle', 'Arrow Puzzle', 1000, 10.0, 1)
   `);
 
-  // Other Game 2 (change ID & name to match your app if needed)
+  // Spin Wheel Game Registration
+  db.run(`
+    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
+    VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)
+  `);
+
+  // Other Game 2
   db.run(`
     INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
     VALUES ('game_3', 'Game 3', 1000, 10.0, 1)
   `);
 
-  // Other Game 3 (change ID & name to match your app if needed)
+  // Other Game 3
   db.run(`
     INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
     VALUES ('game_4', 'Game 4', 1000, 10.0, 1)
   `);
 
   // ==========================================
-  // 4. Remove Tic Tac Toe & Word Puzzle Completely
+  // 5. Remove Tic Tac Toe & Word Puzzle Completely
   // ==========================================
-  // Clear any existing game sessions for removed games first (to avoid foreign key blocks)
   db.run("DELETE FROM game_sessions WHERE game_id IN ('tictac', 'tictactoe', 'word_puzzle', 'wordpuzzle', 'word');");
-  
-  // Delete the games from games table
   db.run("DELETE FROM games WHERE id IN ('tictac', 'tictactoe', 'word_puzzle', 'wordpuzzle', 'word');");
-  
-  // Drop any legacy standalone tables
   db.run("DROP TABLE IF EXISTS word_puzzle;");
   db.run("DROP TABLE IF EXISTS word_puzzles;");
   db.run("DROP TABLE IF EXISTS tictac;");
   db.run("DROP TABLE IF EXISTS tic_tac_toe;");
 
   // ==========================================
-  // 5. Performance Indexes
+  // 6. Performance Indexes
   // ==========================================
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_game_sessions_user ON game_sessions(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_creator_rewards_user ON creator_rewards(user_id);`);
+  
+  // Indexes for Spin Wheel performance
+  db.run(`CREATE INDEX IF NOT EXISTS idx_user_spin_state_user ON user_spin_state(user_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_spin_transactions_user ON spin_transactions(user_id);`);
 
   // ==========================================
-  // 6. One-Time Database User Reset Flag
+  // 7. One-Time Database User Reset Flag
   // ==========================================
   if (process.env.RESET_DB === 'true') {
     console.log('⚠️ RESET_DB=true detected. Purging all user data...');
@@ -268,9 +310,11 @@ db.serialize(() => {
     db.run('DELETE FROM transactions;');
     db.run('DELETE FROM withdrawals;');
     db.run('DELETE FROM creator_rewards;');
+    db.run('DELETE FROM user_spin_state;');
+    db.run('DELETE FROM spin_transactions;');
     db.run('DELETE FROM users;');
     db.run("DELETE FROM sqlite_sequence WHERE name IN ('users', 'transactions', 'withdrawals', 'game_sessions', 'creator_rewards');");
-    console.log('✅ All users and history successfully wiped clean.');
+    console.log('✅ All users, spin records, and history successfully wiped clean.');
   }
 });
 
