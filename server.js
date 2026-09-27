@@ -13,6 +13,7 @@ const gamesRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
 const rewardsRouter = require('./routes/rewards');
 const referralRoutes = require('./routes/referral');
+const spinWheelRoutes = require('./routes/spinWheelRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -62,7 +63,7 @@ app.use('/api/games', gamesRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
-
+app.use('/api/spin', spinWheelRoutes);
 // ============================================================
 // ADSWEDMEDIA S2S POSTBACK ENDPOINT
 // Postback URL: https://api.rubylune.com/api/adswed/postback
