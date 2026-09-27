@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
+const crypto = require('crypto'); // Built-in Node.js crypto module for MD5
 const db = require('./database');
 
 // Import Router Files
@@ -16,6 +17,27 @@ const referralRoutes = require('./routes/referral');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// AdswedMedia Credentials
+const ADSWED_SECRET_KEY = 'Av9Bb6Cz2Nh2So3';
+
+// Ensure Adswed transaction tracking table exists (prevents duplicate rewards)
+db.run(`
+  CREATE TABLE IF NOT EXISTS adswed_transactions (
+    trans_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    reward REAL NOT NULL,
+    status INTEGER NOT NULL,
+    payout REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`, (err) => {
+  if (err) {
+    console.error('[DB ERROR] Failed to create adswed_transactions table:', err.message);
+  } else {
+    console.log('[DB SUCCESS] adswed_transactions table ready.');
+  }
+});
 
 // Security: Hide Express fingerprinting
 app.disable('x-powered-by');
@@ -41,6 +63,78 @@ app.use('/api/games', gamesRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
+
+// ============================================================
+// ADSWEDMEDIA S2S POSTBACK ENDPOINT
+// Postback URL: https://api.rubylune.com/api/adswed/postback
+// ============================================================
+app.get('/api/adswed/postback', (req, res) => {
+  const { subId, transId, reward, signature, status = 1, payout } = req.query;
+
+  // 1. Check for required parameters
+  if (!subId || !transId || reward === undefined || !signature) {
+    console.error('[ADSWED ERROR] Missing required parameters:', req.query);
+    return res.status(400).send('ERROR: Missing parameters');
+  }
+
+  // 2. MD5 Signature check: md5(subId + transId + reward + SECRET_KEY)
+  const expectedSignature = crypto
+    .createHash('md5')
+    .update(`${subId}${transId}${reward}${ADSWED_SECRET_KEY}`)
+    .digest('hex');
+
+  if (signature.toLowerCase() !== expectedSignature.toLowerCase()) {
+    console.error(`[ADSWED ERROR] Invalid signature! Received: ${signature}, Expected: ${expectedSignature}`);
+    return res.status(400).send("ERROR: Signature doesn't match");
+  }
+
+  // 3. Check for Duplicate Transactions (Idempotency)
+  db.get('SELECT trans_id FROM adswed_transactions WHERE trans_id = ?', [transId], (err, row) => {
+    if (err) {
+      console.error('[ADSWED DB ERROR]', err.message);
+      return res.status(500).send('DB_ERROR');
+    }
+
+    // Return DUP if transaction was already credited
+    if (row) {
+      console.log(`[ADSWED DUP] Transaction ${transId} has already been processed.`);
+      return res.send('DUP');
+    }
+
+    const numReward = parseFloat(reward);
+    const postbackStatus = parseInt(status, 10); // 1 = Credit, 2 = Chargeback/Revoke
+
+    // Calculate balance change: Add if 1, subtract if 2
+    const balanceDelta = postbackStatus === 1 ? numReward : -numReward;
+
+    // 4. Update the user's coins in the SQLite users table
+    // (Ensure your column name in 'users' is 'coins'; change if named 'balance')
+    db.run(
+      `UPDATE users SET coins = COALESCE(coins, 0) + ? WHERE id = ?`,
+      [balanceDelta, subId],
+      function (updateErr) {
+        if (updateErr) {
+          console.error('[ADSWED UPDATE FAILED]', updateErr.message);
+          return res.status(500).send('DB_UPDATE_ERROR');
+        }
+
+        // 5. Store transaction record
+        db.run(
+          `INSERT INTO adswed_transactions (trans_id, user_id, reward, status, payout) VALUES (?, ?, ?, ?, ?)`,
+          [transId, subId, numReward, postbackStatus, payout ? parseFloat(payout) : 0],
+          (insertErr) => {
+            if (insertErr) {
+              console.error('[ADSWED RECORD FAILED]', insertErr.message);
+            }
+            console.log(`[ADSWED SUCCESS] Credited ${balanceDelta} coins to User: ${subId} (Tx: ${transId})`);
+            // AdswedMedia expects "OK" on success
+            return res.send('OK');
+          }
+        );
+      }
+    );
+  });
+});
 
 // --- In-Memory Cache for Version Check ---
 let versionCache = null;
@@ -93,7 +187,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start Server
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n======================================================`);
   console.log(`  Arena Games API Server is running on port: ${PORT}  `);
   console.log(`  Admin Panel URL: http://localhost:${PORT}/admin.html `);
@@ -106,7 +200,6 @@ const handleShutdown = (signal) => {
 
   server.close(() => {
     console.log('HTTP server closed.');
-
     // Close SQLite database properly
     if (db && typeof db.close === 'function') {
       db.close((err) => {
