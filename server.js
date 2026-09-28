@@ -14,6 +14,7 @@ const gamesRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
 const rewardsRouter = require('./routes/rewards');
 const referralRoutes = require('./routes/referral');
+const spinRoutes = require('./routes/spinWheelRoutes'); // 👈 ADDED: Spin Wheel Routes
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -63,6 +64,7 @@ app.use('/api/games', gamesRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
+app.use('/api/spin', spinRoutes); // 👈 ADDED: Mounts /api/spin routes
 
 // ============================================================
 // ADSWEDMEDIA S2S POSTBACK ENDPOINT
