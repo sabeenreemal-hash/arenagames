@@ -16,7 +16,7 @@ const dbRun = (sql, params = []) =>
     });
   });
 
-// Reward odds configuration
+// Server-authoritative reward configuration (0% actual chance for display-only tiers)
 const CONFIG = {
   basic: {
     freeSpinsPerDay: 2,
@@ -58,12 +58,16 @@ function selectWeightedReward(segments) {
   return { segment: segments[0], index: 0 };
 }
 
-// 1. GET STATUS
+// 1. GET USER SPIN STATUS
 exports.getSpinStatus = async (req, res) => {
   try {
     const { userId, spinType } = req.query;
+    console.log(`[SPIN STATUS] User: ${userId} | Mode: ${spinType}`);
+
     const config = CONFIG[spinType];
-    if (!config) return res.status(400).json({ error: "Invalid spin type" });
+    if (!config) {
+      return res.status(400).json({ error: "Invalid spin type. Use 'basic' or 'premium'." });
+    }
 
     const today = new Date().toISOString().split('T')[0];
     const row = await dbGet(
@@ -98,17 +102,21 @@ exports.getSpinStatus = async (req, res) => {
       nextSpinCooldownMinutes: config.cooldownMinutes,
     });
   } catch (err) {
-    console.error("Spin status error:", err);
+    console.error("[SPIN STATUS ERROR]:", err);
     return res.status(500).json({ error: "Failed to fetch spin status" });
   }
 };
 
-// 2. EXECUTE SPIN
+// 2. AUTHORITATIVE SPIN EXECUTION
 exports.executeSpin = async (req, res) => {
   try {
     const { userId, spinType, adWatched } = req.body;
+    console.log(`[SPIN EXECUTE] User: ${userId} | Mode: ${spinType} | Ad Watched: ${adWatched}`);
+
     const config = CONFIG[spinType];
-    if (!config) return res.status(400).json({ error: "Invalid spin type" });
+    if (!config) {
+      return res.status(400).json({ error: "Invalid spin type. Use 'basic' or 'premium'." });
+    }
 
     const today = new Date().toISOString().split('T')[0];
     const state = await dbGet(
@@ -116,25 +124,26 @@ exports.executeSpin = async (req, res) => {
       [userId, spinType]
     );
 
-    let dailySpinsUsed = (state && state.daily_date === today) ? state.daily_spins_used : 0;
+    let dailySpinsUsed = (state && state.daily_date === today) ? (state.daily_spins_used || 0) : 0;
     let cooldownUntil = (state && state.cooldown_until) ? new Date(state.cooldown_until) : null;
     const now = new Date();
 
-    // Verify limit & cooldown
+    // Verification check for limits and cooldown
     if (dailySpinsUsed >= config.freeSpinsPerDay) {
       if (cooldownUntil && cooldownUntil > now) {
-        return res.status(403).json({ error: "Cooldown is still active." });
+        return res.status(403).json({ error: "Cooldown is still active. Please wait." });
       }
       if (!adWatched) {
-        return res.status(403).json({ error: "Rewarded ad completion required." });
+        return res.status(403).json({ error: "Rewarded ad completion required to spin." });
       }
     }
 
+    // Select reward on server side
     const { segment, index } = selectWeightedReward(config.segments);
     const spinId = "spin_" + crypto.randomUUID();
     const nextCooldown = new Date(now.getTime() + config.cooldownMinutes * 60000).toISOString();
 
-    // Upsert into user_spin_state for SQLite
+    // Update or insert spin state for user
     await dbRun(`
       INSERT INTO user_spin_state (user_id, spin_type, daily_date, daily_spins_used, cooldown_until, updated_at)
       VALUES (?, ?, ?, ?, ?, datetime('now'))
@@ -145,17 +154,25 @@ exports.executeSpin = async (req, res) => {
         updated_at = datetime('now')
     `, [userId, spinType, today, dailySpinsUsed + 1, nextCooldown]);
 
-    // Record Transaction
+    // Record audit transaction
     await dbRun(`
       INSERT INTO spin_transactions (id, user_id, spin_type, segment_index, reward_type, base_coins, multiplier, final_coins, status)
       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
     `, [spinId, userId, spinType, index, segment.type, segment.coins, segment.coins, segment.type === 'COINS' ? 'COMPLETED' : 'PENDING']);
 
-    // Direct Wallet Credit if coins won
+    // Direct wallet update if coins won
     if (segment.type === 'COINS' && segment.coins > 0) {
-      await dbRun("UPDATE users SET balance = balance + ? WHERE id = ?", [segment.coins, userId]);
-      await dbRun("INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'SPIN_REWARD', ?, ?)", [userId, segment.coins, spinId]);
+      await dbRun(
+        "UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?",
+        [segment.coins, segment.coins, userId]
+      );
+      await dbRun(
+        "INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'SPIN_REWARD', ?, ?)",
+        [userId, segment.coins, spinId]
+      );
     }
+
+    console.log(`[SPIN WON] User: ${userId} | Target Index: ${index} (${segment.label}) | Coins: ${segment.coins}`);
 
     return res.json({
       spinId,
@@ -166,52 +183,77 @@ exports.executeSpin = async (req, res) => {
       cooldownSeconds: config.cooldownMinutes * 60,
     });
   } catch (err) {
-    console.error("Execute spin error:", err);
+    console.error("[SPIN EXECUTE ERROR]:", err);
     return res.status(500).json({ error: "Failed to execute spin: " + err.message });
   }
 };
 
-// 3. CLAIM 2X
+// 3. CLAIM 2X BONUS VIA REWARDED AD
 exports.claim2xReward = async (req, res) => {
   try {
     const { userId, spinId } = req.body;
-    const tx = await dbGet("SELECT * FROM spin_transactions WHERE id = ? AND user_id = ?", [spinId, userId]);
+    console.log(`[SPIN 2X CLAIM] User: ${userId} | Spin ID: ${spinId}`);
+
+    const tx = await dbGet(
+      "SELECT * FROM spin_transactions WHERE id = ? AND user_id = ?",
+      [spinId, userId]
+    );
 
     if (!tx) return res.status(404).json({ error: "Spin record not found" });
-    if (tx.is_2x_claimed === 1) return res.status(400).json({ error: "2X already claimed" });
+    if (tx.is_2x_claimed === 1) return res.status(400).json({ error: "2X already claimed for this spin" });
     if (tx.reward_type !== 'COINS' || tx.base_coins <= 0) {
       return res.status(400).json({ error: "Reward cannot be doubled" });
     }
 
     const additionalCoins = tx.base_coins;
 
-    await dbRun("UPDATE spin_transactions SET multiplier = 2, final_coins = final_coins + ?, is_2x_claimed = 1 WHERE id = ?", [additionalCoins, spinId]);
-    await dbRun("UPDATE users SET balance = balance + ? WHERE id = ?", [additionalCoins, userId]);
-    await dbRun("INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'SPIN_2X_BONUS', ?, ?)", [userId, additionalCoins, spinId]);
+    await dbRun(
+      "UPDATE spin_transactions SET multiplier = 2, final_coins = final_coins + ?, is_2x_claimed = 1 WHERE id = ?",
+      [additionalCoins, spinId]
+    );
+    await dbRun(
+      "UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?",
+      [additionalCoins, additionalCoins, userId]
+    );
+    await dbRun(
+      "INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'SPIN_2X_BONUS', ?, ?)",
+      [userId, additionalCoins, spinId]
+    );
 
     return res.json({ success: true, addedCoins: additionalCoins, totalReward: tx.base_coins * 2 });
   } catch (err) {
-    console.error("Claim 2X error:", err);
+    console.error("[SPIN 2X ERROR]:", err);
     return res.status(500).json({ error: "Failed to process 2X reward" });
   }
 };
 
-// 4. RETRY VIA AD
+// 4. RETRY ON 'TRY AGAIN' VIA REWARDED AD
 exports.claimTryAgainSpin = async (req, res) => {
   try {
     const { userId, spinId } = req.body;
-    const tx = await dbGet("SELECT * FROM spin_transactions WHERE id = ? AND user_id = ? AND reward_type = 'TRY_AGAIN'", [spinId, userId]);
+    console.log(`[SPIN RETRY] User: ${userId} | Spin ID: ${spinId}`);
+
+    const tx = await dbGet(
+      "SELECT * FROM spin_transactions WHERE id = ? AND user_id = ? AND reward_type = 'TRY_AGAIN'",
+      [spinId, userId]
+    );
 
     if (!tx) return res.status(404).json({ error: "Invalid spin retry attempt" });
     if (tx.is_try_again_claimed === 1) return res.status(400).json({ error: "Extra spin already claimed" });
 
-    // Clear cooldown to grant immediate spin
-    await dbRun("UPDATE user_spin_state SET cooldown_until = datetime('now') WHERE user_id = ? AND spin_type = ?", [userId, tx.spin_type]);
-    await dbRun("UPDATE spin_transactions SET is_try_again_claimed = 1, status = 'COMPLETED' WHERE id = ?", [spinId]);
+    // Reset cooldown to grant immediate spin
+    await dbRun(
+      "UPDATE user_spin_state SET cooldown_until = datetime('now') WHERE user_id = ? AND spin_type = ?",
+      [userId, tx.spin_type]
+    );
+    await dbRun(
+      "UPDATE spin_transactions SET is_try_again_claimed = 1, status = 'COMPLETED' WHERE id = ?",
+      [spinId]
+    );
 
-    return res.json({ success: true, message: "Extra spin unlocked" });
+    return res.json({ success: true, message: "Extra spin unlocked successfully" });
   } catch (err) {
-    console.error("Try again claim error:", err);
+    console.error("[SPIN RETRY ERROR]:", err);
     return res.status(500).json({ error: "Failed to grant extra spin" });
   }
 };
