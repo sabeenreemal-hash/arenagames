@@ -4,17 +4,19 @@ const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
-const crypto = require('crypto'); // Built-in Node.js crypto module for MD5
+const crypto = require('crypto');
 const db = require('./database');
 
-// Import Router Files
+// Import Platform Routers
 const authRoutes = require('./routes/auth');
 const walletRoutes = require('./routes/wallet');
 const gamesRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
 const rewardsRouter = require('./routes/rewards');
 const referralRoutes = require('./routes/referral');
-const spinRoutes = require('./routes/spinWheelRoutes'); // 👈 ADDED: Spin Wheel Routes
+
+// Import Spin Wheel Controller Directly (Prevents any path/prefix mismatch)
+const spinController = require('./controllers/spinWheelController');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,7 +24,7 @@ const PORT = process.env.PORT || 3000;
 // AdswedMedia Credentials
 const ADSWED_SECRET_KEY = 'Av9Bb6Cz2Nh2So3';
 
-// Ensure Adswed transaction tracking table exists (prevents duplicate rewards)
+// Ensure Adswed transaction tracking table exists
 db.run(`
   CREATE TABLE IF NOT EXISTS adswed_transactions (
     trans_id TEXT PRIMARY KEY,
@@ -43,35 +45,43 @@ db.run(`
 // Security: Hide Express fingerprinting
 app.disable('x-powered-by');
 
-// 1. Enable Gzip compression (massive bandwidth & latency reduction)
+// 1. Enable Gzip compression
 app.use(compression());
 
-// 2. CORS & Body Parsers with payload limits
+// 2. CORS & Body Parsers
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
-// 3. Serve static assets with browser caching enabled (1 day cache)
+// 3. Serve static assets
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1d',
   etag: true,
 }));
 
-// Mount Platform API Routing
+// ============================================================
+// MOUNT PLATFORM API ROUTES
+// ============================================================
 app.use('/api/auth', authRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/games', gamesRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
-app.use('/api/spin', spinRoutes); // 👈 ADDED: Mounts /api/spin routes
+
+// ============================================================
+// SPIN WHEEL DIRECT ROUTES (Guaranteed 0ms URL Matching)
+// ============================================================
+app.get('/api/spin/status', spinController.getSpinStatus);
+app.post('/api/spin/execute', spinController.executeSpin);
+app.post('/api/spin/claim-2x', spinController.claim2xReward);
+app.post('/api/spin/try-again-ad', spinController.claimTryAgainSpin);
 
 // ============================================================
 // ADSWEDMEDIA S2S POSTBACK ENDPOINT
 // Postback URL: https://api.rubylune.com/api/adswed/postback
 // ============================================================
 app.get('/api/adswed/postback', (req, res) => {
-  // Support standard params and escaped HTML entities (&amp;)
   const subId = req.query.subId || req.query['amp;subId'] || req.query.user_id || req.query['amp;user_id'];
   const transId = req.query.transId || req.query['amp;transId'] || req.query.transid || req.query['amp;transid'];
   const reward = req.query.reward !== undefined ? (req.query.reward || req.query['amp;reward']) : req.query.amount;
@@ -96,7 +106,7 @@ app.get('/api/adswed/postback', (req, res) => {
     return res.status(400).send('ERROR: Missing parameters');
   }
 
-  // 3. Verify MD5 Signature: md5(subId + transId + reward + SECRET_KEY)
+  // 3. Verify MD5 Signature
   if (signature) {
     const expectedSignature = crypto
       .createHash('md5')
@@ -109,7 +119,7 @@ app.get('/api/adswed/postback', (req, res) => {
     }
   }
 
-  // 4. Prevent Duplicate Credit (Idempotency)
+  // 4. Prevent Duplicate Credit
   db.get('SELECT trans_id FROM adswed_transactions WHERE trans_id = ?', [transId], (err, row) => {
     if (err) {
       console.error('[ADSWED DB ERROR]', err.message);
@@ -122,7 +132,7 @@ app.get('/api/adswed/postback', (req, res) => {
     }
 
     const numReward = parseInt(reward, 10) || Math.round(parseFloat(reward));
-    const postbackStatus = parseInt(status, 10); // 1 = Credit, 2 = Reversal
+    const postbackStatus = parseInt(status, 10);
 
     // 5. Verify User Exists
     db.get('SELECT id, balance FROM users WHERE id = ?', [subId], (userErr, user) => {
@@ -131,36 +141,30 @@ app.get('/api/adswed/postback', (req, res) => {
         return res.status(404).send('USER_NOT_FOUND');
       }
 
-      // 6. Execute atomic update to user balance & transaction history
+      // 6. Execute atomic update
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
         if (postbackStatus === 1) {
-          // Add reward to current balance and total earned
           db.run(
             `UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?`,
             [numReward, numReward, subId]
           );
-
-          // Add to wallet transaction history (visible in app's history screen)
           db.run(
             `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'OFFERWALL', ?, ?)`,
             [subId, numReward, transId]
           );
         } else {
-          // Reversal / Chargeback: deduct balance
           db.run(
             `UPDATE users SET balance = balance - ? WHERE id = ?`,
             [numReward, subId]
           );
-
           db.run(
             `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'OFFERWALL_REVERSAL', ?, ?)`,
             [subId, -numReward, transId]
           );
         }
 
-        // Record in adswed_transactions to prevent replay attacks
         db.run(
           `INSERT INTO adswed_transactions (trans_id, user_id, reward, status, payout) VALUES (?, ?, ?, ?, ?)`,
           [transId, subId, numReward, postbackStatus, parseFloat(payout) || 0],
@@ -184,13 +188,10 @@ app.get('/api/adswed/postback', (req, res) => {
 // --- In-Memory Cache for Version Check ---
 let versionCache = null;
 let lastVersionFetch = 0;
-const VERSION_CACHE_TTL = 60 * 1000; // Cache for 60 seconds
+const VERSION_CACHE_TTL = 60 * 1000;
 
-// Version verification endpoint (optimized for heavy mobile app launches)
 app.get('/api/config/version', (req, res) => {
   const now = Date.now();
-
-  // Return cached result if fresh
   if (versionCache && (now - lastVersionFetch < VERSION_CACHE_TTL)) {
     return res.json(versionCache);
   }
@@ -218,12 +219,12 @@ app.get('/api/config/version', (req, res) => {
   );
 });
 
-// Fallback 404 handler for undefined API routes
+// Fallback 404 handler for undefined API routes (Kept strictly at the bottom)
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: 'API route not found' });
 });
 
-// Global Centralized Error Handler (Catches unhandled route errors)
+// Global Centralized Error Handler
 app.use((err, req, res, next) => {
   console.error('[Server Error]:', err.message || err);
   res.status(err.status || 500).json({
@@ -239,13 +240,12 @@ const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`======================================================\n`);
 });
 
-// --- Graceful Shutdown Handler (Prevents SQLite database corruption) ---
+// --- Graceful Shutdown Handler ---
 const handleShutdown = (signal) => {
   console.log(`\nReceived ${signal}. Shutting down gracefully...`);
 
   server.close(() => {
     console.log('HTTP server closed.');
-    // Close SQLite database properly
     if (db && typeof db.close === 'function') {
       db.close((err) => {
         if (err) {
@@ -260,7 +260,6 @@ const handleShutdown = (signal) => {
     }
   });
 
-  // Force exit if hanging after 5 seconds
   setTimeout(() => {
     console.error('Forcefully terminating process.');
     process.exit(1);
