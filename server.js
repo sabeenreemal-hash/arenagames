@@ -4,10 +4,10 @@ const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
-const crypto = require('crypto');
+const crypto = require('crypto'); // Built-in Node.js crypto module for MD5 & SHA256
 const db = require('./database');
 
-// Import Platform Routers
+// Import Router Files
 const authRoutes = require('./routes/auth');
 const walletRoutes = require('./routes/wallet');
 const gamesRoutes = require('./routes/games');
@@ -15,16 +15,22 @@ const adminRoutes = require('./routes/admin');
 const rewardsRouter = require('./routes/rewards');
 const referralRoutes = require('./routes/referral');
 
-// Import Spin Wheel Controller Directly (Prevents any path/prefix mismatch)
-const spinController = require('./controllers/spinWheelController');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// AdswedMedia Credentials
+// ============================================================
+// 1. CREDENTIALS & SECURITY KEYS
+// ============================================================
 const ADSWED_SECRET_KEY = 'Av9Bb6Cz2Nh2So3';
+const TIMEWALL_PLACEMENT_ID = '21f38a8af19d2013';
 
-// Ensure Adswed transaction tracking table exists
+// Official TimeWall Server IPs
+const TIMEWALL_IPS = ['18.156.132.55', '51.81.120.73', '142.111.248.18'];
+
+// ============================================================
+// 2. DEDUPLICATION TABLES (Ensures users are never double-credited)
+// ============================================================
+// AdswedMedia Deduplication Table
 db.run(`
   CREATE TABLE IF NOT EXISTS adswed_transactions (
     trans_id TEXT PRIMARY KEY,
@@ -34,48 +40,49 @@ db.run(`
     payout REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
+`);
+
+// TimeWall Deduplication Table
+db.run(`
+  CREATE TABLE IF NOT EXISTS timewall_transactions (
+    tx_id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    currency REAL NOT NULL,
+    revenue TEXT,
+    type TEXT,
+    offer_name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
 `, (err) => {
-  if (err) {
-    console.error('[DB ERROR] Failed to create adswed_transactions table:', err.message);
-  } else {
-    console.log('[DB SUCCESS] adswed_transactions table ready.');
+  if (!err) {
+    console.log('[DB SUCCESS] Offerwall deduplication tables initialized.');
   }
 });
 
 // Security: Hide Express fingerprinting
 app.disable('x-powered-by');
 
-// 1. Enable Gzip compression
+// Gzip compression (massive bandwidth & latency reduction)
 app.use(compression());
 
-// 2. CORS & Body Parsers
+// CORS & Body Parsers with payload limits
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
-// 3. Serve static assets
+// Serve static assets with browser caching enabled (1 day cache)
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1d',
   etag: true,
 }));
 
-// ============================================================
-// MOUNT PLATFORM API ROUTES
-// ============================================================
+// Mount Platform API Routing
 app.use('/api/auth', authRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/games', gamesRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
-
-// ============================================================
-// SPIN WHEEL DIRECT ROUTES (Guaranteed 0ms URL Matching)
-// ============================================================
-app.get('/api/spin/status', spinController.getSpinStatus);
-app.post('/api/spin/execute', spinController.executeSpin);
-app.post('/api/spin/claim-2x', spinController.claim2xReward);
-app.post('/api/spin/try-again-ad', spinController.claimTryAgainSpin);
 
 // ============================================================
 // ADSWEDMEDIA S2S POSTBACK ENDPOINT
@@ -89,24 +96,23 @@ app.get('/api/adswed/postback', (req, res) => {
   const signature = req.query.signature || req.query['amp;signature'];
   const payout = req.query.payout || req.query['amp;payout'] || 0;
 
-  // 1. Dashboard Test Call Handler
+  // Handle Dashboard Test Call
   const isTest = req.query.type === 'test' || 
                  req.query['amp;type'] === 'test' ||
                  (subId && String(subId).includes('subId')) || 
                  (transId && String(transId).includes('auto-id'));
 
   if (isTest) {
-    console.log('[ADSWED TEST] Received test ping from dashboard. Responding OK.');
+    console.log('[ADSWED TEST] Received test ping. Responding OK.');
     return res.status(200).send('OK');
   }
 
-  // 2. Validate Required Parameters
   if (!subId || !transId || reward === undefined) {
     console.error('[ADSWED ERROR] Missing required parameters:', req.query);
     return res.status(400).send('ERROR: Missing parameters');
   }
 
-  // 3. Verify MD5 Signature
+  // MD5 Signature check
   if (signature) {
     const expectedSignature = crypto
       .createHash('md5')
@@ -114,34 +120,22 @@ app.get('/api/adswed/postback', (req, res) => {
       .digest('hex');
 
     if (signature.toLowerCase() !== expectedSignature.toLowerCase()) {
-      console.error(`[ADSWED ERROR] Invalid signature! Received: ${signature}, Expected: ${expectedSignature}`);
+      console.error(`[ADSWED ERROR] Invalid signature! Received: ${signature}`);
       return res.status(400).send("ERROR: Signature doesn't match");
     }
   }
 
-  // 4. Prevent Duplicate Credit
+  // Idempotency: Prevent duplicate credits
   db.get('SELECT trans_id FROM adswed_transactions WHERE trans_id = ?', [transId], (err, row) => {
-    if (err) {
-      console.error('[ADSWED DB ERROR]', err.message);
-      return res.status(500).send('DB_ERROR');
-    }
-
-    if (row) {
-      console.log(`[ADSWED DUP] Transaction ${transId} already processed.`);
-      return res.send('DUP');
-    }
+    if (err) return res.status(500).send('DB_ERROR');
+    if (row) return res.send('DUP');
 
     const numReward = parseInt(reward, 10) || Math.round(parseFloat(reward));
     const postbackStatus = parseInt(status, 10);
 
-    // 5. Verify User Exists
     db.get('SELECT id, balance FROM users WHERE id = ?', [subId], (userErr, user) => {
-      if (userErr || !user) {
-        console.error(`[ADSWED ERROR] User ID ${subId} does not exist in users table.`);
-        return res.status(404).send('USER_NOT_FOUND');
-      }
+      if (userErr || !user) return res.status(404).send('USER_NOT_FOUND');
 
-      // 6. Execute atomic update
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
@@ -155,10 +149,7 @@ app.get('/api/adswed/postback', (req, res) => {
             [subId, numReward, transId]
           );
         } else {
-          db.run(
-            `UPDATE users SET balance = balance - ? WHERE id = ?`,
-            [numReward, subId]
-          );
+          db.run(`UPDATE users SET balance = balance - ? WHERE id = ?`, [numReward, subId]);
           db.run(
             `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'OFFERWALL_REVERSAL', ?, ?)`,
             [subId, -numReward, transId]
@@ -168,16 +159,132 @@ app.get('/api/adswed/postback', (req, res) => {
         db.run(
           `INSERT INTO adswed_transactions (trans_id, user_id, reward, status, payout) VALUES (?, ?, ?, ?, ?)`,
           [transId, subId, numReward, postbackStatus, parseFloat(payout) || 0],
-          function (txErr) {
+          (txErr) => {
             if (txErr) {
               db.run('ROLLBACK');
-              console.error('[ADSWED DB ERROR]', txErr.message);
               return res.status(500).send('DB_LOG_FAILED');
             }
-
             db.run('COMMIT');
             console.log(`[ADSWED SUCCESS] Credited ${numReward} coins to User #${subId} (Tx: ${transId})`);
             return res.send('OK');
+          }
+        );
+      });
+    });
+  });
+});
+
+// ============================================================
+// TIMEWALL S2S POSTBACK ENDPOINT
+// Postback URL: https://api.rubylune.com/api/timewall/postback
+// ============================================================
+app.get('/api/timewall/postback', (req, res) => {
+  // Extract client IP (safe behind Cloudflare / Nginx reverse proxies)
+  const clientIp = (
+    req.headers['x-forwarded-for'] || 
+    req.headers['x-real-ip'] || 
+    req.socket.remoteAddress || 
+    ''
+  ).split(',')[0].trim();
+
+  // 1. IP Whitelist Validation
+  const isWhitelisted = TIMEWALL_IPS.some(ip => clientIp.includes(ip)) || 
+                        clientIp === '127.0.0.1' || 
+                        clientIp === '::1';
+
+  if (!isWhitelisted) {
+    console.warn(`[TIMEWALL BLOCKED] Unauthorized IP access attempt: ${clientIp}`);
+    return res.status(403).send('FORBIDDEN_IP');
+  }
+
+  const {
+    userid,
+    txid,
+    revenue,       // Exact raw string from TimeWall
+    currency,      // Coins to credit
+    hash,
+    type = 'credit',
+    offername = ''
+  } = req.query;
+
+  // 2. Validate Parameters
+  if (!userid || !txid || !currency) {
+    console.error('[TIMEWALL ERROR] Missing required parameters:', req.query);
+    return res.status(400).send('MISSING_PARAMS');
+  }
+
+  // 3. Hash Validation using Placement ID (sha256: userid + revenue + placementId)
+  if (hash && revenue !== undefined) {
+    const expectedHash = crypto
+      .createHash('sha256')
+      .update(`${userid}${revenue}${TIMEWALL_PLACEMENT_ID}`)
+      .digest('hex');
+
+    if (hash.toLowerCase() !== expectedHash.toLowerCase()) {
+      console.warn(`[TIMEWALL HASH NOTE] Hash mismatch. Allowed via Whitelisted IP (${clientIp}).`);
+    }
+  }
+
+  // 4. Idempotency Check (Prevent duplicate credits)
+  db.get('SELECT tx_id FROM timewall_transactions WHERE tx_id = ?', [txid], (err, row) => {
+    if (err) {
+      console.error('[TIMEWALL DB ERROR]', err.message);
+      return res.status(500).send('DB_ERROR');
+    }
+
+    if (row) {
+      console.log(`[TIMEWALL DUP] Transaction ${txid} has already been credited.`);
+      return res.status(200).send('OK'); // TimeWall expects 200 OK
+    }
+
+    const numCurrency = parseInt(currency, 10) || Math.round(parseFloat(currency));
+    const isCredit = type.toLowerCase() !== 'chargeback' && type.toLowerCase() !== 'reversal';
+    const balanceDelta = isCredit ? numCurrency : -numCurrency;
+
+    // 5. Verify User Exists
+    db.get('SELECT id, balance FROM users WHERE id = ?', [userid], (userErr, user) => {
+      if (userErr || !user) {
+        console.error(`[TIMEWALL ERROR] User ID ${userid} not found in database.`);
+        return res.status(404).send('USER_NOT_FOUND');
+      }
+
+      // 6. Update user balance & log in transactions
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+
+        if (isCredit) {
+          db.run(
+            `UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?`,
+            [numCurrency, numCurrency, userid]
+          );
+
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'TIMEWALL', ?, ?)`,
+            [userid, numCurrency, txid]
+          );
+        } else {
+          db.run(`UPDATE users SET balance = balance - ? WHERE id = ?`, [numCurrency, userid]);
+
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'TIMEWALL_REVERSAL', ?, ?)`,
+            [userid, -numCurrency, txid]
+          );
+        }
+
+        // Record in timewall_transactions
+        db.run(
+          `INSERT INTO timewall_transactions (tx_id, user_id, currency, revenue, type, offer_name) VALUES (?, ?, ?, ?, ?, ?)`,
+          [txid, userid, numCurrency, revenue ? String(revenue) : '0', type, offername],
+          (txErr) => {
+            if (txErr) {
+              db.run('ROLLBACK');
+              console.error('[TIMEWALL DB ERROR]', txErr.message);
+              return res.status(500).send('DB_LOG_ERROR');
+            }
+
+            db.run('COMMIT');
+            console.log(`[TIMEWALL SUCCESS] Credited ${balanceDelta} coins to User #${userid} (Tx: ${txid})`);
+            return res.status(200).send('OK');
           }
         );
       });
@@ -219,7 +326,7 @@ app.get('/api/config/version', (req, res) => {
   );
 });
 
-// Fallback 404 handler for undefined API routes (Kept strictly at the bottom)
+// Fallback 404 handler for undefined API routes
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: 'API route not found' });
 });
@@ -240,10 +347,9 @@ const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`======================================================\n`);
 });
 
-// --- Graceful Shutdown Handler ---
+// Graceful Shutdown
 const handleShutdown = (signal) => {
   console.log(`\nReceived ${signal}. Shutting down gracefully...`);
-
   server.close(() => {
     console.log('HTTP server closed.');
     if (db && typeof db.close === 'function') {
