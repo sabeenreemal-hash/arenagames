@@ -80,19 +80,30 @@ router.post('/login', (req, res) => {
     const storedHash = admin.password_hash || admin.password;
     if (!storedHash) return res.status(401).json({ error: 'No password set for this account' });
 
-    bcrypt.compare(password.trim(), storedHash, (cmpErr, isValid) => {
-      if (cmpErr || !isValid) {
+    // Compare with bcrypt; fallback to plain text if old test row
+    if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$')) {
+      bcrypt.compare(password.trim(), storedHash, (cmpErr, isValid) => {
+        if (cmpErr || !isValid) {
+          return res.status(401).json({ error: 'Invalid admin credentials' });
+        }
+        const token = jwt.sign(
+          { id: admin.id, username: admin.username },
+          JWT_ADMIN_SECRET,
+          { expiresIn: '7d' }
+        );
+        res.json({ success: true, token });
+      });
+    } else {
+      if (password.trim() !== storedHash) {
         return res.status(401).json({ error: 'Invalid admin credentials' });
       }
-
       const token = jwt.sign(
         { id: admin.id, username: admin.username },
         JWT_ADMIN_SECRET,
         { expiresIn: '7d' }
       );
-
       res.json({ success: true, token });
-    });
+    }
   });
 });
 
@@ -143,11 +154,20 @@ router.get('/users', adminAuth, (req, res) => {
 // D. Admin Accounts Management
 // ---------------------------------------------------------------------------
 
-// 1. Get all admins
+// 1. Get all admins (safe wildcard query)
 router.get('/admins', adminAuth, (req, res) => {
-  db.all('SELECT id, username, full_name, created_at FROM admins ORDER BY id ASC', (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to fetch admin accounts' });
-    res.json(rows || []);
+  db.all('SELECT * FROM admins ORDER BY id ASC', (err, rows) => {
+    if (err) {
+      console.error("[Get Admins SQL Error]:", err.message);
+      return res.status(500).json({ error: 'Failed to fetch admin accounts' });
+    }
+    const sanitized = (rows || []).map(admin => ({
+      id: admin.id,
+      username: admin.username,
+      full_name: admin.full_name || 'Admin Staff',
+      created_at: admin.created_at || null
+    }));
+    res.json(sanitized);
   });
 });
 
@@ -170,6 +190,7 @@ router.post('/admins/create', adminAuth, (req, res) => {
       [cleanUser, cleanName, hash],
       function (err) {
         if (err) {
+          console.error("[Admin Create Error]:", err.message);
           if (err.message && (err.message.includes('UNIQUE') || err.message.includes('PRIMARY KEY'))) {
             return res.status(400).json({ error: `Username @${cleanUser} already exists.` });
           }
