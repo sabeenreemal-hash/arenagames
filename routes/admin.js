@@ -9,27 +9,52 @@ const adminAuth = require('../middleware/adminAuth');
 
 const JWT_ADMIN_SECRET = 'ARENA_GAMES_ADMIN_SECRET_KEY';
 
-// Ensure admins table exists & seed default admin/admin123 if table is empty
+// ---------------------------------------------------------------------------
+// 0. Auto-Migration & Schema Setup for admins table
+// ---------------------------------------------------------------------------
 db.serialize(() => {
+  // Ensure the table exists
   db.run(`
     CREATE TABLE IF NOT EXISTS admins (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
       full_name TEXT,
-      password_hash TEXT NOT NULL,
+      password_hash TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  db.get("SELECT COUNT(*) as count FROM admins", async (err, row) => {
-    if (!err && row && row.count === 0) {
-      const defaultHash = await bcrypt.hash('admin123', 10);
-      db.run(
-        "INSERT INTO admins (username, full_name, password_hash) VALUES (?, ?, ?)",
-        ['admin', 'Master Admin', defaultHash]
-      );
-      console.log("[Admin Setup] Created default root admin: admin / admin123");
+  // Check columns in existing database to add any missing ones dynamically
+  db.all("PRAGMA table_info(admins)", async (err, columns) => {
+    if (err || !columns) return;
+
+    const colNames = columns.map(c => c.name);
+
+    if (!colNames.includes('password_hash') && !colNames.includes('password')) {
+      db.run("ALTER TABLE admins ADD COLUMN password_hash TEXT");
     }
+    if (!colNames.includes('full_name')) {
+      db.run("ALTER TABLE admins ADD COLUMN full_name TEXT");
+    }
+    if (!colNames.includes('created_at')) {
+      db.run("ALTER TABLE admins ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP");
+    }
+
+    // Seed default admin / admin123 if empty
+    db.get("SELECT COUNT(*) as count FROM admins", async (countErr, row) => {
+      if (!countErr && row && row.count === 0) {
+        const defaultHash = await bcrypt.hash('admin123', 10);
+        db.run(
+          "INSERT INTO admins (username, full_name, password_hash) VALUES (?, ?, ?)",
+          ['admin', 'Master Admin', defaultHash],
+          (insertErr) => {
+            if (!insertErr) {
+              console.log("[Admin Init] Default root admin created: admin / admin123");
+            }
+          }
+        );
+      }
+    });
   });
 });
 
@@ -61,10 +86,20 @@ router.post('/login', (req, res) => {
     return res.status(400).json({ error: 'Username and password are required' });
   }
 
-  db.get('SELECT * FROM admins WHERE username = ?', [username.trim()], async (err, admin) => {
+  db.get('SELECT * FROM admins WHERE LOWER(username) = ?', [username.trim().toLowerCase()], async (err, admin) => {
     if (err || !admin) return res.status(401).json({ error: 'Invalid admin credentials' });
 
-    const isValid = await bcrypt.compare(password.trim(), admin.password_hash);
+    const storedHash = admin.password_hash || admin.password;
+    if (!storedHash) return res.status(401).json({ error: 'Admin account has no password set' });
+
+    let isValid = false;
+    // Support both bcrypt hashes and legacy plaintext fallback
+    if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$')) {
+      isValid = await bcrypt.compare(password.trim(), storedHash);
+    } else {
+      isValid = (password.trim() === storedHash);
+    }
+
     if (!isValid) return res.status(401).json({ error: 'Invalid admin credentials' });
 
     const token = jwt.sign(
@@ -121,14 +156,33 @@ router.get('/users', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// D. Admin Accounts Management (Create, List, Reset PW, Delete)
+// D. Admin Accounts Management
 // ---------------------------------------------------------------------------
 
 // 1. Get all admins
 router.get('/admins', adminAuth, (req, res) => {
-  db.all('SELECT id, username, full_name, created_at FROM admins ORDER BY id ASC', (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to fetch admin accounts' });
-    res.json(rows || []);
+  db.all("PRAGMA table_info(admins)", (pErr, cols) => {
+    const colNames = (cols || []).map(c => c.name);
+    const hasName = colNames.includes('full_name');
+    const hasDate = colNames.includes('created_at');
+
+    const selectQuery = `
+      SELECT 
+        id, 
+        username
+        ${hasName ? ', full_name' : ', username as full_name'}
+        ${hasDate ? ', created_at' : ', NULL as created_at'}
+      FROM admins 
+      ORDER BY id ASC
+    `;
+
+    db.all(selectQuery, (err, rows) => {
+      if (err) {
+        console.error("[Get Admins Error]:", err.message);
+        return res.status(500).json({ error: 'Failed to fetch admin accounts' });
+      }
+      res.json(rows || []);
+    });
   });
 });
 
@@ -140,22 +194,47 @@ router.post('/admins/create', adminAuth, async (req, res) => {
     return res.status(400).json({ error: 'Username and password (min 6 chars) are required' });
   }
 
+  const cleanUser = username.trim().toLowerCase();
+  const cleanName = full_name ? full_name.trim() : 'Admin Staff';
+
   try {
     const hash = await bcrypt.hash(password.trim(), 10);
-    db.run(
-      'INSERT INTO admins (username, full_name, password_hash) VALUES (?, ?, ?)',
-      [username.trim().toLowerCase(), full_name ? full_name.trim() : 'Admin Staff', hash],
-      function (err) {
-        if (err) {
-          if (err.message && err.message.includes('UNIQUE')) {
-            return res.status(400).json({ error: 'Username already exists' });
-          }
-          return res.status(500).json({ error: 'Failed to create administrator account' });
-        }
-        res.json({ success: true, message: `Admin @${username} created successfully!` });
+
+    db.all("PRAGMA table_info(admins)", (pragmaErr, columns) => {
+      if (pragmaErr || !columns || columns.length === 0) {
+        console.error("[Admin Create PRAGMA Error]:", pragmaErr);
+        return res.status(500).json({ error: "Could not inspect admins table structure" });
       }
-    );
+
+      const colNames = columns.map(c => c.name);
+      const passCol = colNames.includes('password_hash') ? 'password_hash' : 'password';
+      const hasFullName = colNames.includes('full_name');
+
+      let query = '';
+      let params = [];
+
+      if (hasFullName) {
+        query = `INSERT INTO admins (username, full_name, ${passCol}) VALUES (?, ?, ?)`;
+        params = [cleanUser, cleanName, hash];
+      } else {
+        query = `INSERT INTO admins (username, ${passCol}) VALUES (?, ?)`;
+        params = [cleanUser, hash];
+      }
+
+      db.run(query, params, function (err) {
+        if (err) {
+          console.error("[Admin Create SQL Error]:", err.message);
+          if (err.message && (err.message.includes('UNIQUE') || err.message.includes('PRIMARY KEY'))) {
+            return res.status(400).json({ error: `Username '@${cleanUser}' is already taken.` });
+          }
+          return res.status(500).json({ error: `Database error: ${err.message}` });
+        }
+
+        res.json({ success: true, message: `Admin @${cleanUser} created successfully!` });
+      });
+    });
   } catch (e) {
+    console.error("[Admin Create Encrypt Error]:", e);
     res.status(500).json({ error: 'Encryption failure' });
   }
 });
@@ -170,12 +249,26 @@ router.post('/admins/password', adminAuth, async (req, res) => {
 
   try {
     const hash = await bcrypt.hash(password.trim(), 10);
-    db.run('UPDATE admins SET password_hash = ? WHERE username = ?', [hash, username], function (err) {
-      if (err) return res.status(500).json({ error: 'Failed to reset password' });
-      if (this.changes === 0) return res.status(404).json({ error: 'Admin account not found' });
-      res.json({ success: true, message: `Password updated for @${username}` });
+
+    db.all("PRAGMA table_info(admins)", (pragmaErr, columns) => {
+      const colNames = (columns || []).map(c => c.name);
+      const passCol = colNames.includes('password_hash') ? 'password_hash' : 'password';
+
+      db.run(
+        `UPDATE admins SET ${passCol} = ? WHERE LOWER(username) = ?`,
+        [hash, username.trim().toLowerCase()],
+        function (err) {
+          if (err) {
+            console.error("[Admin Password Reset Error]:", err.message);
+            return res.status(500).json({ error: err.message });
+          }
+          if (this.changes === 0) return res.status(404).json({ error: 'Admin account not found' });
+          res.json({ success: true, message: `Password updated for @${username}` });
+        }
+      );
     });
   } catch (e) {
+    console.error("[Admin Password Encrypt Error]:", e);
     res.status(500).json({ error: 'Encryption failure' });
   }
 });
@@ -185,12 +278,15 @@ router.post('/admins/delete', adminAuth, (req, res) => {
   const { username } = req.body;
 
   if (!username) return res.status(400).json({ error: 'Username is required' });
-  if (username.toLowerCase() === 'admin') {
+  if (username.trim().toLowerCase() === 'admin') {
     return res.status(403).json({ error: 'Root admin account cannot be removed' });
   }
 
-  db.run('DELETE FROM admins WHERE username = ?', [username], function (err) {
-    if (err) return res.status(500).json({ error: 'Failed to remove admin' });
+  db.run('DELETE FROM admins WHERE LOWER(username) = ?', [username.trim().toLowerCase()], function (err) {
+    if (err) {
+      console.error("[Admin Delete Error]:", err.message);
+      return res.status(500).json({ error: 'Failed to remove admin' });
+    }
     if (this.changes === 0) return res.status(404).json({ error: 'Admin account not found' });
     res.json({ success: true, message: `Admin @${username} removed` });
   });
@@ -220,9 +316,7 @@ router.post('/users/:id/streak', adminAuth, (req, res) => {
      WHERE id = ?`,
     [streakNum, streakNum, stoneName, today, userId],
     function (err) {
-      if (err) {
-        return res.status(500).json({ error: 'Failed to update streak' });
-      }
+      if (err) return res.status(500).json({ error: 'Failed to update streak' });
       res.json({
         success: true,
         message: `Streak set to ${streakNum} days! Active Badge: ${stoneName}`,
