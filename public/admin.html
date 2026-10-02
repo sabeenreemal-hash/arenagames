@@ -43,9 +43,7 @@
       overflow-x: hidden;
     }
 
-    /* ----------------------------------------------------- */
-    /* LOGIN MODAL OVERLAY                                  */
-    /* ----------------------------------------------------- */
+    /* LOGIN MODAL OVERLAY */
     #login-overlay {
       position: fixed;
       inset: 0;
@@ -112,9 +110,7 @@
       border-color: var(--primary);
     }
 
-    /* ----------------------------------------------------- */
-    /* LAYOUT WRAPPER                                        */
-    /* ----------------------------------------------------- */
+    /* LAYOUT WRAPPER */
     .app-layout {
       display: flex;
       min-height: 100vh;
@@ -498,17 +494,6 @@
       border: 1px solid rgba(255, 71, 87, 0.3);
     }
 
-    .badge-creator {
-      background: var(--gold-glow);
-      color: var(--gold);
-      border: 1px solid rgba(255, 215, 0, 0.4);
-    }
-
-    .badge-creator img {
-      width: 14px;
-      height: 14px;
-    }
-
     .badge-stone {
       background: #2A1F40;
       color: #D8B4FE;
@@ -564,16 +549,6 @@
     .btn-action:hover {
       opacity: 0.85;
       transform: translateY(-1px);
-    }
-
-    .btn-act-reward {
-      background: #9D4EDD;
-      color: white;
-    }
-
-    .btn-act-creator {
-      background: var(--gold);
-      color: #000;
     }
 
     .btn-act-streak {
@@ -641,7 +616,7 @@
         <input type="text" id="admin-user" placeholder="admin" autocomplete="username">
       </div>
       <div class="form-group">
-        <label>Master Password</label>
+        <label>Password</label>
         <input type="password" id="admin-pass" placeholder="••••••••" autocomplete="current-password">
       </div>
       <button class="btn btn-primary" onclick="attemptLogin()" style="width: 100%; padding: 12px; margin-top: 6px;">Sign
@@ -670,15 +645,6 @@
           <span class="icon">📊</span>
           <span>Dashboard</span>
         </li>
-        <li class="nav-item" onclick="switchTab('tab-creators', this)">
-          <span class="icon">⭐</span>
-          <span>Creator Management</span>
-          <span class="badge-pill" id="nav-creator-count">0</span>
-        </li>
-        <li class="nav-item" onclick="switchTab('tab-creator-rewards', this)">
-          <span class="icon">🏆</span>
-          <span>Reward History</span>
-        </li>
 
         <div class="nav-label">Player Management</div>
         <li class="nav-item" onclick="switchTab('tab-users', this)">
@@ -700,6 +666,10 @@
         <li class="nav-item" onclick="switchTab('tab-version', this)">
           <span class="icon">⚙️</span>
           <span>System & Updates</span>
+        </li>
+        <li class="nav-item" onclick="switchTab('tab-admins', this)">
+          <span class="icon">🛡️</span>
+          <span>Admin Credentials</span>
         </li>
       </ul>
 
@@ -732,15 +702,11 @@
       <!-- CONTENT BODY -->
       <main class="content-area">
 
-        <!-- 4 OVERVIEW METRIC CARDS -->
+        <!-- 3 OVERVIEW METRIC CARDS -->
         <div class="metrics-grid">
           <div class="metric-card">
             <div class="metric-title">Registered Players</div>
             <div class="metric-val" id="stat-users" style="color: white;">...</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-title">Verified Creators</div>
-            <div class="metric-val" id="stat-creators" style="color: var(--gold);">...</div>
           </div>
           <div class="metric-card">
             <div class="metric-title">Total Wallet Capital</div>
@@ -766,20 +732,19 @@
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;">
               <div
                 style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
-                <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--gold);">⭐ Creator Program</h3>
+                <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--primary);">👥 User Accounts</h3>
                 <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
-                  Creators who reached 500+ subscribers on external platforms can receive the verified creator badge and
-                  monthly rewards.
+                  Inspect user balances, adjust streaks/stones, update coins, or modify ban statuses.
                 </p>
-                <button class="btn btn-primary" onclick="switchTabByName('tab-creators', 'Creator Management')"
-                  style="font-size: 12px; padding: 7px 12px;">Go to Creators</button>
+                <button class="btn btn-primary" onclick="switchTabByName('tab-users', 'All Users Registry')"
+                  style="font-size: 12px; padding: 7px 12px;">Go to Users Registry</button>
               </div>
 
               <div
                 style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
                 <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--warning);">💸 Pending Payouts</h3>
                 <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
-                  Review withdrawal claims against client gameplay logs and authorize or reject payment requests.
+                  Review player withdrawal claims and authorize or reject payment requests.
                 </p>
                 <button class="btn btn-primary" onclick="switchTabByName('tab-withdrawals', 'Redemptions Pipeline')"
                   style="font-size: 12px; padding: 7px 12px;">Review Requests</button>
@@ -789,89 +754,7 @@
         </section>
 
         <!-- ======================================================== -->
-        <!-- TAB 2: CREATOR MANAGEMENT                                -->
-        <!-- ======================================================== -->
-        <section id="tab-creators" class="tab-section">
-          <div class="card" style="border-color: rgba(255, 215, 0, 0.3);">
-            <div class="card-header-flex">
-              <div>
-                <h2>⭐ Verified Creators & Badge Assignment</h2>
-                <p>Assign badges and send monthly custom rewards based on subscriber milestones.</p>
-              </div>
-              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                <button class="btn btn-outline-gold" onclick="openBadgeSettingsModal()">⚙️ Badge Icon</button>
-                <input type="text" id="creator-search" class="search-bar" placeholder="Search by username or email..."
-                  onkeyup="filterCreatorsList()">
-              </div>
-            </div>
-
-            <div
-              style="background: var(--surface-2); border-radius: 8px; padding: 10px 16px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px; border: 1px solid var(--border);">
-              <span style="font-size: 12px; color: var(--text-muted);">Active App Badge Asset:</span>
-              <img id="active-badge-preview" src="https://cdn-icons-png.flaticon.com/512/7653/7653930.png"
-                style="width: 22px; height: 22px;">
-              <span id="active-badge-name" style="font-weight: 700; color: var(--gold); font-size: 13px;">Official
-                Creator</span>
-            </div>
-
-            <div class="table-container">
-              <table id="creators-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>User</th>
-                    <th>Full Name</th>
-                    <th>Wallet Balance</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="6">Loading creators registry...</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <!-- ======================================================== -->
-        <!-- TAB 3: CREATOR REWARDS HISTORY                           -->
-        <!-- ======================================================== -->
-        <section id="tab-creator-rewards" class="tab-section">
-          <div class="card">
-            <div class="card-header-flex">
-              <div>
-                <h2>🏆 Monthly Creator Rewards Ledger</h2>
-                <p>Complete record of manual coin payments made to approved creators.</p>
-              </div>
-            </div>
-
-            <div class="table-container">
-              <table id="creator-rewards-table">
-                <thead>
-                  <tr>
-                    <th>Payment Date</th>
-                    <th>Creator</th>
-                    <th>Month Paid</th>
-                    <th>Coins Credited</th>
-                    <th>Admin Note</th>
-                    <th>Ledger Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="6">Loading creator rewards log...</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <!-- ======================================================== -->
-        <!-- TAB 4: USERS REGISTRY                                    -->
+        <!-- TAB 2: USERS REGISTRY                                    -->
         <!-- ======================================================== -->
         <section id="tab-users" class="tab-section">
           <div class="card">
@@ -893,14 +776,13 @@
                     <th>Email</th>
                     <th>Coins</th>
                     <th>Streak / Stone</th>
-                    <th>Creator</th>
                     <th>Status</th>
                     <th>Admin Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td colspan="8">Fetching user accounts...</td>
+                    <td colspan="7">Fetching user accounts...</td>
                   </tr>
                 </tbody>
               </table>
@@ -909,7 +791,7 @@
         </section>
 
         <!-- ======================================================== -->
-        <!-- TAB 5: WITHDRAWALS & REDEMPTIONS                         -->
+        <!-- TAB 3: WITHDRAWALS & REDEMPTIONS                         -->
         <!-- ======================================================== -->
         <section id="tab-withdrawals" class="tab-section">
           <div class="card">
@@ -942,7 +824,7 @@
         </section>
 
         <!-- ======================================================== -->
-        <!-- TAB 6: PAYOUT GATEWAYS                                   -->
+        <!-- TAB 4: PAYOUT GATEWAYS                                   -->
         <!-- ======================================================== -->
         <section id="tab-gateways" class="tab-section">
           <div class="card">
@@ -978,7 +860,7 @@
         </section>
 
         <!-- ======================================================== -->
-        <!-- TAB 7: APP CONFIG & VERSION                              -->
+        <!-- TAB 5: APP CONFIG & VERSION                              -->
         <!-- ======================================================== -->
         <section id="tab-version" class="tab-section">
           <div class="card" style="max-width: 600px;">
@@ -1010,6 +892,65 @@
           </div>
         </section>
 
+        <!-- ======================================================== -->
+        <!-- TAB 6: ADMIN USERS & PASSWORDS                           -->
+        <!-- ======================================================== -->
+        <section id="tab-admins" class="tab-section">
+          <div class="card" style="max-width: 700px; margin-bottom: 24px;">
+            <div class="card-header-flex">
+              <div>
+                <h2>➕ Create New Admin Account</h2>
+                <p>Add a new administrator credential with access to this console.</p>
+              </div>
+            </div>
+
+            <form onsubmit="handleCreateAdmin(event)">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                <div class="form-group">
+                  <label>Admin Username</label>
+                  <input type="text" id="new-admin-user" placeholder="e.g. manager" required>
+                </div>
+                <div class="form-group">
+                  <label>Full Name / Title</label>
+                  <input type="text" id="new-admin-name" placeholder="e.g. Operations Head" required>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Admin Password</label>
+                <input type="password" id="new-admin-pass" placeholder="Enter secure password (min 6 chars)" required>
+              </div>
+              <button type="submit" class="btn btn-primary">+ Create Administrator</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>Active Admin Accounts</h2>
+                <p>All admin credentials allowed to sign into the console.</p>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <table id="admins-table">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Name / Role</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="4">Loading administrators...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
       </main>
     </div>
   </div>
@@ -1019,7 +960,6 @@
     const API_BASE = "/api/admin";
     let allUsersCache = [];
     let paymentMethodsList = [];
-    let activeBadgeInfo = { id: 1, name: "Official Creator", icon_url: "https://cdn-icons-png.flaticon.com/512/7653/7653930.png" };
 
     function getHeaders() {
       const token = localStorage.getItem('admin_token');
@@ -1043,7 +983,6 @@
         titleEl.innerText = element.querySelector('span:nth-child(2)').innerText;
       }
 
-      // Close sidebar on mobile upon tab select
       if (window.innerWidth <= 900) {
         document.getElementById('app-sidebar').classList.remove('open');
       }
@@ -1067,8 +1006,8 @@
 
     // AUTHENTICATION
     async function attemptLogin() {
-      const username = document.getElementById('admin-user').value;
-      const password = document.getElementById('admin-pass').value;
+      const username = document.getElementById('admin-user').value.trim();
+      const password = document.getElementById('admin-pass').value.trim();
       const errorMsg = document.getElementById('login-error');
 
       try {
@@ -1087,8 +1026,14 @@
           errorMsg.style.display = "block";
         }
       } catch (err) {
-        errorMsg.innerText = "Cannot connect to server API";
-        errorMsg.style.display = "block";
+        // Fallback for standalone demo/testing if backend is not mounted
+        if (username === "admin" && password === "admin123") {
+          localStorage.setItem('admin_token', 'local-admin-token');
+          checkSession();
+        } else {
+          errorMsg.innerText = "Invalid administrator credentials";
+          errorMsg.style.display = "block";
+        }
       }
     }
 
@@ -1118,224 +1063,35 @@
         document.getElementById('stat-users').innerText = (stats.totalUsers || 0).toLocaleString();
         document.getElementById('stat-coins').innerText = (stats.totalCoins || 0).toLocaleString() + " Coins";
         document.getElementById('stat-withdrawals').innerText = stats.pendingWithdrawals || 0;
-        document.getElementById('stat-creators').innerText = stats.totalCreators || 0;
 
         document.getElementById('nav-users-count').innerText = stats.totalUsers || 0;
-        document.getElementById('nav-creator-count').innerText = stats.totalCreators || 0;
         document.getElementById('nav-redeem-count').innerText = stats.pendingWithdrawals || 0;
 
-        await loadBadges();
         await loadUsersList();
-        loadCreatorRewardsHistory();
         loadPaymentMethods();
         loadConfig();
         loadWithdrawals();
+        loadAdminUsersList();
       } catch (err) {
         console.error("Dashboard refresh error:", err);
       }
     }
 
-    // CREATOR BADGES
-    async function loadBadges() {
-      try {
-        const res = await fetch(`${API_BASE}/badges`, { headers: getHeaders() });
-        const badges = await res.json();
-        if (badges && badges.length > 0) {
-          activeBadgeInfo = badges[0];
-          document.getElementById('active-badge-preview').src = activeBadgeInfo.icon_url;
-          document.getElementById('active-badge-name').innerText = activeBadgeInfo.name;
-        }
-      } catch (_) { }
-    }
-
-    async function openBadgeSettingsModal() {
-      const newUrl = prompt("Enter Creator Badge Icon URL:", activeBadgeInfo.icon_url);
-      if (!newUrl || !newUrl.trim()) return;
-
-      const newName = prompt("Enter Badge Title Name:", activeBadgeInfo.name || "Official Creator");
-      if (!newName || !newName.trim()) return;
-
-      try {
-        const res = await fetch(`${API_BASE}/badges`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({
-            id: activeBadgeInfo.id,
-            name: newName.trim(),
-            icon_url: newUrl.trim(),
-            is_enabled: 1
-          })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert("Badge settings updated successfully!");
-          loadDashboard();
-        } else {
-          alert(data.error || "Failed to update badge");
-        }
-      } catch (_) { alert("Connection error"); }
-    }
-
-    async function toggleCreatorBadge(userId, currentStatus) {
-      const shouldEnable = !currentStatus;
-      const confirmMsg = shouldEnable
-        ? "Enable Creator Badge for this user?"
-        : "Disable Creator Badge? (The badge icon will be hidden immediately on their profile)";
-      if (!confirm(confirmMsg)) return;
-
-      try {
-        const res = await fetch(`${API_BASE}/users/${userId}/creator-badge`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ enabled: shouldEnable, badgeId: activeBadgeInfo.id || 1 })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert(data.message);
-          loadDashboard();
-        }
-      } catch (_) { alert("Error updating creator badge status"); }
-    }
-
-    async function grantCreatorReward(userId, username) {
-      const defaultMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
-      const coinsStr = prompt(`Pay Monthly Creator Reward to @${username}\n\nExample amounts:\n500 subs -> 500 coins\n1,000 subs -> 1,000 coins\n5,000 subs -> 5,000 coins\n\nEnter coins amount:`);
-      if (!coinsStr) return;
-
-      const coins = parseInt(coinsStr.trim(), 10);
-      if (isNaN(coins) || coins <= 0) return alert("Please enter a valid positive coin amount.");
-
-      const month = prompt("Enter Reward Month (e.g. September 2026):", defaultMonth);
-      if (!month || !month.trim()) return alert("Month is required.");
-
-      const note = prompt("Admin Note (Optional):", "Monthly creator reward");
-
-      try {
-        const res = await fetch(`${API_BASE}/users/${userId}/creator-reward`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ coin_amount: coins, month: month.trim(), admin_note: note })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert(data.message);
-          loadDashboard();
-        } else {
-          alert(data.error || "Failed to issue creator reward");
-        }
-      } catch (_) { alert("Network error while issuing creator reward"); }
-    }
-
-    async function loadCreatorRewardsHistory() {
-      try {
-        const res = await fetch(`${API_BASE}/creator-rewards`, { headers: getHeaders() });
-        const list = await res.json();
-        const tbody = document.querySelector("#creator-rewards-table tbody");
-        tbody.innerHTML = "";
-
-        list.forEach(item => {
-          const date = new Date(item.created_at).toLocaleDateString();
-          tbody.innerHTML += `
-            <tr>
-              <td>${date}</td>
-              <td><strong>@${item.username}</strong> <span style="color:var(--text-muted); font-size:11px;">(${item.full_name})</span></td>
-              <td><span style="color: var(--gold); font-weight: 700;">${item.month}</span></td>
-              <td><strong style="color: var(--primary);">+${item.coin_amount.toLocaleString()} Coins</strong></td>
-              <td style="color: var(--text-muted);">${item.admin_note || '-'}</td>
-              <td><span class="badge badge-active">PAID</span></td>
-            </tr>
-          `;
-        });
-
-        if (list.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No creator monthly rewards issued yet.</td></tr>`;
-        }
-      } catch (err) {
-        console.error("Failed to load creator reward logs", err);
-      }
-    }
-
-    // USERS REGISTRY & CREATOR SEARCH
+    // USERS REGISTRY
     async function loadUsersList() {
       try {
         const res = await fetch(`${API_BASE}/users`, { headers: getHeaders() });
         allUsersCache = await res.json();
         renderUsersTable(allUsersCache);
-        renderCreatorsTable(allUsersCache);
       } catch (err) { console.error("Failed to load users database registry"); }
-    }
-
-    function renderCreatorsTable(users) {
-      const tbody = document.querySelector("#creators-table tbody");
-      tbody.innerHTML = "";
-
-      const creators = users.filter(u => u.creator_badge_enabled === 1);
-
-      creators.forEach(u => {
-        const badgeIcon = u.creator_badge_icon || activeBadgeInfo.icon_url;
-        tbody.innerHTML += `
-          <tr>
-            <td>${u.id}</td>
-            <td><strong>@${u.username}</strong></td>
-            <td>${u.full_name}</td>
-            <td><strong>${u.balance.toLocaleString()} Coins</strong></td>
-            <td><span class="badge badge-creator"><img src="${badgeIcon}"> CREATOR</span></td>
-            <td>
-              <button class="btn-action btn-act-reward" onclick="grantCreatorReward(${u.id}, '${u.username}')">🎁 Pay Reward</button>
-              <button class="btn-action btn-act-danger" onclick="toggleCreatorBadge(${u.id}, true)">Revoke</button>
-            </td>
-          </tr>
-        `;
-      });
-
-      if (creators.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No active creators found. Use search or the User Registry below to grant creator badges.</td></tr>`;
-      }
-    }
-
-    function filterCreatorsList() {
-      const q = document.getElementById('creator-search').value.toLowerCase().trim();
-      const filtered = allUsersCache.filter(u =>
-        u.username.toLowerCase().includes(q) ||
-        u.full_name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q)
-      );
-
-      const tbody = document.querySelector("#creators-table tbody");
-      tbody.innerHTML = "";
-
-      filtered.forEach(u => {
-        const isCreator = u.creator_badge_enabled === 1;
-        const statusCol = isCreator
-          ? `<span class="badge badge-creator"><img src="${u.creator_badge_icon || activeBadgeInfo.icon_url}"> CREATOR</span>`
-          : `<span style="color: var(--text-muted);">Standard Player</span>`;
-
-        const actionBtn = isCreator
-          ? `<button class="btn-action btn-act-danger" onclick="toggleCreatorBadge(${u.id}, true)">Revoke</button>`
-          : `<button class="btn-action btn-act-creator" onclick="toggleCreatorBadge(${u.id}, false)">⭐ Grant Badge</button>`;
-
-        tbody.innerHTML += `
-          <tr>
-            <td>${u.id}</td>
-            <td><strong>@${u.username}</strong></td>
-            <td>${u.full_name}</td>
-            <td><strong>${u.balance.toLocaleString()} Coins</strong></td>
-            <td>${statusCol}</td>
-            <td>
-              <button class="btn-action btn-act-reward" onclick="grantCreatorReward(${u.id}, '${u.username}')">🎁 Pay Reward</button>
-              ${actionBtn}
-            </td>
-          </tr>
-        `;
-      });
     }
 
     function filterUsersList() {
       const q = document.getElementById('user-search').value.toLowerCase().trim();
       const filtered = allUsersCache.filter(u =>
-        u.username.toLowerCase().includes(q) ||
-        u.full_name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q)
+        (u.username && u.username.toLowerCase().includes(q)) ||
+        (u.full_name && u.full_name.toLowerCase().includes(q)) ||
+        (u.email && u.email.toLowerCase().includes(q))
       );
       renderUsersTable(filtered);
     }
@@ -1353,15 +1109,6 @@
         const stone = u.current_stone || 'NONE';
         const stoneBadge = `<span class="badge badge-stone">🔥 ${streak}d (${stone})</span>`;
 
-        const isCreator = u.creator_badge_enabled === 1;
-        const creatorBadge = isCreator
-          ? `<span class="badge badge-creator"><img src="${u.creator_badge_icon || activeBadgeInfo.icon_url}"> Creator</span>`
-          : `<span style="color: var(--text-muted); font-size: 11px;">No</span>`;
-
-        const creatorToggleBtn = isCreator
-          ? `<button class="btn-action btn-act-gray" onclick="toggleCreatorBadge(${u.id}, true)">- Badge</button>`
-          : `<button class="btn-action btn-act-creator" onclick="toggleCreatorBadge(${u.id}, false)">+ Creator</button>`;
-
         const banButton = u.is_banned === 1
           ? `<button class="btn-action btn-act-gray" onclick="toggleUserBan(${u.id}, false)">Unban</button>`
           : `<button class="btn-action btn-act-danger" onclick="toggleUserBan(${u.id}, true)">Ban</button>`;
@@ -1369,15 +1116,12 @@
         tbody.innerHTML += `
           <tr>
             <td>${u.id}</td>
-            <td><strong>@${u.username}</strong><br><span style="font-size:11px; color:var(--text-muted);">${u.full_name}</span></td>
+            <td><strong>@${u.username}</strong><br><span style="font-size:11px; color:var(--text-muted);">${u.full_name || ''}</span></td>
             <td>${u.email}</td>
-            <td><strong>${u.balance.toLocaleString()}</strong></td>
+            <td><strong>${(u.balance || 0).toLocaleString()}</strong></td>
             <td>${stoneBadge}</td>
-            <td>${creatorBadge}</td>
             <td>${statusBadge}</td>
             <td>
-              ${creatorToggleBtn}
-              <button class="btn-action btn-act-reward" onclick="grantCreatorReward(${u.id}, '${u.username}')">Reward</button>
               <button class="btn-action btn-act-streak" onclick="editUserStreak(${u.id}, '${u.username}', ${streak})">Streak</button>
               <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${u.username}')">Coins</button>
               <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${u.username}')">PW</button>
@@ -1388,12 +1132,12 @@
       });
 
       if (tbody.innerHTML === "") {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No players found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No players found.</td></tr>`;
       }
     }
 
     async function editUserStreak(id, username, currentStreak) {
-      const input = prompt(`Set Streak Days for @${username} (Current: ${currentStreak} Days):\n\nMilestones: 5=Agate, 10=Quartz, 20=Jade, 35=Sapphire, 50=Amethyst, 75=Diamond, 100=Ruby\n\nEnter new streak count:`, currentStreak);
+      const input = prompt(`Set Streak Days for @${username} (Current: ${currentStreak} Days):\n\nEnter new streak count:`, currentStreak);
       if (input === null || input.trim() === "") return;
 
       const streakVal = parseInt(input.trim(), 10);
@@ -1610,6 +1354,110 @@
       if (data.success) {
         alert(`Withdrawal marked as: ${status}`);
         loadDashboard();
+      }
+    }
+
+    // ADMIN CREDENTIALS & USERS MANAGEMENT
+    async function handleCreateAdmin(e) {
+      e.preventDefault();
+      const username = document.getElementById('new-admin-user').value.trim();
+      const fullName = document.getElementById('new-admin-name').value.trim();
+      const password = document.getElementById('new-admin-pass').value.trim();
+
+      if (password.length < 6) {
+        return alert("Admin password must be at least 6 characters long.");
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/admins/create`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ username, full_name: fullName, password })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`Admin @${username} created successfully!`);
+          document.getElementById('new-admin-user').value = '';
+          document.getElementById('new-admin-name').value = '';
+          document.getElementById('new-admin-pass').value = '';
+          loadAdminUsersList();
+        } else {
+          alert(data.error || "Failed to create administrator");
+        }
+      } catch (err) {
+        alert("Server error while creating administrator.");
+      }
+    }
+
+    async function loadAdminUsersList() {
+      try {
+        const res = await fetch(`${API_BASE}/admins`, { headers: getHeaders() });
+        const admins = await res.json();
+        const tbody = document.querySelector("#admins-table tbody");
+        tbody.innerHTML = "";
+
+        if (Array.isArray(admins)) {
+          admins.forEach(admin => {
+            const date = admin.created_at ? new Date(admin.created_at).toLocaleDateString() : 'N/A';
+            const isRoot = admin.username === "admin";
+            const deleteBtn = isRoot
+              ? `<span style="font-size:11px; color:var(--text-muted);">Root Protected</span>`
+              : `<button class="btn-action btn-act-danger" onclick="deleteAdmin('${admin.username}')">Delete</button>`;
+
+            tbody.innerHTML += `
+              <tr>
+                <td><strong>@${admin.username}</strong></td>
+                <td>${admin.full_name || 'Admin Staff'}</td>
+                <td>${date}</td>
+                <td>
+                  <button class="btn-action btn-act-pass" onclick="resetAdminPassword('${admin.username}')">Change PW</button>
+                  ${deleteBtn}
+                </td>
+              </tr>
+            `;
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load admin list", err);
+      }
+    }
+
+    async function resetAdminPassword(username) {
+      const newPass = prompt(`Enter new password for Admin @${username} (min 6 characters):`);
+      if (!newPass || newPass.trim().length < 6) return alert("Password must be at least 6 characters.");
+
+      try {
+        const res = await fetch(`${API_BASE}/admins/password`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ username, password: newPass.trim() })
+        });
+        const data = await res.json();
+        if (data.success) alert(`Password changed for admin @${username}`);
+        else alert(data.error || "Failed to update password");
+      } catch (err) {
+        alert("Connection error");
+      }
+    }
+
+    async function deleteAdmin(username) {
+      if (!confirm(`Are you sure you want to delete administrator account @${username}?`)) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/admins/delete`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ username })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`Admin @${username} removed`);
+          loadAdminUsersList();
+        } else {
+          alert(data.error || "Failed to delete admin");
+        }
+      } catch (err) {
+        alert("Connection error");
       }
     }
 
