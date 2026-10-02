@@ -9,6 +9,30 @@ const adminAuth = require('../middleware/adminAuth');
 
 const JWT_ADMIN_SECRET = 'ARENA_GAMES_ADMIN_SECRET_KEY';
 
+// Ensure admins table exists & seed default admin/admin123 if table is empty
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS admins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      full_name TEXT,
+      password_hash TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.get("SELECT COUNT(*) as count FROM admins", async (err, row) => {
+    if (!err && row && row.count === 0) {
+      const defaultHash = await bcrypt.hash('admin123', 10);
+      db.run(
+        "INSERT INTO admins (username, full_name, password_hash) VALUES (?, ?, ?)",
+        ['admin', 'Master Admin', defaultHash]
+      );
+      console.log("[Admin Setup] Created default root admin: admin / admin123");
+    }
+  });
+});
+
 // 7-Level Stone Badge Tier Definitions
 const STONE_TIERS = [
   { rank: 7, name: 'RUBY', days: 100 },
@@ -37,10 +61,10 @@ router.post('/login', (req, res) => {
     return res.status(400).json({ error: 'Username and password are required' });
   }
 
-  db.get('SELECT * FROM admins WHERE username = ?', [username], async (err, admin) => {
+  db.get('SELECT * FROM admins WHERE username = ?', [username.trim()], async (err, admin) => {
     if (err || !admin) return res.status(401).json({ error: 'Invalid admin credentials' });
 
-    const isValid = await bcrypt.compare(password, admin.password_hash);
+    const isValid = await bcrypt.compare(password.trim(), admin.password_hash);
     if (!isValid) return res.status(401).json({ error: 'Invalid admin credentials' });
 
     const token = jwt.sign(
@@ -64,39 +88,31 @@ router.get('/dashboard', adminAuth, (req, res) => {
       stats.totalCoins = r ? (r.coins || 0) : 0;
       db.get("SELECT COUNT(*) as p FROM withdrawals WHERE status = 'PENDING'", (err, r) => {
         stats.pendingWithdrawals = r ? r.p : 0;
-        db.get('SELECT COUNT(*) as creators FROM users WHERE creator_badge_enabled = 1', (err, cr) => {
-          stats.totalCreators = cr ? cr.creators : 0;
-          res.json(stats);
-        });
+        res.json(stats);
       });
     });
   });
 });
 
 // ---------------------------------------------------------------------------
-// C. Users Registry (Includes Streaks, Stones, and Creator Badge Status)
+// C. Users Registry (Streaks, Stones, Balances)
 // ---------------------------------------------------------------------------
 router.get('/users', adminAuth, (req, res) => {
   db.all(
     `SELECT 
-      u.id, 
-      u.full_name, 
-      u.username, 
-      u.email, 
-      u.balance, 
-      COALESCE(u.total_coins_earned, 0) as total_coins_earned,
-      COALESCE(u.current_streak, 0) as current_streak,
-      COALESCE(u.highest_streak, 0) as highest_streak,
-      COALESCE(u.current_stone, 'NONE') as current_stone,
-      COALESCE(u.creator_badge_enabled, 0) as creator_badge_enabled,
-      u.creator_badge_id,
-      b.icon_url as creator_badge_icon,
-      b.name as creator_badge_name,
-      u.is_banned, 
-      u.created_at 
-     FROM users u
-     LEFT JOIN badges b ON u.creator_badge_id = b.id
-     ORDER BY u.created_at DESC`,
+      id, 
+      full_name, 
+      username, 
+      email, 
+      balance, 
+      COALESCE(total_coins_earned, 0) as total_coins_earned,
+      COALESCE(current_streak, 0) as current_streak,
+      COALESCE(highest_streak, 0) as highest_streak,
+      COALESCE(current_stone, 'NONE') as current_stone,
+      is_banned, 
+      created_at 
+     FROM users
+     ORDER BY created_at DESC`,
     (err, rows) => {
       if (err) return res.status(500).json({ error: 'Failed to retrieve users' });
       res.json(rows || []);
@@ -105,154 +121,79 @@ router.get('/users', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// D. Creator Badge System Endpoints
+// D. Admin Accounts Management (Create, List, Reset PW, Delete)
 // ---------------------------------------------------------------------------
 
-// 1. Get all available badges
-router.get('/badges', adminAuth, (req, res) => {
-  db.all('SELECT * FROM badges ORDER BY id ASC', (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to fetch badges' });
+// 1. Get all admins
+router.get('/admins', adminAuth, (req, res) => {
+  db.all('SELECT id, username, full_name, created_at FROM admins ORDER BY id ASC', (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Failed to fetch admin accounts' });
     res.json(rows || []);
   });
 });
 
-// 2. Create or Update Badge
-router.post('/badges', adminAuth, (req, res) => {
-  const { id, name, icon_url, is_enabled } = req.body;
-  if (!name || !icon_url) {
-    return res.status(400).json({ error: 'Badge name and icon URL are required' });
+// 2. Create a new admin
+router.post('/admins/create', adminAuth, async (req, res) => {
+  const { username, full_name, password } = req.body;
+
+  if (!username || !password || password.trim().length < 6) {
+    return res.status(400).json({ error: 'Username and password (min 6 chars) are required' });
   }
 
-  if (id) {
+  try {
+    const hash = await bcrypt.hash(password.trim(), 10);
     db.run(
-      'UPDATE badges SET name = ?, icon_url = ?, is_enabled = ? WHERE id = ?',
-      [name, icon_url, is_enabled !== undefined ? (is_enabled ? 1 : 0) : 1, id],
+      'INSERT INTO admins (username, full_name, password_hash) VALUES (?, ?, ?)',
+      [username.trim().toLowerCase(), full_name ? full_name.trim() : 'Admin Staff', hash],
       function (err) {
-        if (err) return res.status(500).json({ error: 'Failed to update badge' });
-        res.json({ success: true, message: 'Badge updated successfully' });
-      }
-    );
-  } else {
-    db.run(
-      'INSERT INTO badges (name, icon_url, is_enabled) VALUES (?, ?, ?)',
-      [name, icon_url, is_enabled !== undefined ? (is_enabled ? 1 : 0) : 1],
-      function (err) {
-        if (err) return res.status(500).json({ error: 'Failed to insert badge' });
-        res.json({ success: true, id: this.lastID, message: 'Badge created successfully' });
-      }
-    );
-  }
-});
-
-// 3. Enable / Disable Creator Badge for a User
-router.post('/users/:id/creator-badge', adminAuth, (req, res) => {
-  const { enabled, badgeId } = req.body;
-  const userId = req.params.id;
-
-  const isEnabled = enabled ? 1 : 0;
-  const assignedBadgeId = isEnabled ? (badgeId || 1) : null;
-
-  db.run(
-    'UPDATE users SET creator_badge_enabled = ?, creator_badge_id = ? WHERE id = ?',
-    [isEnabled, assignedBadgeId, userId],
-    function (err) {
-      if (err) return res.status(500).json({ error: 'Failed to update creator badge status' });
-      res.json({
-        success: true,
-        message: isEnabled ? 'Creator badge granted to user!' : 'Creator badge disabled for user.',
-        creator_badge_enabled: isEnabled === 1,
-        creator_badge_id: assignedBadgeId,
-      });
-    }
-  );
-});
-
-// 4. Issue Monthly Creator Coins Reward
-router.post('/users/:id/creator-reward', adminAuth, (req, res) => {
-  const userId = req.params.id;
-  const { coin_amount, month, admin_note } = req.body;
-
-  const coins = parseInt(coin_amount, 10);
-  if (isNaN(coins) || coins <= 0) {
-    return res.status(400).json({ error: 'A positive integer coin amount is required' });
-  }
-
-  const rewardMonth = (month && month.trim().length > 0)
-    ? month.trim()
-    : new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
-  const note = admin_note ? admin_note.trim() : 'Monthly creator reward';
-
-  db.serialize(() => {
-    db.run('BEGIN TRANSACTION');
-
-    // Insert into creator_rewards history
-    db.run(
-      `INSERT INTO creator_rewards (user_id, coin_amount, month, admin_note) 
-       VALUES (?, ?, ?, ?)`,
-      [userId, coins, rewardMonth, note],
-      function (rewardErr) {
-        if (rewardErr) {
-          db.run('ROLLBACK');
-          return res.status(500).json({ error: 'Failed to record creator reward' });
-        }
-
-        const rewardId = this.lastID;
-
-        // Credit user's wallet
-        db.run(
-          `UPDATE users SET 
-            balance = balance + ?, 
-            total_coins_earned = total_coins_earned + ? 
-           WHERE id = ?`,
-          [coins, coins, userId],
-          function (userErr) {
-            if (userErr) {
-              db.run('ROLLBACK');
-              return res.status(500).json({ error: 'Failed to credit user wallet balance' });
-            }
-
-            // Write unified ledger transaction record
-            db.run(
-              `INSERT INTO transactions (user_id, type, amount, reference_id) 
-               VALUES (?, 'CREATOR_REWARD', ?, ?)`,
-              [userId, coins, `CREATOR_REWARD_${rewardId}_${rewardMonth}`],
-              function (txErr) {
-                if (txErr) {
-                  db.run('ROLLBACK');
-                  return res.status(500).json({ error: 'Failed to record transaction log' });
-                }
-
-                db.run('COMMIT');
-                res.json({
-                  success: true,
-                  message: `Successfully rewarded ${coins.toLocaleString()} coins to user for ${rewardMonth}!`,
-                  rewardId,
-                });
-              }
-            );
+        if (err) {
+          if (err.message && err.message.includes('UNIQUE')) {
+            return res.status(400).json({ error: 'Username already exists' });
           }
-        );
+          return res.status(500).json({ error: 'Failed to create administrator account' });
+        }
+        res.json({ success: true, message: `Admin @${username} created successfully!` });
       }
     );
-  });
+  } catch (e) {
+    res.status(500).json({ error: 'Encryption failure' });
+  }
 });
 
-// 5. Get Creator Rewards History
-router.get('/creator-rewards', adminAuth, (req, res) => {
-  db.all(
-    `SELECT 
-      cr.*, 
-      u.username, 
-      u.full_name,
-      u.email 
-     FROM creator_rewards cr
-     JOIN users u ON cr.user_id = u.id
-     ORDER BY cr.created_at DESC`,
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: 'Failed to fetch creator reward history' });
-      res.json(rows || []);
-    }
-  );
+// 3. Reset an admin's password
+router.post('/admins/password', adminAuth, async (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password || password.trim().length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
+
+  try {
+    const hash = await bcrypt.hash(password.trim(), 10);
+    db.run('UPDATE admins SET password_hash = ? WHERE username = ?', [hash, username], function (err) {
+      if (err) return res.status(500).json({ error: 'Failed to reset password' });
+      if (this.changes === 0) return res.status(404).json({ error: 'Admin account not found' });
+      res.json({ success: true, message: `Password updated for @${username}` });
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Encryption failure' });
+  }
+});
+
+// 4. Delete an admin account
+router.post('/admins/delete', adminAuth, (req, res) => {
+  const { username } = req.body;
+
+  if (!username) return res.status(400).json({ error: 'Username is required' });
+  if (username.toLowerCase() === 'admin') {
+    return res.status(403).json({ error: 'Root admin account cannot be removed' });
+  }
+
+  db.run('DELETE FROM admins WHERE username = ?', [username], function (err) {
+    if (err) return res.status(500).json({ error: 'Failed to remove admin' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Admin account not found' });
+    res.json({ success: true, message: `Admin @${username} removed` });
+  });
 });
 
 // ---------------------------------------------------------------------------
