@@ -983,6 +983,11 @@
         titleEl.innerText = element.querySelector('span:nth-child(2)').innerText;
       }
 
+      // Automatically reload admin list whenever switching to the admin credentials tab
+      if (tabId === 'tab-admins') {
+        loadAdminUsersList();
+      }
+
       if (window.innerWidth <= 900) {
         document.getElementById('app-sidebar').classList.remove('open');
       }
@@ -1026,14 +1031,8 @@
           errorMsg.style.display = "block";
         }
       } catch (err) {
-        // Fallback for standalone demo/testing if backend is not mounted
-        if (username === "admin" && password === "admin123") {
-          localStorage.setItem('admin_token', 'local-admin-token');
-          checkSession();
-        } else {
-          errorMsg.innerText = "Invalid administrator credentials";
-          errorMsg.style.display = "block";
-        }
+        errorMsg.innerText = "Cannot connect to server API";
+        errorMsg.style.display = "block";
       }
     }
 
@@ -1390,18 +1389,27 @@
     }
 
     async function loadAdminUsersList() {
+      const tbody = document.querySelector("#admins-table tbody");
+      if (!tbody) return;
+
       try {
         const res = await fetch(`${API_BASE}/admins`, { headers: getHeaders() });
+        
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--danger);">Error: ${errData.error || 'Could not fetch admin accounts'}</td></tr>`;
+          return;
+        }
+
         const admins = await res.json();
-        const tbody = document.querySelector("#admins-table tbody");
         tbody.innerHTML = "";
 
-        if (Array.isArray(admins)) {
+        if (Array.isArray(admins) && admins.length > 0) {
           admins.forEach(admin => {
             const date = admin.created_at ? new Date(admin.created_at).toLocaleDateString() : 'N/A';
-            const isRoot = admin.username === "admin";
+            const isRoot = admin.username.toLowerCase() === "admin";
             const deleteBtn = isRoot
-              ? `<span style="font-size:11px; color:var(--text-muted);">Root Protected</span>`
+              ? `<span style="font-size:11px; color:var(--text-muted); padding: 5px 8px;">Root Protected</span>`
               : `<button class="btn-action btn-act-danger" onclick="deleteAdmin('${admin.username}')">Delete</button>`;
 
             tbody.innerHTML += `
@@ -1416,9 +1424,12 @@
               </tr>
             `;
           });
+        } else {
+          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No admin accounts found.</td></tr>`;
         }
       } catch (err) {
         console.error("Failed to load admin list", err);
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--danger);">Failed to connect to admin API.</td></tr>`;
       }
     }
 
