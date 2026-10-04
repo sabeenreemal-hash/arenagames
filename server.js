@@ -14,7 +14,6 @@ const gamesRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
 const rewardsRouter = require('./routes/rewards');
 const referralRoutes = require('./routes/referral');
-const miningRoutes = require('./routes/mining');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -60,28 +59,6 @@ db.run(`
   }
 });
 
-// Mining Sessions Table
-db.run(`
-  CREATE TABLE IF NOT EXISTS mining_sessions (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    started_at INTEGER NOT NULL,
-    ends_at INTEGER NOT NULL,
-    last_boost_ended_at INTEGER DEFAULT 0,
-    boost_active_until INTEGER DEFAULT 0,
-    boost_count INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'active',
-    claimed_reward REAL DEFAULT 0,
-    is_doubled INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`, (err) => {
-  if (!err) {
-    console.log('[DB SUCCESS] mining_sessions table initialized.');
-  }
-});
-db.run(`CREATE INDEX IF NOT EXISTS idx_mining_user_status ON mining_sessions(user_id, status)`);
-
 // Security: Hide Express fingerprinting
 app.disable('x-powered-by');
 
@@ -106,7 +83,6 @@ app.use('/api/games', gamesRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
-app.use('/api/mining', miningRoutes);
 
 // ============================================================
 // ADSWEDMEDIA S2S POSTBACK ENDPOINT
