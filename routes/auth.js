@@ -8,6 +8,10 @@ const db = require('../database');
 
 const JWT_SECRET = 'ARENA_GAMES_SUPER_SECRET_KEY';
 
+// Automatically ensure device_id column and index exist in the SQLite database
+db.run("ALTER TABLE users ADD COLUMN device_id TEXT", () => {});
+db.run("CREATE INDEX IF NOT EXISTS idx_users_device_id ON users(device_id)", () => {});
+
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -29,12 +33,31 @@ function generateReferralCode() {
 
 // User Registration
 router.post('/register', async (req, res) => {
-  const { fullName, username, email, password, referralCode } = req.body;
+  const { fullName, username, email, password, referralCode, deviceId, device_id } = req.body;
+  const cleanDeviceId = (deviceId || device_id || '').toString().trim();
 
   if (!fullName || !username || !email || !password) {
     return res.status(400).json({ error: 'All primary fields are required' });
   }
 
+  // 1. Strict check: Prevent registering multiple accounts from the same physical device
+  if (cleanDeviceId) {
+    db.get('SELECT id FROM users WHERE device_id = ?', [cleanDeviceId], async (devErr, existingDevice) => {
+      if (existingDevice) {
+        return res.status(400).json({
+          error: 'This device is already register with another account contact to customer care for more information..'
+        });
+      }
+
+      // Proceed with registration check if device is clean
+      handleUserRegistration(fullName, username, email, password, referralCode, cleanDeviceId, res);
+    });
+  } else {
+    handleUserRegistration(fullName, username, email, password, referralCode, null, res);
+  }
+});
+
+async function handleUserRegistration(fullName, username, email, password, referralCode, cleanDeviceId, res) {
   try {
     const passwordHash = await bcrypt.hash(password, 10);
     const generatedCode = generateReferralCode();
@@ -54,25 +77,43 @@ router.post('/register', async (req, res) => {
             if (refErr || !referrer) {
               return res.status(400).json({ error: 'Invalid referral code. Check spelling or leave empty.' });
             }
-            executeUserCreation(fullName.trim(), username.trim(), email.trim(), passwordHash, generatedCode, referrer.id, res);
+            executeUserCreation(
+              fullName.trim(),
+              username.trim(),
+              email.trim(),
+              passwordHash,
+              generatedCode,
+              referrer.id,
+              cleanDeviceId,
+              res
+            );
           }
         );
       } else {
-        executeUserCreation(fullName.trim(), username.trim(), email.trim(), passwordHash, generatedCode, null, res);
+        executeUserCreation(
+          fullName.trim(),
+          username.trim(),
+          email.trim(),
+          passwordHash,
+          generatedCode,
+          null,
+          cleanDeviceId,
+          res
+        );
       }
     });
   } catch (err) {
     res.status(500).json({ error: 'Server encryption error' });
   }
-});
+}
 
-function executeUserCreation(fullName, username, email, passwordHash, code, referrerId, res) {
+function executeUserCreation(fullName, username, email, passwordHash, code, referrerId, deviceId, res) {
   const signupBonus = 100;
 
   db.run(
-    `INSERT INTO users (full_name, username, email, password_hash, referral_code, referred_by_id, balance) 
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [fullName, username, email, passwordHash, code, referrerId, signupBonus],
+    `INSERT INTO users (full_name, username, email, password_hash, referral_code, referred_by_id, balance, device_id) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [fullName, username, email, passwordHash, code, referrerId, signupBonus, deviceId],
     function (insertErr) {
       if (insertErr) return res.status(500).json({ error: 'Failed to create user record' });
 
@@ -94,7 +135,7 @@ function executeUserCreation(fullName, username, email, passwordHash, code, refe
   );
 }
 
-// User Login (Live Creator Badge Detection)
+// User Login (Unrestricted - any valid account can log in on any device)
 router.post('/login', (req, res) => {
   const { usernameOrEmail, password } = req.body;
 
