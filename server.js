@@ -7,6 +7,14 @@ const path = require('path');
 const crypto = require('crypto'); // Built-in Node.js crypto module for MD5 & SHA256
 const db = require('./database');
 
+// Optional JWT loader with safe fallback
+let jwt;
+try {
+  jwt = require('jsonwebtoken');
+} catch (e) {
+  jwt = null;
+}
+
 // Import Router Files
 const authRoutes = require('./routes/auth');
 const walletRoutes = require('./routes/wallet');
@@ -28,7 +36,7 @@ const TIMEWALL_PLACEMENT_ID = '21f38a8af19d2013';
 const TIMEWALL_IPS = ['18.156.132.55', '51.81.120.73', '142.111.248.18'];
 
 // ============================================================
-// 2. DEDUPLICATION TABLES (Ensures users are never double-credited)
+// 2. DATABASE TABLES INITIALIZATION
 // ============================================================
 // AdswedMedia Deduplication Table
 db.run(`
@@ -59,33 +67,194 @@ db.run(`
   }
 });
 
+// Games Table with 500 Daily Limit per Game
+db.run(`
+  CREATE TABLE IF NOT EXISTS games (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    max_daily_reward INTEGER DEFAULT 500,
+    reward_multiplier REAL DEFAULT 1.0,
+    is_enabled INTEGER DEFAULT 1
+  )
+`, (err) => {
+  if (!err) {
+    const defaultGames = [
+      ['arrow_puzzle', 'Arrow Puzzle', 500],
+      ['ball_sort', 'Ball Sort', 500],
+      ['dot_connect', 'Dot Connect', 500],
+      ['coin_sprint', 'Coin Sprint', 500],
+    ];
+    defaultGames.forEach(([id, name, maxReward]) => {
+      db.run(
+        `INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES (?, ?, ?, 1.0, 1)`,
+        [id, name, maxReward]
+      );
+    });
+    console.log('[DB SUCCESS] Games table initialized with 500 coin limit.');
+  }
+});
+
+// Optimize daily transactions query
+db.run(`
+  CREATE INDEX IF NOT EXISTS idx_transactions_daily 
+  ON transactions(user_id, created_at, type)
+`);
+
 // Security: Hide Express fingerprinting
 app.disable('x-powered-by');
 
-// Gzip compression (massive bandwidth & latency reduction)
+// Gzip compression
 app.use(compression());
 
-// CORS & Body Parsers with payload limits
+// CORS & Body Parsers
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
-// Serve static assets with browser caching enabled (1 day cache)
+// Serve static assets with browser caching enabled
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1d',
   etag: true,
 }));
 
+// ============================================================
+// HELPER: EXTRACT USER ID (From Token or Query)
+// ============================================================
+function extractUserId(req) {
+  if (req.query.userId || req.query.user_id) {
+    return req.query.userId || req.query.user_id;
+  }
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    try {
+      if (jwt) {
+        const decoded = jwt.decode(token);
+        if (decoded && (decoded.id || decoded.userId || decoded.sub)) {
+          return decoded.id || decoded.userId || decoded.sub;
+        }
+      } else {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          return payload.id || payload.userId || payload.sub;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+// ============================================================
+// 3. DAILY GAME COINS STATUS ENDPOINT (Max 500 for Games Only)
+// ============================================================
+const getDailyGameCoinsHandler = (req, res) => {
+  const userId = extractUserId(req);
+
+  if (!userId) {
+    return res.status(400).json({ error: 'Missing user identification (token or userId)' });
+  }
+
+  // Calculate exact seconds remaining until midnight
+  const now = new Date();
+  const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  const secondsUntilReset = Math.max(0, Math.floor((tomorrow - now) / 1000));
+
+  // Sum up all coins earned today where type is NOT an Offerwall
+  const query = `
+    SELECT COALESCE(SUM(amount), 0) AS total_game_coins
+    FROM transactions
+    WHERE user_id = ?
+      AND amount > 0
+      AND type NOT IN ('OFFERWALL', 'TIMEWALL', 'OFFERWALL_REVERSAL', 'TIMEWALL_REVERSAL', 'REFERRAL', 'CHECKIN')
+      AND DATE(created_at) = DATE('now')
+  `;
+
+  db.get(query, [userId], (err, row) => {
+    if (err) {
+      console.error('[DAILY GAME LIMIT DB ERROR]:', err.message);
+      return res.status(500).json({ error: 'Failed to retrieve daily game coins' });
+    }
+
+    const dailyGameCoins = row ? (parseInt(row.total_game_coins, 10) || 0) : 0;
+    const maxDailyGameCoins = 500;
+    const isLimitReached = dailyGameCoins >= maxDailyGameCoins;
+
+    res.json({
+      success: true,
+      userId: String(userId),
+      dailyGameCoins,
+      maxDailyGameCoins,
+      remainingCoins: Math.max(0, maxDailyGameCoins - dailyGameCoins),
+      isLimitReached,
+      secondsUntilReset,
+      resetsAt: tomorrow.toISOString(),
+    });
+  });
+};
+
+// Registered on both paths so client calls work seamlessly
+app.get('/api/wallet/daily-game-coins', getDailyGameCoinsHandler);
+app.get('/api/games/daily-game-coins', getDailyGameCoinsHandler);
+
+// ============================================================
+// 4. BACKEND SCORE SUBMISSION INTERCEPTOR (Enforces 500 Game Limit)
+// ============================================================
+const enforceGameDailyLimitMiddleware = (req, res, next) => {
+  // Only check POST requests attempting to submit game score/rewards
+  const isScoreSubmission = req.method === 'POST' && (
+    req.path.includes('score') ||
+    req.path.includes('submit') ||
+    req.path.includes('claim')
+  );
+
+  if (isScoreSubmission) {
+    const userId = extractUserId(req) || req.body.userId || req.body.user_id;
+
+    if (userId) {
+      const query = `
+        SELECT COALESCE(SUM(amount), 0) AS total_game_coins
+        FROM transactions
+        WHERE user_id = ?
+          AND amount > 0
+          AND type NOT IN ('OFFERWALL', 'TIMEWALL', 'OFFERWALL_REVERSAL', 'TIMEWALL_REVERSAL', 'REFERRAL', 'CHECKIN')
+          AND DATE(created_at) = DATE('now')
+      `;
+
+      db.get(query, [userId], (err, row) => {
+        if (!err && row && row.total_game_coins >= 500) {
+          const now = new Date();
+          const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+          const secondsUntilReset = Math.max(0, Math.floor((tomorrow - now) / 1000));
+
+          console.warn(`[GAME LIMIT BLOCKED] User #${userId} reached 500 game coins for today.`);
+          return res.status(403).json({
+            success: false,
+            limitReached: true,
+            error: 'Daily game limit of 500 coins reached! You can still earn unlimited coins from Offerwalls.',
+            dailyGameCoins: row.total_game_coins,
+            maxDailyGameCoins: 500,
+            secondsUntilReset,
+          });
+        }
+        next();
+      });
+      return;
+    }
+  }
+  next();
+};
+
 // Mount Platform API Routing
 app.use('/api/auth', authRoutes);
 app.use('/api/wallet', walletRoutes);
-app.use('/api/games', gamesRoutes);
+app.use('/api/games', enforceGameDailyLimitMiddleware, gamesRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
 
 // ============================================================
-// ADSWEDMEDIA S2S POSTBACK ENDPOINT
+// ADSWEDMEDIA S2S POSTBACK ENDPOINT (Unlimited - No 500 Limit)
 // Postback URL: https://api.rubylune.com/api/adswed/postback
 // ============================================================
 app.get('/api/adswed/postback', (req, res) => {
@@ -175,11 +344,10 @@ app.get('/api/adswed/postback', (req, res) => {
 });
 
 // ============================================================
-// TIMEWALL S2S POSTBACK ENDPOINT
+// TIMEWALL S2S POSTBACK ENDPOINT (Unlimited - No 500 Limit)
 // Postback URL: https://api.rubylune.com/api/timewall/postback
 // ============================================================
 app.get('/api/timewall/postback', (req, res) => {
-  // Extract client IP (safe behind Cloudflare / Nginx reverse proxies)
   const clientIp = (
     req.headers['x-forwarded-for'] || 
     req.headers['x-real-ip'] || 
@@ -200,8 +368,8 @@ app.get('/api/timewall/postback', (req, res) => {
   const {
     userid,
     txid,
-    revenue,       // Exact raw string from TimeWall
-    currency,      // Coins to credit
+    revenue,
+    currency,
     hash,
     type = 'credit',
     offername = ''
@@ -213,7 +381,7 @@ app.get('/api/timewall/postback', (req, res) => {
     return res.status(400).send('MISSING_PARAMS');
   }
 
-  // 3. Hash Validation using Placement ID (sha256: userid + revenue + placementId)
+  // 3. Hash Validation using Placement ID
   if (hash && revenue !== undefined) {
     const expectedHash = crypto
       .createHash('sha256')
@@ -225,7 +393,7 @@ app.get('/api/timewall/postback', (req, res) => {
     }
   }
 
-  // 4. Idempotency Check (Prevent duplicate credits)
+  // 4. Idempotency Check
   db.get('SELECT tx_id FROM timewall_transactions WHERE tx_id = ?', [txid], (err, row) => {
     if (err) {
       console.error('[TIMEWALL DB ERROR]', err.message);
@@ -234,7 +402,7 @@ app.get('/api/timewall/postback', (req, res) => {
 
     if (row) {
       console.log(`[TIMEWALL DUP] Transaction ${txid} has already been credited.`);
-      return res.status(200).send('OK'); // TimeWall expects 200 OK
+      return res.status(200).send('OK');
     }
 
     const numCurrency = parseInt(currency, 10) || Math.round(parseFloat(currency));
