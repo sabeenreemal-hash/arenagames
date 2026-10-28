@@ -155,8 +155,8 @@ router.get('/status', authenticateToken, (req, res) => {
         socialTasks: {
           whatsapp: updatedUser.whatsapp_claimed === 1,
           telegram: updatedUser.telegram_claimed === 1,
-          tiktok: updatedUser.tiktok_claimed === 1,
           youtube: updatedUser.youtube_claimed === 1,
+          playstore: updatedUser.playstore_claimed === 1, // Replaced TikTok with Play Store
         },
       });
     });
@@ -224,18 +224,18 @@ router.post('/daily-checkin', authenticateToken, (req, res) => {
   });
 });
 
-// 3. POST /api/rewards/social-claim
+// 3. POST /api/rewards/social-claim (Updated: 50 coins & playstore task)
 router.post('/social-claim', authenticateToken, (req, res) => {
   const { platform } = req.body;
   const userId = req.user.id;
-  const validPlatforms = ['whatsapp', 'telegram', 'tiktok', 'youtube'];
+  const validPlatforms = ['whatsapp', 'telegram', 'youtube', 'playstore'];
 
   if (!platform || !validPlatforms.includes(platform.toLowerCase())) {
-    return res.status(400).json({ error: 'Invalid platform name' });
+    return res.status(400).json({ error: 'Invalid platform task requested' });
   }
 
   const column = `${platform.toLowerCase()}_claimed`;
-  const rewardCoins = 100;
+  const rewardCoins = 50; // Updated to 50 Coins
 
   db.get(`SELECT ${column} FROM users WHERE id = ?`, [userId], (err, user) => {
     if (err || !user) return res.status(404).json({ error: 'User not found' });
@@ -258,8 +258,12 @@ router.post('/social-claim', authenticateToken, (req, res) => {
       );
 
       db.run('COMMIT', (commitErr) => {
-        if (commitErr) return res.status(500).json({ error: 'Failed to record task' });
-        res.json({ success: true, reward: rewardCoins });
+        if (commitErr) return res.status(500).json({ error: 'Failed to record task reward' });
+        res.json({
+          success: true,
+          reward: rewardCoins,
+          message: `+${rewardCoins} Coins added to your wallet!`
+        });
       });
     });
   });
