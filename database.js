@@ -74,8 +74,8 @@ db.serialize(() => {
       highest_stone TEXT DEFAULT 'NONE',
       whatsapp_claimed INTEGER DEFAULT 0,
       telegram_claimed INTEGER DEFAULT 0,
-      tiktok_claimed INTEGER DEFAULT 0,
       youtube_claimed INTEGER DEFAULT 0,
+      playstore_claimed INTEGER DEFAULT 0,
       is_banned INTEGER DEFAULT 0,
       creator_badge_enabled INTEGER DEFAULT 0,
       creator_badge_id INTEGER DEFAULT NULL,
@@ -96,8 +96,8 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'highest_stone', 'TEXT', "'NONE'");
   addColumnIfNotExists('users', 'whatsapp_claimed', 'INTEGER', 0);
   addColumnIfNotExists('users', 'telegram_claimed', 'INTEGER', 0);
-  addColumnIfNotExists('users', 'tiktok_claimed', 'INTEGER', 0);
   addColumnIfNotExists('users', 'youtube_claimed', 'INTEGER', 0);
+  addColumnIfNotExists('users', 'playstore_claimed', 'INTEGER', 0); // Rate on Play Store task
   addColumnIfNotExists('users', 'creator_badge_enabled', 'INTEGER', 0);
   addColumnIfNotExists('users', 'creator_badge_id', 'INTEGER', 'NULL');
 
@@ -184,7 +184,15 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('min_version', '1.0.0')`);
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('update_url', 'https://play.google.com/store')`);
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('force_update', 'false')`);
-  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('payment_methods', '[{"id":"eSewa","min":10000,"rate":1000},{"id":"Khalti","min":10000,"rate":1000}]')`);
+
+  // Seed default payout methods (eSewa, Khalti, PayPal, USDT TRC20)
+  const defaultGateways = JSON.stringify([
+    { id: "eSewa", name: "eSewa", icon: "🟢", min: 10000, rate: 1000, label: "eSewa Mobile ID", hint: "98XXXXXXXX" },
+    { id: "Khalti", name: "Khalti", icon: "🟣", min: 10000, rate: 1000, label: "Khalti Mobile ID", hint: "98XXXXXXXX" },
+    { id: "PayPal", name: "PayPal", icon: "🅿️", min: 10000, rate: 1000, label: "PayPal Email", hint: "user@example.com" },
+    { id: "USDT", name: "USDT (TRC20)", icon: "💲", min: 20000, rate: 1000, label: "TRC20 Address", hint: "T..." }
+  ]);
+  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('payment_methods', ?)`, [defaultGateways]);
 
   // Admins Table
   db.run(`
