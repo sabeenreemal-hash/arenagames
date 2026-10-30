@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto'); // Built-in Node.js crypto module for MD5 & SHA256
 const db = require('./database');
 
@@ -22,6 +23,7 @@ const gamesRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
 const rewardsRouter = require('./routes/rewards');
 const referralRoutes = require('./routes/referral');
+const taskRoutes = require('./routes/tasks'); // <-- User Tasks Router
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -67,7 +69,7 @@ db.run(`
   }
 });
 
-// Games Table with 500 Daily Limit per Game
+// Games Table with 500 Daily Limit per Game (Dot Connect retained)
 db.run(`
   CREATE TABLE IF NOT EXISTS games (
     id TEXT PRIMARY KEY,
@@ -79,10 +81,8 @@ db.run(`
 `, (err) => {
   if (!err) {
     const defaultGames = [
-      ['arrow_puzzle', 'Arrow Puzzle', 500],
-      ['ball_sort', 'Ball Sort', 500],
       ['dot_connect', 'Dot Connect', 500],
-      ['coin_sprint', 'Coin Sprint', 500],
+      ['spin_wheel', 'Spin Wheel', 5000],
     ];
     defaultGames.forEach(([id, name, maxReward]) => {
       db.run(
@@ -108,14 +108,26 @@ app.use(compression());
 
 // CORS & Body Parsers
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: false, limit: '1mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Serve static assets with browser caching enabled
+// ============================================================
+// STATIC ASSETS & VPS SCREENSHOT STORAGE
+// ============================================================
+// 1. Ensure proof uploads folder exists on VPS
+const taskProofsDir = path.join(__dirname, 'uploads/task_proofs');
+if (!fs.existsSync(taskProofsDir)) {
+  fs.mkdirSync(taskProofsDir, { recursive: true });
+}
+
+// 2. Serve public website/dashboard assets
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1d',
   etag: true,
 }));
+
+// 3. Serve uploaded screenshots so the admin panel can preview images
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ============================================================
 // HELPER: EXTRACT USER ID (From Token or Query)
@@ -160,13 +172,16 @@ const getDailyGameCoinsHandler = (req, res) => {
   const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
   const secondsUntilReset = Math.max(0, Math.floor((tomorrow - now) / 1000));
 
-  // Sum up all coins earned today where type is NOT an Offerwall
+  // Sum up all coins earned today where type is NOT an Offerwall, Check-in, or Task Reward
   const query = `
     SELECT COALESCE(SUM(amount), 0) AS total_game_coins
     FROM transactions
     WHERE user_id = ?
       AND amount > 0
-      AND type NOT IN ('OFFERWALL', 'TIMEWALL', 'OFFERWALL_REVERSAL', 'TIMEWALL_REVERSAL', 'REFERRAL', 'CHECKIN')
+      AND type NOT IN (
+        'OFFERWALL', 'TIMEWALL', 'OFFERWALL_REVERSAL', 'TIMEWALL_REVERSAL', 
+        'REFERRAL', 'CHECKIN', 'TASK_REWARD'
+      )
       AND DATE(created_at) = DATE('now')
   `;
 
@@ -217,7 +232,10 @@ const enforceGameDailyLimitMiddleware = (req, res, next) => {
         FROM transactions
         WHERE user_id = ?
           AND amount > 0
-          AND type NOT IN ('OFFERWALL', 'TIMEWALL', 'OFFERWALL_REVERSAL', 'TIMEWALL_REVERSAL', 'REFERRAL', 'CHECKIN')
+          AND type NOT IN (
+            'OFFERWALL', 'TIMEWALL', 'OFFERWALL_REVERSAL', 'TIMEWALL_REVERSAL', 
+            'REFERRAL', 'CHECKIN', 'TASK_REWARD'
+          )
           AND DATE(created_at) = DATE('now')
       `;
 
@@ -231,7 +249,7 @@ const enforceGameDailyLimitMiddleware = (req, res, next) => {
           return res.status(403).json({
             success: false,
             limitReached: true,
-            error: 'Daily game limit of 500 coins reached! You can still earn unlimited coins from Offerwalls.',
+            error: 'Daily game limit of 500 coins reached! You can still earn unlimited coins from Tasks and Offerwalls.',
             dailyGameCoins: row.total_game_coins,
             maxDailyGameCoins: 500,
             secondsUntilReset,
@@ -245,13 +263,16 @@ const enforceGameDailyLimitMiddleware = (req, res, next) => {
   next();
 };
 
-// Mount Platform API Routing
+// ============================================================
+// 5. ROUTE MOUNTING
+// ============================================================
 app.use('/api/auth', authRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/games', enforceGameDailyLimitMiddleware, gamesRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
+app.use('/api', taskRoutes); // Mounted for /api/tasks, /api/tasks/my-submissions, /api/tasks/:id/submit
 
 // ============================================================
 // ADSWEDMEDIA S2S POSTBACK ENDPOINT (Unlimited - No 500 Limit)
@@ -511,6 +532,7 @@ app.use((err, req, res, next) => {
 const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n======================================================`);
   console.log(`  Arena Games API Server is running on port: ${PORT}  `);
+  console.log(`  Task Proof Storage: ${taskProofsDir}`);
   console.log(`  Admin Panel URL: http://localhost:${PORT}/admin.html `);
   console.log(`======================================================\n`);
 });
