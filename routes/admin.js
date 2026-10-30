@@ -4,10 +4,31 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const path = require('path');
 const db = require('../database');
 const adminAuth = require('../middleware/adminAuth');
 
 const JWT_ADMIN_SECRET = 'ARENA_GAMES_ADMIN_SECRET_KEY';
+
+// Helper: Safely delete screenshot from VPS disk to keep storage free
+function deleteScreenshotFile(filePath) {
+  if (filePath && typeof filePath === 'string') {
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlink(filePath, (err) => {
+          if (err) {
+            console.error('[VPS Storage Cleanup Error]: Failed to delete file:', filePath, err.message);
+          } else {
+            console.log('[VPS Storage Cleanup Success]: Deleted screenshot to save disk space:', filePath);
+          }
+        });
+      }
+    } catch (e) {
+      console.error('[VPS Storage Cleanup Exception]:', e.message);
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 0. Safe Initialization (No unhandled exceptions)
@@ -118,7 +139,11 @@ router.get('/dashboard', adminAuth, (req, res) => {
       stats.totalCoins = r2 ? (r2.coins || 0) : 0;
       db.get("SELECT COUNT(*) as p FROM withdrawals WHERE status = 'PENDING'", (err, r3) => {
         stats.pendingWithdrawals = r3 ? r3.p : 0;
-        res.json(stats);
+        // Count pending tasks for notification badge
+        db.get("SELECT COUNT(*) as t FROM task_submissions WHERE status = 'pending'", (err, r4) => {
+          stats.pendingTasks = r4 ? r4.t : 0;
+          res.json(stats);
+        });
       });
     });
   });
@@ -154,7 +179,7 @@ router.get('/users', adminAuth, (req, res) => {
 // D. Admin Accounts Management
 // ---------------------------------------------------------------------------
 
-// 1. Get all admins (safe wildcard query)
+// 1. Get all admins
 router.get('/admins', adminAuth, (req, res) => {
   db.all('SELECT * FROM admins ORDER BY id ASC', (err, rows) => {
     if (err) {
@@ -458,6 +483,263 @@ router.post('/config/update', adminAuth, (req, res) => {
       if (err) return res.status(500).json({ error: 'Update failed' });
       res.json({ success: true });
     });
+  });
+});
+
+// ===========================================================================
+// L. Tasks Management & Proof Verification (With Automatic VPS Cleanup)
+// ===========================================================================
+
+// 1. Fetch all admin tasks
+router.get('/tasks', adminAuth, (req, res) => {
+  db.all(
+    `SELECT t.*, 
+      (SELECT COUNT(*) FROM task_submissions WHERE task_id = t.id AND status = 'pending') as pending_count,
+      (SELECT COUNT(*) FROM task_submissions WHERE task_id = t.id AND status = 'approved') as approved_count
+     FROM tasks t 
+     ORDER BY t.id DESC`,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: 'Failed to retrieve tasks' });
+      res.json(rows || []);
+    }
+  );
+});
+
+// 2. Create a new task (title, coins, instructions, proof_type, link)
+router.post('/tasks/create', adminAuth, (req, res) => {
+  const { title, reward_coins, instructions, proof_type, action_url, is_active } = req.body;
+
+  if (!title || !reward_coins || !instructions) {
+    return res.status(400).json({ error: 'Title, reward coins, and instructions are required' });
+  }
+
+  const coins = parseInt(reward_coins, 10);
+  if (isNaN(coins) || coins <= 0) {
+    return res.status(400).json({ error: 'Reward coins must be a positive number' });
+  }
+
+  const validProof = ['text', 'screenshot', 'both'].includes(proof_type) ? proof_type : 'both';
+  const activeStatus = is_active === undefined ? 1 : (is_active ? 1 : 0);
+
+  db.run(
+    `INSERT INTO tasks (title, reward_coins, instructions, proof_type, action_url, is_active)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [title.trim(), coins, instructions.trim(), validProof, (action_url || '').trim(), activeStatus],
+    function (err) {
+      if (err) {
+        console.error("[Task Create Error]:", err.message);
+        return res.status(500).json({ error: 'Failed to create task' });
+      }
+      res.json({ success: true, message: 'Task created successfully', taskId: this.lastID });
+    }
+  );
+});
+
+// 3. Update an existing task
+router.post('/tasks/:id/update', adminAuth, (req, res) => {
+  const taskId = req.params.id;
+  const { title, reward_coins, instructions, proof_type, action_url, is_active } = req.body;
+
+  db.run(
+    `UPDATE tasks SET
+      title = COALESCE(?, title),
+      reward_coins = COALESCE(?, reward_coins),
+      instructions = COALESCE(?, instructions),
+      proof_type = COALESCE(?, proof_type),
+      action_url = COALESCE(?, action_url),
+      is_active = COALESCE(?, is_active)
+     WHERE id = ?`,
+    [
+      title ? title.trim() : null,
+      reward_coins ? parseInt(reward_coins, 10) : null,
+      instructions ? instructions.trim() : null,
+      proof_type || null,
+      action_url !== undefined ? action_url.trim() : null,
+      is_active !== undefined ? (is_active ? 1 : 0) : null,
+      taskId
+    ],
+    function (err) {
+      if (err) return res.status(500).json({ error: 'Failed to update task' });
+      res.json({ success: true, message: 'Task updated successfully' });
+    }
+  );
+});
+
+// 4. Delete a task
+router.post('/tasks/:id/delete', adminAuth, (req, res) => {
+  const taskId = req.params.id;
+
+  // First fetch any pending screenshots to free disk storage
+  db.all('SELECT screenshot_path FROM task_submissions WHERE task_id = ?', [taskId], (err, rows) => {
+    if (!err && rows) {
+      rows.forEach(r => deleteScreenshotFile(r.screenshot_path));
+    }
+
+    db.run('DELETE FROM tasks WHERE id = ?', [taskId], function (delErr) {
+      if (delErr) return res.status(500).json({ error: 'Failed to delete task' });
+      res.json({ success: true, message: 'Task and related submissions deleted' });
+    });
+  });
+});
+
+// 5. Fetch all user task submissions (with optional status filter: ?status=pending|approved|rejected)
+router.get('/task-submissions', adminAuth, (req, res) => {
+  const { status } = req.query;
+
+  let sql = `
+    SELECT 
+      ts.id,
+      ts.task_id,
+      ts.user_id,
+      ts.proof_text,
+      ts.screenshot_path,
+      ts.status,
+      ts.rejection_reason,
+      ts.submitted_at,
+      ts.reviewed_at,
+      t.title as task_title,
+      t.reward_coins,
+      t.proof_type,
+      u.username,
+      u.email,
+      u.full_name
+    FROM task_submissions ts
+    JOIN tasks t ON ts.task_id = t.id
+    JOIN users u ON ts.user_id = u.id
+  `;
+  const params = [];
+
+  if (status) {
+    sql += ` WHERE ts.status = ?`;
+    params.push(status.toLowerCase());
+  }
+
+  sql += ` ORDER BY ts.submitted_at DESC`;
+
+  db.all(sql, params, (err, rows) => {
+    if (err) {
+      console.error("[Get Submissions Error]:", err.message);
+      return res.status(500).json({ error: 'Failed to retrieve task submissions' });
+    }
+    res.json(rows || []);
+  });
+});
+
+// 6. APPROVE SUBMISSION: Credits user coins & DELETES screenshot from VPS to free disk space
+router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
+  const subId = req.params.id;
+
+  db.get(
+    `SELECT ts.*, t.reward_coins 
+     FROM task_submissions ts
+     JOIN tasks t ON ts.task_id = t.id
+     WHERE ts.id = ?`,
+    [subId],
+    (err, sub) => {
+      if (err || !sub) return res.status(404).json({ error: 'Submission not found' });
+      if (sub.status !== 'pending') {
+        return res.status(400).json({ error: `Cannot approve submission with status: ${sub.status}` });
+      }
+
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+
+        // A. Update submission status to 'approved' and clear the screenshot path in DB
+        db.run(
+          `UPDATE task_submissions SET 
+            status = 'approved', 
+            screenshot_path = NULL,
+            reviewed_at = CURRENT_TIMESTAMP 
+           WHERE id = ?`,
+          [subId],
+          function (updateErr) {
+            if (updateErr) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: 'Failed to update submission status' });
+            }
+
+            // B. Credit user's wallet & total earned coins
+            db.run(
+              `UPDATE users SET 
+                balance = balance + ?, 
+                total_coins_earned = total_coins_earned + ? 
+               WHERE id = ?`,
+              [sub.reward_coins, sub.reward_coins, sub.user_id],
+              function (walletErr) {
+                if (walletErr) {
+                  db.run('ROLLBACK');
+                  return res.status(500).json({ error: 'Failed to credit user wallet' });
+                }
+
+                // C. Record transaction audit log
+                db.run(
+                  `INSERT INTO transactions (user_id, type, amount, reference_id) 
+                   VALUES (?, 'TASK_REWARD', ?, ?)`,
+                  [sub.user_id, sub.reward_coins, `TASK_SUB_${subId}`],
+                  function (txErr) {
+                    if (txErr) {
+                      db.run('ROLLBACK');
+                      return res.status(500).json({ error: 'Failed to log transaction' });
+                    }
+
+                    db.run('COMMIT', (commitErr) => {
+                      if (commitErr) return res.status(500).json({ error: 'Transaction commit failed' });
+
+                      // D. DELETE SCREENSHOT FILE FROM VPS HARD DRIVE
+                      deleteScreenshotFile(sub.screenshot_path);
+
+                      res.json({
+                        success: true,
+                        message: `Task submission #${subId} approved! ${sub.reward_coins} coins credited and screenshot removed from VPS storage.`
+                      });
+                    });
+                  }
+                );
+              }
+            );
+          }
+        );
+      });
+    }
+  );
+});
+
+// 7. REJECT SUBMISSION: Records reason, allows re-apply, & DELETES screenshot from VPS
+router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
+  const subId = req.params.id;
+  const { reason } = req.body;
+
+  if (!reason || reason.trim().length === 0) {
+    return res.status(400).json({ error: 'A rejection reason is required so the user can re-apply' });
+  }
+
+  db.get('SELECT * FROM task_submissions WHERE id = ?', [subId], (err, sub) => {
+    if (err || !sub) return res.status(404).json({ error: 'Submission not found' });
+    if (sub.status !== 'pending') {
+      return res.status(400).json({ error: `Cannot reject submission with status: ${sub.status}` });
+    }
+
+    // A. Update submission status to 'rejected', set reason, clear screenshot path
+    db.run(
+      `UPDATE task_submissions SET 
+        status = 'rejected', 
+        rejection_reason = ?, 
+        screenshot_path = NULL,
+        reviewed_at = CURRENT_TIMESTAMP 
+       WHERE id = ?`,
+      [reason.trim(), subId],
+      function (updateErr) {
+        if (updateErr) return res.status(500).json({ error: 'Failed to reject submission' });
+
+        // B. DELETE SCREENSHOT FILE FROM VPS HARD DRIVE
+        deleteScreenshotFile(sub.screenshot_path);
+
+        res.json({
+          success: true,
+          message: `Submission #${subId} rejected with reason: "${reason.trim()}". Screenshot removed from VPS storage.`
+        });
+      }
+    );
   });
 });
 
