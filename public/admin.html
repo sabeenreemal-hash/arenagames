@@ -93,7 +93,8 @@
     }
 
     .form-group input,
-    .form-group select {
+    .form-group select,
+    .form-group textarea {
       width: 100%;
       background: var(--surface-2);
       border: 1px solid var(--border);
@@ -101,12 +102,14 @@
       padding: 12px 14px;
       border-radius: 8px;
       font-size: 14px;
+      font-family: inherit;
       outline: none;
       transition: border-color 0.2s;
     }
 
     .form-group input:focus,
-    .form-group select:focus {
+    .form-group select:focus,
+    .form-group textarea:focus {
       border-color: var(--primary);
     }
 
@@ -329,7 +332,7 @@
     /* METRIC CARDS */
     .metrics-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       gap: 18px;
       margin-bottom: 28px;
     }
@@ -488,10 +491,17 @@
       border: 1px solid rgba(0, 230, 118, 0.3);
     }
 
-    .badge-banned {
+    .badge-banned,
+    .badge-rejected {
       background: rgba(255, 71, 87, 0.15);
       color: var(--danger);
       border: 1px solid rgba(255, 71, 87, 0.3);
+    }
+
+    .badge-pending {
+      background: rgba(255, 165, 2, 0.15);
+      color: var(--warning);
+      border: 1px solid rgba(255, 165, 2, 0.3);
     }
 
     .badge-stone {
@@ -576,6 +586,80 @@
       color: white;
     }
 
+    /* FILTER TABS */
+    .filter-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .filter-btn {
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .filter-btn:hover {
+      color: white;
+    }
+
+    .filter-btn.active {
+      background: var(--primary);
+      color: #080A0E;
+      border-color: var(--primary);
+    }
+
+    /* SCREENSHOT THUMBNAIL */
+    .proof-thumb {
+      width: 50px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      transition: transform 0.2s;
+    }
+
+    .proof-thumb:hover {
+      transform: scale(1.08);
+      border-color: var(--primary);
+    }
+
+    /* LIGHTBOX IMAGE MODAL */
+    #image-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      z-index: 10000;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    #image-modal img {
+      max-width: 90vw;
+      max-height: 85vh;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    }
+
+    #image-modal-close {
+      position: absolute;
+      top: 20px;
+      right: 24px;
+      font-size: 28px;
+      color: white;
+      cursor: pointer;
+    }
+
     /* RESPONSIVE */
     @media (max-width: 900px) {
       .sidebar {
@@ -598,6 +682,12 @@
 </head>
 
 <body>
+
+  <!-- LIGHTBOX IMAGE MODAL -->
+  <div id="image-modal" onclick="closeImageModal()">
+    <span id="image-modal-close">&times;</span>
+    <img id="image-modal-src" src="" alt="Proof Preview" onclick="event.stopPropagation()">
+  </div>
 
   <!-- 1. LOGIN OVERLAY -->
   <div id="login-overlay">
@@ -629,7 +719,7 @@
   <!-- 2. PROTECTED ADMIN APPLICATION -->
   <div id="admin-content" style="display: none;" class="app-layout">
 
-    <!-- FIXED SLIDEBAR MENU -->
+    <!-- FIXED SIDEBAR MENU -->
     <aside class="sidebar" id="app-sidebar">
       <div class="sidebar-header">
         <div class="sidebar-logo-icon">🎮</div>
@@ -644,6 +734,16 @@
         <li class="nav-item active" onclick="switchTab('tab-dashboard', this)">
           <span class="icon">📊</span>
           <span>Dashboard</span>
+        </li>
+        <li class="nav-item" onclick="switchTab('tab-tasks', this)">
+          <span class="icon">📋</span>
+          <span>Task Hub</span>
+          <span class="badge-pill" id="nav-tasks-count">0</span>
+        </li>
+        <li class="nav-item" onclick="switchTab('tab-submissions', this)">
+          <span class="icon">📥</span>
+          <span>Submissions</span>
+          <span class="badge-pill" id="nav-sub-pending-count" style="color: var(--warning);">0</span>
         </li>
 
         <div class="nav-label">Player Management</div>
@@ -702,7 +802,7 @@
       <!-- CONTENT BODY -->
       <main class="content-area">
 
-        <!-- 3 OVERVIEW METRIC CARDS -->
+        <!-- 4 OVERVIEW METRIC CARDS -->
         <div class="metrics-grid">
           <div class="metric-card">
             <div class="metric-title">Registered Players</div>
@@ -711,6 +811,10 @@
           <div class="metric-card">
             <div class="metric-title">Total Wallet Capital</div>
             <div class="metric-val" id="stat-coins" style="color: var(--primary);">...</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Pending Tasks</div>
+            <div class="metric-val" id="stat-tasks" style="color: var(--info);">0</div>
           </div>
           <div class="metric-card">
             <div class="metric-title">Pending Redemptions</div>
@@ -729,15 +833,25 @@
                 <p>High-level system status and immediate actions.</p>
               </div>
             </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
               <div
                 style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
-                <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--primary);">👥 User Accounts</h3>
+                <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--info);">📥 Task Submissions</h3>
                 <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
-                  Inspect user balances, adjust streaks/stones, update coins, or modify ban statuses.
+                  Review pending player tasks, verify screenshot/text proofs, approve or reject with automatic VPS disk cleanup.
                 </p>
-                <button class="btn btn-primary" onclick="switchTabByName('tab-users', 'All Users Registry')"
-                  style="font-size: 12px; padding: 7px 12px;">Go to Users Registry</button>
+                <button class="btn btn-primary" onclick="switchTabByName('tab-submissions', 'Task Submissions Review')"
+                  style="font-size: 12px; padding: 7px 12px;">Review Submissions</button>
+              </div>
+
+              <div
+                style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
+                <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--primary);">📋 Task Manager</h3>
+                <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
+                  Create new tasks, set coin payouts, specify proof requirements, and manage active status.
+                </p>
+                <button class="btn btn-primary" onclick="switchTabByName('tab-tasks', 'Task Hub & Creation')"
+                  style="font-size: 12px; padding: 7px 12px;">Manage Tasks</button>
               </div>
 
               <div
@@ -749,6 +863,130 @@
                 <button class="btn btn-primary" onclick="switchTabByName('tab-withdrawals', 'Redemptions Pipeline')"
                   style="font-size: 12px; padding: 7px 12px;">Review Requests</button>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- TAB: TASK HUB (CREATE & MANAGE TASKS)                    -->
+        <!-- ======================================================== -->
+        <section id="tab-tasks" class="tab-section">
+          <!-- Create Task Form -->
+          <div class="card" style="max-width: 800px; margin-bottom: 24px;">
+            <div class="card-header-flex">
+              <div>
+                <h2>➕ Create New User Task</h2>
+                <p>This task will immediately appear on the app home screen and tasks hub.</p>
+              </div>
+            </div>
+
+            <form onsubmit="handleCreateTask(event)">
+              <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 14px;">
+                <div class="form-group">
+                  <label>Task Title</label>
+                  <input type="text" id="task-title" placeholder="e.g. Subscribe to our YouTube Channel" required>
+                </div>
+                <div class="form-group">
+                  <label>Reward Coins</label>
+                  <input type="number" id="task-coins" placeholder="e.g. 150" min="1" required>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                <div class="form-group">
+                  <label>Proof Type Required</label>
+                  <select id="task-proof-type">
+                    <option value="both">Both Text & Screenshot Proof</option>
+                    <option value="screenshot">Screenshot Only</option>
+                    <option value="text">Text / Username Proof Only</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Task Action Link (Optional)</label>
+                  <input type="url" id="task-url" placeholder="https://youtube.com/@channel or https://t.me/...">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Task Instructions (Shown to Players)</label>
+                <textarea id="task-instructions" rows="3" placeholder="Explain what the player must do step-by-step and what proof to submit..." required></textarea>
+              </div>
+
+              <button type="submit" class="btn btn-primary">+ Publish Task to App</button>
+            </form>
+          </div>
+
+          <!-- Active Tasks Registry -->
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>Published App Tasks</h2>
+                <p>Manage, toggle active state, or remove existing tasks.</p>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <table id="tasks-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Task Title</th>
+                    <th>Reward</th>
+                    <th>Proof Type</th>
+                    <th>Link</th>
+                    <th>Status</th>
+                    <th>Submissions</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="8">Loading tasks...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- TAB: TASK SUBMISSIONS (APPROVE / REJECT / VPS CLEANUP)  -->
+        <!-- ======================================================== -->
+        <section id="tab-submissions" class="tab-section">
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>Task Submissions Review</h2>
+                <p>Inspect proof, approve rewards, or reject with a reason. Screenshots are automatically deleted from VPS upon decision.</p>
+              </div>
+            </div>
+
+            <div class="filter-tabs">
+              <button class="filter-btn active" onclick="filterSubmissions('pending', this)">Pending Review</button>
+              <button class="filter-btn" onclick="filterSubmissions('approved', this)">Approved</button>
+              <button class="filter-btn" onclick="filterSubmissions('rejected', this)">Rejected</button>
+              <button class="filter-btn" onclick="filterSubmissions('all', this)">All History</button>
+            </div>
+
+            <div class="table-container">
+              <table id="submissions-table">
+                <thead>
+                  <tr>
+                    <th>ID / Date</th>
+                    <th>Player</th>
+                    <th>Task</th>
+                    <th>Proof Text</th>
+                    <th>Screenshot</th>
+                    <th>Status</th>
+                    <th>Decision</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="7">Loading submissions...</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </section>
@@ -960,6 +1198,8 @@
     const API_BASE = "/api/admin";
     let allUsersCache = [];
     let paymentMethodsList = [];
+    let currentSubmissionsCache = [];
+    let activeSubFilter = 'pending';
 
     function getHeaders() {
       const token = localStorage.getItem('admin_token');
@@ -969,7 +1209,26 @@
       };
     }
 
-    // SLIDE MENU TAB SWITCHING
+    // Helper: Normalize screenshot path to web URL
+    function formatScreenshotUrl(pathStr) {
+      if (!pathStr) return null;
+      const normalized = pathStr.replace(/\\/g, '/');
+      const filename = normalized.split('/').pop();
+      return `/uploads/task_proofs/${filename}`;
+    }
+
+    // Lightbox modal helpers
+    function openImageModal(src) {
+      document.getElementById('image-modal-src').src = src;
+      document.getElementById('image-modal').style.display = 'flex';
+    }
+
+    function closeImageModal() {
+      document.getElementById('image-modal').style.display = 'none';
+      document.getElementById('image-modal-src').src = '';
+    }
+
+    // TAB SWITCHING
     function switchTab(tabId, element) {
       document.querySelectorAll('.tab-section').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -983,10 +1242,9 @@
         titleEl.innerText = element.querySelector('span:nth-child(2)').innerText;
       }
 
-      // Automatically reload admin list whenever switching to the admin credentials tab
-      if (tabId === 'tab-admins') {
-        loadAdminUsersList();
-      }
+      if (tabId === 'tab-tasks') loadTasksList();
+      if (tabId === 'tab-submissions') loadSubmissionsList();
+      if (tabId === 'tab-admins') loadAdminUsersList();
 
       if (window.innerWidth <= 900) {
         document.getElementById('app-sidebar').classList.remove('open');
@@ -1003,6 +1261,9 @@
         if (n.innerText.includes(titleText)) n.classList.add('active');
       });
       document.getElementById('current-page-title').innerText = titleText;
+
+      if (tabId === 'tab-tasks') loadTasksList();
+      if (tabId === 'tab-submissions') loadSubmissionsList();
     }
 
     function toggleMobileSidebar() {
@@ -1062,11 +1323,15 @@
         document.getElementById('stat-users').innerText = (stats.totalUsers || 0).toLocaleString();
         document.getElementById('stat-coins').innerText = (stats.totalCoins || 0).toLocaleString() + " Coins";
         document.getElementById('stat-withdrawals').innerText = stats.pendingWithdrawals || 0;
+        document.getElementById('stat-tasks').innerText = stats.pendingTasks || 0;
 
         document.getElementById('nav-users-count').innerText = stats.totalUsers || 0;
         document.getElementById('nav-redeem-count').innerText = stats.pendingWithdrawals || 0;
+        document.getElementById('nav-sub-pending-count').innerText = stats.pendingTasks || 0;
 
         await loadUsersList();
+        loadTasksList();
+        loadSubmissionsList();
         loadPaymentMethods();
         loadConfig();
         loadWithdrawals();
@@ -1076,7 +1341,229 @@
       }
     }
 
+    // ========================================================
+    // TASK SYSTEM LOGIC
+    // ========================================================
+    async function handleCreateTask(e) {
+      e.preventDefault();
+      const title = document.getElementById('task-title').value.trim();
+      const reward_coins = parseInt(document.getElementById('task-coins').value, 10);
+      const proof_type = document.getElementById('task-proof-type').value;
+      const action_url = document.getElementById('task-url').value.trim();
+      const instructions = document.getElementById('task-instructions').value.trim();
+
+      try {
+        const res = await fetch(`${API_BASE}/tasks/create`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ title, reward_coins, proof_type, action_url, instructions })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("Task published successfully!");
+          document.getElementById('task-title').value = '';
+          document.getElementById('task-coins').value = '';
+          document.getElementById('task-url').value = '';
+          document.getElementById('task-instructions').value = '';
+          loadTasksList();
+        } else {
+          alert(data.error || "Failed to create task");
+        }
+      } catch (err) {
+        alert("Server error creating task");
+      }
+    }
+
+    async function loadTasksList() {
+      try {
+        const res = await fetch(`${API_BASE}/tasks`, { headers: getHeaders() });
+        const tasks = await res.json();
+        const tbody = document.querySelector("#tasks-table tbody");
+        tbody.innerHTML = "";
+
+        document.getElementById('nav-tasks-count').innerText = Array.isArray(tasks) ? tasks.length : 0;
+
+        if (Array.isArray(tasks) && tasks.length > 0) {
+          tasks.forEach(t => {
+            const statusBadge = t.is_active === 1
+              ? `<span class="badge badge-active">Active</span>`
+              : `<span class="badge badge-banned">Inactive</span>`;
+
+            const linkCell = t.action_url
+              ? `<a href="${t.action_url}" target="_blank" style="color:var(--info); font-size:12px;">Open ↗</a>`
+              : `<span style="color:var(--text-muted); font-size:11px;">None</span>`;
+
+            const toggleBtn = t.is_active === 1
+              ? `<button class="btn-action btn-act-gray" onclick="toggleTaskStatus(${t.id}, 0)">Disable</button>`
+              : `<button class="btn-action btn-act-coins" onclick="toggleTaskStatus(${t.id}, 1)">Activate</button>`;
+
+            tbody.innerHTML += `
+              <tr>
+                <td>#${t.id}</td>
+                <td><strong>${t.title}</strong><br><span style="font-size:11px; color:var(--text-muted);">${(t.instructions || '').substring(0, 45)}...</span></td>
+                <td><strong style="color:var(--primary);">+${t.reward_coins}</strong></td>
+                <td><span style="text-transform: capitalize;">${t.proof_type}</span></td>
+                <td>${linkCell}</td>
+                <td>${statusBadge}</td>
+                <td><span style="color:var(--warning);">${t.pending_count || 0} Pnd</span> / <span style="color:var(--primary);">${t.approved_count || 0} Appr</span></td>
+                <td>
+                  ${toggleBtn}
+                  <button class="btn-action btn-act-danger" onclick="deleteTask(${t.id})">Delete</button>
+                </td>
+              </tr>
+            `;
+          });
+        } else {
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No tasks published yet.</td></tr>`;
+        }
+      } catch (err) {
+        console.error("Failed to load tasks", err);
+      }
+    }
+
+    async function toggleTaskStatus(id, newStatus) {
+      try {
+        const res = await fetch(`${API_BASE}/tasks/${id}/update`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ is_active: newStatus })
+        });
+        const data = await res.json();
+        if (data.success) loadTasksList();
+      } catch (_) { alert("Connection Error"); }
+    }
+
+    async function deleteTask(id) {
+      if (!confirm(`Are you sure you want to delete task #${id}? This will also delete any related submissions.`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/tasks/${id}/delete`, {
+          method: "POST",
+          headers: getHeaders()
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message || "Task deleted");
+          loadTasksList();
+          loadDashboard();
+        }
+      } catch (_) { alert("Connection Error"); }
+    }
+
+    // ========================================================
+    // SUBMISSIONS PIPELINE & REVIEW
+    // ========================================================
+    async function loadSubmissionsList() {
+      try {
+        const res = await fetch(`${API_BASE}/task-submissions`, { headers: getHeaders() });
+        currentSubmissionsCache = await res.json();
+        renderSubmissionsTable();
+      } catch (err) {
+        console.error("Failed to load task submissions", err);
+      }
+    }
+
+    function filterSubmissions(filter, btn) {
+      activeSubFilter = filter;
+      document.querySelectorAll('.filter-tabs .filter-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      renderSubmissionsTable();
+    }
+
+    function renderSubmissionsTable() {
+      const tbody = document.querySelector("#submissions-table tbody");
+      tbody.innerHTML = "";
+
+      let list = currentSubmissionsCache;
+      if (activeSubFilter !== 'all') {
+        list = currentSubmissionsCache.filter(s => s.status === activeSubFilter);
+      }
+
+      if (Array.isArray(list) && list.length > 0) {
+        list.forEach(sub => {
+          const dateStr = sub.submitted_at ? new Date(sub.submitted_at).toLocaleDateString() : 'N/A';
+          let statusBadge = `<span class="badge badge-pending">Pending</span>`;
+          if (sub.status === 'approved') statusBadge = `<span class="badge badge-active">Approved</span>`;
+          if (sub.status === 'rejected') statusBadge = `<span class="badge badge-rejected">Rejected</span>`;
+
+          const screenshotUrl = formatScreenshotUrl(sub.screenshot_path);
+          const screenshotCell = screenshotUrl
+            ? `<img src="${screenshotUrl}" class="proof-thumb" onclick="openImageModal('${screenshotUrl}')" alt="Proof">`
+            : `<span style="font-size:11px; color:var(--text-muted);">${sub.proof_type === 'text' ? 'Text Only' : 'Deleted/None'}</span>`;
+
+          let actionsCell = '';
+          if (sub.status === 'pending') {
+            actionsCell = `
+              <button class="btn-action btn-act-coins" onclick="approveSubmission(${sub.id}, ${sub.reward_coins}, '${sub.username}')">Approve</button>
+              <button class="btn-action btn-act-danger" onclick="rejectSubmission(${sub.id}, '${sub.username}')">Reject</button>
+            `;
+          } else if (sub.status === 'rejected') {
+            actionsCell = `<span style="font-size:11px; color:var(--danger);">${sub.rejection_reason || 'Rejected'}</span>`;
+          } else {
+            actionsCell = `<span style="font-size:11px; color:var(--primary);">+${sub.reward_coins} Credited</span>`;
+          }
+
+          tbody.innerHTML += `
+            <tr>
+              <td>#${sub.id}<br><span style="font-size:11px; color:var(--text-muted);">${dateStr}</span></td>
+              <td><strong>@${sub.username}</strong><br><span style="font-size:11px; color:var(--text-muted);">UID: ${sub.user_id}</span></td>
+              <td><strong>${sub.task_title}</strong><br><span style="font-size:11px; color:var(--primary);">+${sub.reward_coins} Coins</span></td>
+              <td><span style="font-size:12px; color:white;">${sub.proof_text || '<em style="color:var(--text-muted);">No text</em>'}</span></td>
+              <td>${screenshotCell}</td>
+              <td>${statusBadge}</td>
+              <td>${actionsCell}</td>
+            </tr>
+          `;
+        });
+      } else {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No submissions found in '${activeSubFilter}'.</td></tr>`;
+      }
+    }
+
+    async function approveSubmission(id, rewardCoins, username) {
+      if (!confirm(`Approve submission #${id} for @${username}?\n\nThis will credit ${rewardCoins} coins to the user's unified wallet and permanently DELETE the screenshot from VPS storage to save disk space.`)) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/task-submissions/${id}/approve`, {
+          method: "POST",
+          headers: getHeaders()
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message || "Approved and coins credited!");
+          loadDashboard();
+        } else {
+          alert(data.error || "Failed to approve submission");
+        }
+      } catch (err) {
+        alert("Server error resolving submission.");
+      }
+    }
+
+    async function rejectSubmission(id, username) {
+      const reason = prompt(`Enter rejection reason for @${username} (shown in their app so they can re-apply):\n\nNote: Screenshot will be permanently deleted from VPS storage to save space.`, "Screenshot is unclear / proof requirement not satisfied");
+      if (reason === null || reason.trim() === "") return;
+
+      try {
+        const res = await fetch(`${API_BASE}/task-submissions/${id}/reject`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ reason: reason.trim() })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message || "Submission rejected and screenshot removed.");
+          loadDashboard();
+        } else {
+          alert(data.error || "Failed to reject submission");
+        }
+      } catch (err) {
+        alert("Server error rejecting submission.");
+      }
+    }
+
+    // ========================================================
     // USERS REGISTRY
+    // ========================================================
     async function loadUsersList() {
       try {
         const res = await fetch(`${API_BASE}/users`, { headers: getHeaders() });
@@ -1207,7 +1694,9 @@
       } catch (_) { alert("Connection Error"); }
     }
 
+    // ========================================================
     // PAYMENT GATEWAYS
+    // ========================================================
     async function loadPaymentMethods() {
       try {
         const res = await fetch(`${API_BASE}/payment-methods`, { headers: getHeaders() });
@@ -1288,7 +1777,9 @@
       } catch (_) { alert("Connection error"); }
     }
 
+    // ========================================================
     // SYSTEM CONFIG
+    // ========================================================
     async function loadConfig() {
       try {
         const configRes = await fetch(`${API_BASE}/config`, { headers: getHeaders() });
@@ -1313,7 +1804,9 @@
       if (data.success) alert("Configurations saved successfully!");
     }
 
+    // ========================================================
     // REDEMPTIONS
+    // ========================================================
     async function loadWithdrawals() {
       try {
         const res = await fetch(`${API_BASE}/withdrawals`, { headers: getHeaders() });
@@ -1356,7 +1849,9 @@
       }
     }
 
+    // ========================================================
     // ADMIN CREDENTIALS & USERS MANAGEMENT
+    // ========================================================
     async function handleCreateAdmin(e) {
       e.preventDefault();
       const username = document.getElementById('new-admin-user').value.trim();
@@ -1394,7 +1889,7 @@
 
       try {
         const res = await fetch(`${API_BASE}/admins`, { headers: getHeaders() });
-        
+
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--danger);">Error: ${errData.error || 'Could not fetch admin accounts'}</td></tr>`;
