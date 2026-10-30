@@ -97,7 +97,7 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'whatsapp_claimed', 'INTEGER', 0);
   addColumnIfNotExists('users', 'telegram_claimed', 'INTEGER', 0);
   addColumnIfNotExists('users', 'youtube_claimed', 'INTEGER', 0);
-  addColumnIfNotExists('users', 'playstore_claimed', 'INTEGER', 0); // Rate on Play Store task
+  addColumnIfNotExists('users', 'playstore_claimed', 'INTEGER', 0);
   addColumnIfNotExists('users', 'creator_badge_enabled', 'INTEGER', 0);
   addColumnIfNotExists('users', 'creator_badge_id', 'INTEGER', 'NULL');
 
@@ -185,7 +185,7 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('update_url', 'https://play.google.com/store')`);
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('force_update', 'false')`);
 
-  // Seed default payout methods (eSewa, Khalti, PayPal, USDT TRC20)
+  // Seed default payout methods
   const defaultGateways = JSON.stringify([
     { id: "eSewa", name: "eSewa", icon: "🟢", min: 10000, rate: 1000, label: "eSewa Mobile ID", hint: "98XXXXXXXX" },
     { id: "Khalti", name: "Khalti", icon: "🟣", min: 10000, rate: 1000, label: "Khalti Mobile ID", hint: "98XXXXXXXX" },
@@ -224,13 +224,11 @@ db.serialize(() => {
   // ==========================================
   // 3. Spin Wheel Schema (User State & Logs)
   // ==========================================
-
-  // Daily Free Spins, Ad Spins, and Cooldown Tracking
   db.run(`
     CREATE TABLE IF NOT EXISTS user_spin_state (
       user_id INTEGER NOT NULL,
-      spin_type TEXT NOT NULL,            -- 'basic' or 'premium'
-      daily_date TEXT NOT NULL,           -- 'YYYY-MM-DD'
+      spin_type TEXT NOT NULL,
+      daily_date TEXT NOT NULL,
       daily_spins_used INTEGER DEFAULT 0,
       cooldown_until DATETIME DEFAULT NULL,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -239,18 +237,17 @@ db.serialize(() => {
     )
   `);
 
-  // Authoritative Audit Log for Every Spin Transaction
   db.run(`
     CREATE TABLE IF NOT EXISTS spin_transactions (
       id TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,
-      spin_type TEXT NOT NULL,            -- 'basic' or 'premium'
+      spin_type TEXT NOT NULL,
       segment_index INTEGER NOT NULL,
-      reward_type TEXT NOT NULL,          -- 'COINS' or 'TRY_AGAIN'
+      reward_type TEXT NOT NULL,
       base_coins INTEGER DEFAULT 0,
-      multiplier INTEGER DEFAULT 1,       -- 1 or 2 (if 2X rewarded ad completed)
+      multiplier INTEGER DEFAULT 1,
       final_coins INTEGER DEFAULT 0,
-      is_2x_claimed INTEGER DEFAULT 0,    -- 0 = false, 1 = true
+      is_2x_claimed INTEGER DEFAULT 0,
       is_try_again_claimed INTEGER DEFAULT 0,
       status TEXT DEFAULT 'COMPLETED',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -259,45 +256,74 @@ db.serialize(() => {
   `);
 
   // ==========================================
-  // 4. Ensure Allowed Games Exist
+  // 4. Tasks & Submissions System Schema
   // ==========================================
-  
-  // Arrow Puzzle
+
+  // Admin Configured Tasks Table
   db.run(`
-    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
-    VALUES ('arrow_puzzle', 'Arrow Puzzle', 1000, 10.0, 1)
+    CREATE TABLE IF NOT EXISTS tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      reward_coins INTEGER NOT NULL DEFAULT 50,
+      instructions TEXT NOT NULL,
+      proof_type TEXT CHECK(proof_type IN ('text', 'screenshot', 'both')) DEFAULT 'both',
+      action_url TEXT DEFAULT '',
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
   `);
 
-  // Spin Wheel Game Registration
+  // User Task Submissions Table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS task_submissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      proof_text TEXT DEFAULT '',
+      screenshot_path TEXT DEFAULT NULL,
+      status TEXT CHECK(status IN ('pending', 'approved', 'rejected')) DEFAULT 'pending',
+      rejection_reason TEXT DEFAULT '',
+      submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      reviewed_at DATETIME DEFAULT NULL,
+      FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Tasks column safety migrations
+  addColumnIfNotExists('tasks', 'action_url', 'TEXT', "''");
+  addColumnIfNotExists('tasks', 'is_active', 'INTEGER', 1);
+  addColumnIfNotExists('task_submissions', 'proof_text', 'TEXT', "''");
+  addColumnIfNotExists('task_submissions', 'rejection_reason', 'TEXT', "''");
+
+  // ==========================================
+  // 5. Ensure Allowed Games Exist
+  // ==========================================
+  
+  // Dot Connect
+  db.run(`
+    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
+    VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)
+  `);
+
+  // Spin Wheel
   db.run(`
     INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
     VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)
   `);
 
-  // Other Game 2
-  db.run(`
-    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
-    VALUES ('game_3', 'Game 3', 1000, 10.0, 1)
-  `);
-
-  // Other Game 3
-  db.run(`
-    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
-    VALUES ('game_4', 'Game 4', 1000, 10.0, 1)
-  `);
-
   // ==========================================
-  // 5. Remove Tic Tac Toe & Word Puzzle Completely
+  // 6. Cleanup Unused Games
   // ==========================================
-  db.run("DELETE FROM game_sessions WHERE game_id IN ('tictac', 'tictactoe', 'word_puzzle', 'wordpuzzle', 'word');");
-  db.run("DELETE FROM games WHERE id IN ('tictac', 'tictactoe', 'word_puzzle', 'wordpuzzle', 'word');");
+  db.run("DELETE FROM game_sessions WHERE game_id IN ('tictac', 'tictactoe', 'word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
+  db.run("DELETE FROM games WHERE id IN ('tictac', 'tictactoe', 'word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
   db.run("DROP TABLE IF EXISTS word_puzzle;");
   db.run("DROP TABLE IF EXISTS word_puzzles;");
   db.run("DROP TABLE IF EXISTS tictac;");
   db.run("DROP TABLE IF EXISTS tic_tac_toe;");
 
   // ==========================================
-  // 6. Performance Indexes
+  // 7. Performance Indexes
   // ==========================================
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`);
@@ -309,8 +335,14 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_user_spin_state_user ON user_spin_state(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_spin_transactions_user ON spin_transactions(user_id);`);
 
+  // Indexes for Task System performance
+  db.run(`CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(is_active);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`);
+
   // ==========================================
-  // 7. One-Time Database User Reset Flag
+  // 8. One-Time Database User Reset Flag
   // ==========================================
   if (process.env.RESET_DB === 'true') {
     console.log('⚠️ RESET_DB=true detected. Purging all user data...');
@@ -320,9 +352,10 @@ db.serialize(() => {
     db.run('DELETE FROM creator_rewards;');
     db.run('DELETE FROM user_spin_state;');
     db.run('DELETE FROM spin_transactions;');
+    db.run('DELETE FROM task_submissions;');
     db.run('DELETE FROM users;');
-    db.run("DELETE FROM sqlite_sequence WHERE name IN ('users', 'transactions', 'withdrawals', 'game_sessions', 'creator_rewards');");
-    console.log('✅ All users, spin records, and history successfully wiped clean.');
+    db.run("DELETE FROM sqlite_sequence WHERE name IN ('users', 'transactions', 'withdrawals', 'game_sessions', 'creator_rewards', 'task_submissions');");
+    console.log('✅ All users, spin records, tasks submissions, and history successfully wiped clean.');
   }
 });
 
