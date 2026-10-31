@@ -44,7 +44,7 @@ function getYesterdayStr() {
   return d.toISOString().split('T')[0];
 }
 
-// Evaluate streak resets safely
+// Evaluate streak resets safely on day changes
 function evaluateAndSyncUserStreak(user, callback) {
   const today = getTodayStr();
   const yesterday = getYesterdayStr();
@@ -58,7 +58,9 @@ function evaluateAndSyncUserStreak(user, callback) {
 
   let needsDbUpdate = false;
 
+  // If a new day has arrived, reset today's offerwall counter
   if (last_eligible_date !== today) {
+    // If user missed completing 100 coins yesterday, streak resets to 0
     if (last_streak_date !== yesterday && last_streak_date !== today && current_streak > 0) {
       current_streak = 0;
       current_stone = 'NONE';
@@ -102,19 +104,21 @@ function evaluateAndSyncUserStreak(user, callback) {
   }
 }
 
+// ---------------------------------------------------------------------------
 // 0. Public Health Test Endpoint
+// ---------------------------------------------------------------------------
 router.get('/test', (req, res) => {
-  console.log('[REWARDS] /test endpoint hit successfully!');
   res.json({ success: true, message: 'Rewards router is working!' });
 });
 
+// ---------------------------------------------------------------------------
 // 1. GET /api/rewards/status
+// Fetches the user's active streak, Stone Badge, and today's Offerwall progress
+// ---------------------------------------------------------------------------
 router.get('/status', authenticateToken, (req, res) => {
   const userId = req.user && req.user.id ? req.user.id : null;
-  console.log(`[REWARDS] /status requested by User ID: ${userId}`);
 
   if (!userId) {
-    console.error('[REWARDS ERROR] req.user.id is undefined. Check auth middleware!');
     return res.status(401).json({ error: 'Unauthorized: User identity missing' });
   }
 
@@ -124,7 +128,6 @@ router.get('/status', authenticateToken, (req, res) => {
       return res.status(500).json({ error: 'Database query failed' });
     }
     if (!user) {
-      console.error(`[REWARDS ERROR] User ID ${userId} not found in database.`);
       return res.status(404).json({ error: 'User profile not found' });
     }
 
@@ -134,14 +137,10 @@ router.get('/status', authenticateToken, (req, res) => {
         return res.status(500).json({ error: 'Streak calculation failed' });
       }
 
-      const today = getTodayStr();
       const currentStreak = updatedUser.current_streak || 0;
-      const isCheckInClaimedToday = updatedUser.last_check_in_date === today;
       const isStreakProtectedToday = (updatedUser.eligible_daily_coins || 0) >= 100;
       const activeStone = getStoneBadge(currentStreak);
       const nextStone = getNextStoneBadge(currentStreak);
-
-      console.log(`[REWARDS SUCCESS] Returning rewards for ${updatedUser.username}: Streak ${currentStreak}, Stone: ${activeStone.name}`);
 
       res.json({
         currentStreak,
@@ -151,128 +150,17 @@ router.get('/status', authenticateToken, (req, res) => {
         nextStone,
         dailyEligibleCoins: updatedUser.eligible_daily_coins || 0,
         isStreakProtectedToday,
-        isCheckInClaimedToday,
-        socialTasks: {
-          whatsapp: updatedUser.whatsapp_claimed === 1,
-          telegram: updatedUser.telegram_claimed === 1,
-          youtube: updatedUser.youtube_claimed === 1,
-          playstore: updatedUser.playstore_claimed === 1, // Replaced TikTok with Play Store
-        },
       });
     });
   });
 });
 
-// 2. POST /api/rewards/daily-checkin
-router.post('/daily-checkin', authenticateToken, (req, res) => {
-  const userId = req.user.id;
-  const today = getTodayStr();
-  console.log(`[REWARDS] Daily Check-In claim attempt by User ID: ${userId}`);
-
-  db.get('SELECT * FROM users WHERE id = ?', [userId], (err, user) => {
-    if (err || !user) return res.status(404).json({ error: 'User not found' });
-
-    if (user.last_check_in_date === today) {
-      return res.status(400).json({ error: 'Daily check-in already claimed today' });
-    }
-
-    const baseCheckInReward = 100;
-    const stoneBadge = getStoneBadge(user.current_streak || 0);
-    const stoneBonus = stoneBadge.bonus;
-    const totalReward = baseCheckInReward + stoneBonus;
-
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-
-      db.run(
-        `UPDATE users SET 
-          balance = balance + ?, 
-          total_coins_earned = COALESCE(total_coins_earned, 0) + ?, 
-          last_check_in_date = ? 
-         WHERE id = ?`,
-        [totalReward, totalReward, today, userId]
-      );
-
-      db.run(
-        `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'DAILY_CHECKIN', ?, 'DAILY')`,
-        [userId, baseCheckInReward]
-      );
-
-      if (stoneBonus > 0) {
-        db.run(
-          `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'STONE_BONUS', ?, ?)`,
-          [userId, stoneBonus, stoneBadge.name]
-        );
-      }
-
-      db.run('COMMIT', (commitErr) => {
-        if (commitErr) {
-          console.error('[REWARDS ERROR] Daily check-in commit failed:', commitErr.message);
-          return res.status(500).json({ error: 'Transaction failed' });
-        }
-
-        console.log(`[REWARDS SUCCESS] User ${userId} claimed check-in +${totalReward} coins.`);
-        res.json({
-          success: true,
-          baseReward: baseCheckInReward,
-          stoneBonus,
-          totalReceived: totalReward,
-          message: `+${totalReward} Coins added to your wallet!`,
-        });
-      });
-    });
-  });
-});
-
-// 3. POST /api/rewards/social-claim (Updated: 50 coins & playstore task)
-router.post('/social-claim', authenticateToken, (req, res) => {
-  const { platform } = req.body;
-  const userId = req.user.id;
-  const validPlatforms = ['whatsapp', 'telegram', 'youtube', 'playstore'];
-
-  if (!platform || !validPlatforms.includes(platform.toLowerCase())) {
-    return res.status(400).json({ error: 'Invalid platform task requested' });
-  }
-
-  const column = `${platform.toLowerCase()}_claimed`;
-  const rewardCoins = 50; // Updated to 50 Coins
-
-  db.get(`SELECT ${column} FROM users WHERE id = ?`, [userId], (err, user) => {
-    if (err || !user) return res.status(404).json({ error: 'User not found' });
-    if (user[column] === 1) return res.status(400).json({ error: 'Task already completed' });
-
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-      db.run(
-        `UPDATE users SET 
-          balance = balance + ?, 
-          total_coins_earned = COALESCE(total_coins_earned, 0) + ?, 
-          ${column} = 1 
-         WHERE id = ?`,
-        [rewardCoins, rewardCoins, userId]
-      );
-
-      db.run(
-        `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'SOCIAL_REWARD', ?, ?)`,
-        [userId, rewardCoins, platform.toUpperCase()]
-      );
-
-      db.run('COMMIT', (commitErr) => {
-        if (commitErr) return res.status(500).json({ error: 'Failed to record task reward' });
-        res.json({
-          success: true,
-          reward: rewardCoins,
-          message: `+${rewardCoins} Coins added to your wallet!`
-        });
-      });
-    });
-  });
-});
-
-// 4. GET /api/rewards/leaderboard
+// ---------------------------------------------------------------------------
+// 2. GET /api/rewards/leaderboard
+// Ranked strictly by lifetime total_coins_earned (no profile pictures)
+// ---------------------------------------------------------------------------
 router.get('/leaderboard', authenticateToken, (req, res) => {
   const userId = req.user.id;
-  console.log(`[LEADERBOARD] Fetch requested by User ID: ${userId}`);
 
   const topUsersQuery = `
     SELECT 
