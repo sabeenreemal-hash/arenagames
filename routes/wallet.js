@@ -5,6 +5,35 @@ const router = express.Router();
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
 
+// 7-Level Stone Badge Tier Definitions
+const STONE_TIERS = [
+  { rank: 7, name: 'RUBY', days: 100 },
+  { rank: 6, name: 'DIAMOND', days: 75 },
+  { rank: 5, name: 'AMETHYST', days: 50 },
+  { rank: 4, name: 'SAPPHIRE', days: 35 },
+  { rank: 3, name: 'JADE', days: 20 },
+  { rank: 2, name: 'QUARTZ', days: 10 },
+  { rank: 1, name: 'AGATE', days: 5 },
+];
+
+function calculateStoneBadge(streakDays) {
+  const days = streakDays || 0;
+  for (const stone of STONE_TIERS) {
+    if (days >= stone.days) return stone.name;
+  }
+  return 'NONE';
+}
+
+function getTodayStr() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function getYesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
 // Default fallback payment methods
 const DEFAULT_METHODS = [
   { id: "eSewa", name: "eSewa", icon: "🟢", min: 10000, rate: 1000, label: "eSewa Mobile Number", hint: "98XXXXXXXX" },
@@ -13,7 +42,9 @@ const DEFAULT_METHODS = [
   { id: "USDT", name: "USDT (TRC20)", icon: "💲", min: 20000, rate: 1000, label: "TRC20 Wallet Address", hint: "T..." }
 ];
 
-// Public route to fetch available active payment gateways
+// ---------------------------------------------------------------------------
+// 1. Payment Methods List
+// ---------------------------------------------------------------------------
 router.get('/payment-methods', (req, res) => {
   db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, config) => {
     if (err || !config || !config.value) {
@@ -28,7 +59,9 @@ router.get('/payment-methods', (req, res) => {
   });
 });
 
-// Fetch user wallet balance
+// ---------------------------------------------------------------------------
+// 2. Fetch User Wallet Balance
+// ---------------------------------------------------------------------------
 router.get('/', authenticateToken, (req, res) => {
   db.get('SELECT balance FROM users WHERE id = ?', [req.user.id], (err, user) => {
     if (err || !user) return res.status(404).json({ error: 'Profile not found' });
@@ -36,7 +69,9 @@ router.get('/', authenticateToken, (req, res) => {
   });
 });
 
-// Fetch user transaction history
+// ---------------------------------------------------------------------------
+// 3. Fetch Transaction History
+// ---------------------------------------------------------------------------
 router.get('/transactions', authenticateToken, (req, res) => {
   db.all(
     'SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 100',
@@ -48,7 +83,141 @@ router.get('/transactions', authenticateToken, (req, res) => {
   );
 });
 
-// Submit a withdrawal request validated dynamically against database rules
+// ---------------------------------------------------------------------------
+// 4. Offerwall Credit & Streak Counter (NEW)
+// Only offerwall completions count toward eligible daily streak coins.
+// ---------------------------------------------------------------------------
+function handleOfferwallCredit(req, res) {
+  // Supports token auth (req.user.id) or direct postback params (userId)
+  const userId = (req.user && req.user.id) ? req.user.id : (req.body.userId || req.query.userId || req.query.user_id);
+  const coinAmount = parseInt(req.body.coinAmount || req.body.coins || req.query.coins || req.query.amount, 10);
+  const offerId = req.body.offerId || req.query.offerId || req.query.tx_id || req.query.trans_id || `OFFER_${Date.now()}`;
+
+  if (!userId || isNaN(coinAmount) || coinAmount <= 0) {
+    return res.status(400).json({ error: 'Invalid user ID or coin amount' });
+  }
+
+  // Prevent duplicate credit for the same offer transaction ID
+  db.get(
+    "SELECT id FROM transactions WHERE user_id = ? AND type = 'OFFERWALL_REWARD' AND reference_id = ?",
+    [userId, offerId],
+    (txErr, existingTx) => {
+      if (existingTx) {
+        return res.json({ success: true, message: 'Offer already credited' });
+      }
+
+      db.get('SELECT * FROM users WHERE id = ?', [userId], (err, user) => {
+        if (err || !user) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        const today = getTodayStr();
+        const yesterday = getYesterdayStr();
+
+        let currentStreak = user.current_streak || 0;
+        let highestStreak = user.highest_streak || 0;
+        let lastStreakDate = user.last_streak_date || '';
+        let streakActivatedNow = false;
+
+        // 1. Calculate today's eligible coins (Exclusively from Offerwall credits)
+        let newEligible = (user.last_eligible_date === today)
+          ? ((user.eligible_daily_coins || 0) + coinAmount)
+          : coinAmount;
+
+        // 2. Check if streak broke yesterday (missed the 100-coin requirement yesterday)
+        if (user.last_eligible_date !== today && lastStreakDate !== yesterday && lastStreakDate !== today && currentStreak > 0) {
+          currentStreak = 0; // Streak broken
+        }
+
+        // 3. Milestone check: crossing >= 100 Offerwall coins activates today's streak
+        if (newEligible >= 100 && lastStreakDate !== today) {
+          currentStreak += 1;
+          lastStreakDate = today;
+          streakActivatedNow = true;
+
+          if (currentStreak > highestStreak) {
+            highestStreak = currentStreak;
+          }
+        }
+
+        // 4. Recalculate Active Stone Badge
+        const currentStone = calculateStoneBadge(currentStreak);
+
+        // 5. Database write
+        db.serialize(() => {
+          db.run('BEGIN TRANSACTION');
+
+          db.run(
+            `UPDATE users SET 
+              balance = balance + ?, 
+              total_coins_earned = COALESCE(total_coins_earned, 0) + ?, 
+              eligible_daily_coins = ?, 
+              last_eligible_date = ?, 
+              current_streak = ?, 
+              highest_streak = ?, 
+              last_streak_date = ?, 
+              current_stone = ? 
+             WHERE id = ?`,
+            [
+              coinAmount,
+              coinAmount,
+              newEligible,
+              today,
+              currentStreak,
+              highestStreak,
+              lastStreakDate,
+              currentStone,
+              userId,
+            ]
+          );
+
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'OFFERWALL_REWARD', ?, ?)`,
+            [userId, coinAmount, offerId]
+          );
+
+          db.run('COMMIT', (commitErr) => {
+            if (commitErr) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: 'Failed to record offerwall credit' });
+            }
+
+            console.log(`[OFFERWALL] Credited +${coinAmount} to User ${userId}. Streak: ${currentStreak}d. Progress: ${newEligible}/100`);
+
+            res.json({
+              success: true,
+              creditedCoins: coinAmount,
+              dailyEligibleCoins: newEligible,
+              currentStreak,
+              currentStone,
+              streakActivatedNow,
+              message: streakActivatedNow 
+                ? `🔥 Streak Protected! Current Streak: ${currentStreak} Days` 
+                : `+${coinAmount} Offerwall coins added to wallet!`,
+            });
+          });
+        });
+      });
+    }
+  );
+}
+
+// App endpoint (can accept JWT auth header if provided, or body userId)
+router.post('/offerwall-credit', (req, res, next) => {
+  if (req.headers.authorization) {
+    return authenticateToken(req, res, () => handleOfferwallCredit(req, res));
+  }
+  handleOfferwallCredit(req, res);
+});
+
+// Network postback endpoint (accepts GET/POST webhooks from offerwall networks)
+router.all('/offerwall-postback', (req, res) => {
+  handleOfferwallCredit(req, res);
+});
+
+// ---------------------------------------------------------------------------
+// 5. Submit Withdrawal Request
+// ---------------------------------------------------------------------------
 router.post('/redeem', authenticateToken, (req, res) => {
   const { paymentMethod, accountInfo, coinAmount } = req.body;
   const userId = req.user.id;
