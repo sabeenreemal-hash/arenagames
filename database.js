@@ -79,12 +79,13 @@ db.serialize(() => {
       is_banned INTEGER DEFAULT 0,
       creator_badge_enabled INTEGER DEFAULT 0,
       creator_badge_id INTEGER DEFAULT NULL,
+      last_withdrawal_at DATETIME DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(referred_by_id) REFERENCES users(id) ON DELETE SET NULL
     )
   `);
 
-  // Column safety migrations
+  // Column safety migrations for Users
   addColumnIfNotExists('users', 'total_coins_earned', 'INTEGER', 100);
   addColumnIfNotExists('users', 'current_streak', 'INTEGER', 0);
   addColumnIfNotExists('users', 'highest_streak', 'INTEGER', 0);
@@ -100,6 +101,7 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'playstore_claimed', 'INTEGER', 0);
   addColumnIfNotExists('users', 'creator_badge_enabled', 'INTEGER', 0);
   addColumnIfNotExists('users', 'creator_badge_id', 'INTEGER', 'NULL');
+  addColumnIfNotExists('users', 'last_withdrawal_at', 'DATETIME', 'NULL');
 
   // Badges Table
   db.run(`
@@ -157,7 +159,7 @@ db.serialize(() => {
     )
   `);
 
-  // Withdrawals Table
+  // Withdrawals Table (with USD, NPR, INR support)
   db.run(`
     CREATE TABLE IF NOT EXISTS withdrawals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,11 +168,17 @@ db.serialize(() => {
       account_info TEXT NOT NULL,
       coin_amount INTEGER NOT NULL,
       usd_amount REAL NOT NULL,
+      npr_amount REAL DEFAULT 0.0,
+      inr_amount REAL DEFAULT 0.0,
       status TEXT CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED')) DEFAULT 'PENDING',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+
+  // Withdrawals column safety migrations
+  addColumnIfNotExists('withdrawals', 'npr_amount', 'REAL', 0.0);
+  addColumnIfNotExists('withdrawals', 'inr_amount', 'REAL', 0.0);
 
   // Global Configuration Table
   db.run(`
@@ -185,12 +193,13 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('update_url', 'https://play.google.com/store')`);
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('force_update', 'false')`);
 
-  // Seed default payout methods
+  // Seed default payout methods with updated 5,000 base conversions
   const defaultGateways = JSON.stringify([
-    { id: "eSewa", name: "eSewa", icon: "🟢", min: 10000, rate: 1000, label: "eSewa Mobile ID", hint: "98XXXXXXXX" },
-    { id: "Khalti", name: "Khalti", icon: "🟣", min: 10000, rate: 1000, label: "Khalti Mobile ID", hint: "98XXXXXXXX" },
-    { id: "PayPal", name: "PayPal", icon: "🅿️", min: 10000, rate: 1000, label: "PayPal Email", hint: "user@example.com" },
-    { id: "USDT", name: "USDT (TRC20)", icon: "💲", min: 20000, rate: 1000, label: "TRC20 Address", hint: "T..." }
+    { id: "eSewa", name: "eSewa (NPR)", icon: "🟢", min: 5000, currency: "NPR", label: "eSewa Mobile Number", hint: "98XXXXXXXX" },
+    { id: "Khalti", name: "Khalti (NPR)", icon: "🟣", min: 5000, currency: "NPR", label: "Khalti Mobile Number", hint: "98XXXXXXXX" },
+    { id: "UPI", name: "UPI / Paytm (INR)", icon: "🇮🇳", min: 5000, currency: "INR", label: "UPI ID / Number", hint: "user@upi" },
+    { id: "PayPal", name: "PayPal (USD)", icon: "🅿️", min: 5000, currency: "USD", label: "PayPal Email Address", hint: "user@example.com" },
+    { id: "USDT", name: "USDT (TRC20)", icon: "💲", min: 10000, currency: "USD", label: "TRC20 Wallet Address", hint: "T..." }
   ]);
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('payment_methods', ?)`, [defaultGateways]);
 
