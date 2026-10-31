@@ -5,6 +5,22 @@ const router = express.Router();
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
 
+// 7-day cooldown in milliseconds
+const WITHDRAWAL_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Conversion base: 5,000 coins
+const CONVERSION_RATES = {
+  COIN_BASE: 5000,
+  USD: 1.0,     // 5000 coins = $1.00 USD
+  NPR: 150.0,   // 5000 coins = रू 150 NPR
+  INR: 90.0,    // 5000 coins = ₹ 90 INR
+};
+
+// Ensure last_withdrawal_at column exists in users table
+db.run("ALTER TABLE users ADD COLUMN last_withdrawal_at TEXT", (err) => {
+  // Ignore error if column already exists
+});
+
 // 7-Level Stone Badge Tier Definitions
 const STONE_TIERS = [
   { rank: 7, name: 'RUBY', days: 100 },
@@ -34,13 +50,23 @@ function getYesterdayStr() {
   return d.toISOString().split('T')[0];
 }
 
-// Default fallback payment methods
+// Default fallback payment methods (configured with min 5000 coins base)
 const DEFAULT_METHODS = [
-  { id: "eSewa", name: "eSewa", icon: "🟢", min: 10000, rate: 1000, label: "eSewa Mobile Number", hint: "98XXXXXXXX" },
-  { id: "Khalti", name: "Khalti", icon: "🟣", min: 10000, rate: 1000, label: "Khalti Mobile Number", hint: "98XXXXXXXX" },
-  { id: "PayPal", name: "PayPal", icon: "🅿️", min: 10000, rate: 1000, label: "PayPal Email Address", hint: "user@example.com" },
-  { id: "USDT", name: "USDT (TRC20)", icon: "💲", min: 20000, rate: 1000, label: "TRC20 Wallet Address", hint: "T..." }
+  { id: "eSewa", name: "eSewa (NPR)", icon: "🟢", min: 5000, currency: "NPR", label: "eSewa Mobile Number", hint: "98XXXXXXXX" },
+  { id: "Khalti", name: "Khalti (NPR)", icon: "🟣", min: 5000, currency: "NPR", label: "Khalti Mobile Number", hint: "98XXXXXXXX" },
+  { id: "UPI", name: "UPI / Paytm (INR)", icon: "🇮🇳", min: 5000, currency: "INR", label: "UPI ID / Number", hint: "user@upi" },
+  { id: "PayPal", name: "PayPal (USD)", icon: "🅿️", min: 5000, currency: "USD", label: "PayPal Email Address", hint: "user@example.com" },
+  { id: "USDT", name: "USDT (TRC20)", icon: "💲", min: 10000, currency: "USD", label: "TRC20 Wallet Address", hint: "T..." }
 ];
+
+// Helper to calculate conversion
+function convertCoins(coins) {
+  return {
+    usd: parseFloat(((coins / CONVERSION_RATES.COIN_BASE) * CONVERSION_RATES.USD).toFixed(2)),
+    npr: parseFloat(((coins / CONVERSION_RATES.COIN_BASE) * CONVERSION_RATES.NPR).toFixed(2)),
+    inr: parseFloat(((coins / CONVERSION_RATES.COIN_BASE) * CONVERSION_RATES.INR).toFixed(2)),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // 1. Payment Methods List
@@ -60,12 +86,38 @@ router.get('/payment-methods', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Fetch User Wallet Balance
+// 2. Fetch User Wallet Balance & Withdrawal Cooldown Status
 // ---------------------------------------------------------------------------
 router.get('/', authenticateToken, (req, res) => {
-  db.get('SELECT balance FROM users WHERE id = ?', [req.user.id], (err, user) => {
+  db.get('SELECT balance, last_withdrawal_at FROM users WHERE id = ?', [req.user.id], (err, user) => {
     if (err || !user) return res.status(404).json({ error: 'Profile not found' });
-    res.json({ balance: user.balance });
+
+    let canWithdraw = true;
+    let nextAvailableWithdrawal = null;
+    let remainingMs = 0;
+
+    if (user.last_withdrawal_at) {
+      const lastTxTime = new Date(user.last_withdrawal_at).getTime();
+      const nextTime = lastTxTime + WITHDRAWAL_COOLDOWN_MS;
+      const now = Date.now();
+
+      if (now < nextTime) {
+        canWithdraw = false;
+        remainingMs = nextTime - now;
+        nextAvailableWithdrawal = new Date(nextTime).toISOString();
+      }
+    }
+
+    const conversions = convertCoins(user.balance || 0);
+
+    res.json({
+      balance: user.balance || 0,
+      converted: conversions,
+      can_withdraw: canWithdraw,
+      last_withdrawal_at: user.last_withdrawal_at,
+      next_withdrawal_date: nextAvailableWithdrawal,
+      cooldown_remaining_ms: remainingMs,
+    });
   });
 });
 
@@ -84,11 +136,9 @@ router.get('/transactions', authenticateToken, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Offerwall Credit & Streak Counter (NEW)
-// Only offerwall completions count toward eligible daily streak coins.
+// 4. Offerwall Credit & Streak Counter
 // ---------------------------------------------------------------------------
 function handleOfferwallCredit(req, res) {
-  // Supports token auth (req.user.id) or direct postback params (userId)
   const userId = (req.user && req.user.id) ? req.user.id : (req.body.userId || req.query.userId || req.query.user_id);
   const coinAmount = parseInt(req.body.coinAmount || req.body.coins || req.query.coins || req.query.amount, 10);
   const offerId = req.body.offerId || req.query.offerId || req.query.tx_id || req.query.trans_id || `OFFER_${Date.now()}`;
@@ -97,7 +147,6 @@ function handleOfferwallCredit(req, res) {
     return res.status(400).json({ error: 'Invalid user ID or coin amount' });
   }
 
-  // Prevent duplicate credit for the same offer transaction ID
   db.get(
     "SELECT id FROM transactions WHERE user_id = ? AND type = 'OFFERWALL_REWARD' AND reference_id = ?",
     [userId, offerId],
@@ -119,17 +168,14 @@ function handleOfferwallCredit(req, res) {
         let lastStreakDate = user.last_streak_date || '';
         let streakActivatedNow = false;
 
-        // 1. Calculate today's eligible coins (Exclusively from Offerwall credits)
         let newEligible = (user.last_eligible_date === today)
           ? ((user.eligible_daily_coins || 0) + coinAmount)
           : coinAmount;
 
-        // 2. Check if streak broke yesterday (missed the 100-coin requirement yesterday)
         if (user.last_eligible_date !== today && lastStreakDate !== yesterday && lastStreakDate !== today && currentStreak > 0) {
-          currentStreak = 0; // Streak broken
+          currentStreak = 0;
         }
 
-        // 3. Milestone check: crossing >= 100 Offerwall coins activates today's streak
         if (newEligible >= 100 && lastStreakDate !== today) {
           currentStreak += 1;
           lastStreakDate = today;
@@ -140,10 +186,8 @@ function handleOfferwallCredit(req, res) {
           }
         }
 
-        // 4. Recalculate Active Stone Badge
         const currentStone = calculateStoneBadge(currentStreak);
 
-        // 5. Database write
         db.serialize(() => {
           db.run('BEGIN TRANSACTION');
 
@@ -182,8 +226,6 @@ function handleOfferwallCredit(req, res) {
               return res.status(500).json({ error: 'Failed to record offerwall credit' });
             }
 
-            console.log(`[OFFERWALL] Credited +${coinAmount} to User ${userId}. Streak: ${currentStreak}d. Progress: ${newEligible}/100`);
-
             res.json({
               success: true,
               creditedCoins: coinAmount,
@@ -202,7 +244,6 @@ function handleOfferwallCredit(req, res) {
   );
 }
 
-// App endpoint (can accept JWT auth header if provided, or body userId)
 router.post('/offerwall-credit', (req, res, next) => {
   if (req.headers.authorization) {
     return authenticateToken(req, res, () => handleOfferwallCredit(req, res));
@@ -210,13 +251,12 @@ router.post('/offerwall-credit', (req, res, next) => {
   handleOfferwallCredit(req, res);
 });
 
-// Network postback endpoint (accepts GET/POST webhooks from offerwall networks)
 router.all('/offerwall-postback', (req, res) => {
   handleOfferwallCredit(req, res);
 });
 
 // ---------------------------------------------------------------------------
-// 5. Submit Withdrawal Request
+// 5. Submit Withdrawal Request (with 7-Day Cooldown Validation)
 // ---------------------------------------------------------------------------
 router.post('/redeem', authenticateToken, (req, res) => {
   const { paymentMethod, accountInfo, coinAmount } = req.body;
@@ -226,8 +266,24 @@ router.post('/redeem', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Invalid parameters provided' });
   }
 
-  db.get('SELECT balance FROM users WHERE id = ?', [userId], (err, user) => {
+  db.get('SELECT balance, last_withdrawal_at FROM users WHERE id = ?', [userId], (err, user) => {
     if (err || !user) return res.status(404).json({ error: 'User record missing' });
+
+    // --- 1-Week Cooldown Check ---
+    if (user.last_withdrawal_at) {
+      const lastTxTime = new Date(user.last_withdrawal_at).getTime();
+      const nextTime = lastTxTime + WITHDRAWAL_COOLDOWN_MS;
+      const now = Date.now();
+
+      if (now < nextTime) {
+        const remainingHours = Math.ceil((nextTime - now) / (1000 * 60 * 60));
+        const remainingDays = Math.floor(remainingHours / 24);
+        return res.status(429).json({
+          error: `Withdrawal cooldown active. You can withdraw once every 7 days. Next available in ${remainingDays}d ${remainingHours % 24}h.`,
+          next_available: new Date(nextTime).toISOString()
+        });
+      }
+    }
 
     if (user.balance < coinAmount) {
       return res.status(400).json({ error: 'Insufficient balance to complete request' });
@@ -247,19 +303,26 @@ router.post('/redeem', authenticateToken, (req, res) => {
         return res.status(400).json({ error: 'Unsupported payment gateway' });
       }
 
-      const minCoins = methodRule.min || 10000;
-      const rate = methodRule.rate || 1000; // 1000 coins = $1.00 USD
-
+      const minCoins = methodRule.min || 5000;
       if (coinAmount < minCoins) {
         return res.status(400).json({ error: `Minimum redeem limit for ${methodRule.name} is ${minCoins.toLocaleString()} coins` });
       }
 
-      const usdVal = coinAmount / rate;
+      // Compute Conversions: 5000 coins = $1 USD = 150 NPR = 90 INR
+      const usdVal = parseFloat(((coinAmount / 5000) * 1.0).toFixed(2));
+      const nprVal = parseFloat(((coinAmount / 5000) * 150.0).toFixed(2));
+      const inrVal = parseFloat(((coinAmount / 5000) * 90.0).toFixed(2));
+
+      const nowIso = new Date().toISOString();
 
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        db.run('UPDATE users SET balance = balance - ? WHERE id = ?', [coinAmount, userId]);
+        // Deduct balance and update last_withdrawal_at
+        db.run(
+          'UPDATE users SET balance = balance - ?, last_withdrawal_at = ? WHERE id = ?',
+          [coinAmount, nowIso, userId]
+        );
 
         db.run(
           `INSERT INTO withdrawals (user_id, payment_method, account_info, coin_amount, usd_amount, status) 
@@ -284,7 +347,8 @@ router.post('/redeem', authenticateToken, (req, res) => {
                 db.run('COMMIT');
                 res.json({
                   success: true,
-                  message: `Withdrawal of ${coinAmount} coins ($${usdVal.toFixed(2)} USD) requested!`,
+                  message: `Withdrawal request submitted! (${coinAmount} coins = $${usdVal} USD / रू${nprVal} NPR / ₹${inrVal} INR). Next withdrawal unlocks in 7 days.`,
+                  next_withdrawal_date: new Date(Date.now() + WITHDRAWAL_COOLDOWN_MS).toISOString()
                 });
               }
             );
