@@ -23,7 +23,8 @@ const gamesRoutes = require('./routes/games');
 const adminRoutes = require('./routes/admin');
 const rewardsRouter = require('./routes/rewards');
 const referralRoutes = require('./routes/referral');
-const taskRoutes = require('./routes/tasks'); // <-- User Tasks Router
+const taskRoutes = require('./routes/tasks'); // User Tasks Router
+const tictactoeRoutes = require('./routes/tictactoe'); // <-- 1v1 Tic-Tac-Toe Router
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -69,7 +70,7 @@ db.run(`
   }
 });
 
-// Games Table with 500 Daily Limit per Game (Dot Connect retained)
+// Games Table with default seeds
 db.run(`
   CREATE TABLE IF NOT EXISTS games (
     id TEXT PRIMARY KEY,
@@ -83,6 +84,7 @@ db.run(`
     const defaultGames = [
       ['dot_connect', 'Dot Connect', 500],
       ['spin_wheel', 'Spin Wheel', 5000],
+      ['tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000],
     ];
     defaultGames.forEach(([id, name, maxReward]) => {
       db.run(
@@ -90,7 +92,7 @@ db.run(`
         [id, name, maxReward]
       );
     });
-    console.log('[DB SUCCESS] Games table initialized with 500 coin limit.');
+    console.log('[DB SUCCESS] Games table initialized with limits.');
   }
 });
 
@@ -158,7 +160,7 @@ function extractUserId(req) {
 }
 
 // ============================================================
-// 3. DAILY GAME COINS STATUS ENDPOINT (Max 500 for Games Only)
+// 3. DAILY GAME COINS STATUS ENDPOINT (Max 500 for Solo Games Only)
 // ============================================================
 const getDailyGameCoinsHandler = (req, res) => {
   const userId = extractUserId(req);
@@ -172,7 +174,7 @@ const getDailyGameCoinsHandler = (req, res) => {
   const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
   const secondsUntilReset = Math.max(0, Math.floor((tomorrow - now) / 1000));
 
-  // Sum up all coins earned today where type is NOT an Offerwall, Check-in, or Task Reward
+  // Sum up all coins earned today where type is NOT an Offerwall, Check-in, Task Reward, or PvP Wager Match
   const query = `
     SELECT COALESCE(SUM(amount), 0) AS total_game_coins
     FROM transactions
@@ -180,7 +182,8 @@ const getDailyGameCoinsHandler = (req, res) => {
       AND amount > 0
       AND type NOT IN (
         'OFFERWALL', 'TIMEWALL', 'OFFERWALL_REVERSAL', 'TIMEWALL_REVERSAL', 
-        'REFERRAL', 'CHECKIN', 'TASK_REWARD'
+        'REFERRAL', 'CHECKIN', 'TASK_REWARD',
+        'TICTACTOE_WIN', 'TICTACTOE_REFUND', 'TICTACTOE_ENTRY'
       )
       AND DATE(created_at) = DATE('now')
   `;
@@ -216,7 +219,7 @@ app.get('/api/games/daily-game-coins', getDailyGameCoinsHandler);
 // 4. BACKEND SCORE SUBMISSION INTERCEPTOR (Enforces 500 Game Limit)
 // ============================================================
 const enforceGameDailyLimitMiddleware = (req, res, next) => {
-  // Only check POST requests attempting to submit game score/rewards
+  // Only check POST requests attempting to submit solo game score/rewards
   const isScoreSubmission = req.method === 'POST' && (
     req.path.includes('score') ||
     req.path.includes('submit') ||
@@ -234,7 +237,8 @@ const enforceGameDailyLimitMiddleware = (req, res, next) => {
           AND amount > 0
           AND type NOT IN (
             'OFFERWALL', 'TIMEWALL', 'OFFERWALL_REVERSAL', 'TIMEWALL_REVERSAL', 
-            'REFERRAL', 'CHECKIN', 'TASK_REWARD'
+            'REFERRAL', 'CHECKIN', 'TASK_REWARD',
+            'TICTACTOE_WIN', 'TICTACTOE_REFUND', 'TICTACTOE_ENTRY'
           )
           AND DATE(created_at) = DATE('now')
       `;
@@ -269,6 +273,7 @@ const enforceGameDailyLimitMiddleware = (req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/games', enforceGameDailyLimitMiddleware, gamesRoutes);
+app.use('/api/tictactoe', tictactoeRoutes); // <-- Mounted 1v1 Multiplayer Tic-Tac-Toe
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
