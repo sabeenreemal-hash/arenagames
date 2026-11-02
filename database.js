@@ -306,7 +306,30 @@ db.serialize(() => {
   addColumnIfNotExists('task_submissions', 'rejection_reason', 'TEXT', "''");
 
   // ==========================================
-  // 5. Ensure Allowed Games Exist
+  // 5. 1v1 Tic-Tac-Toe Multiplayer Schema
+  // ==========================================
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tictactoe_matches (
+      id TEXT PRIMARY KEY,
+      player_x_id INTEGER NOT NULL,
+      player_o_id INTEGER NOT NULL,
+      player_x_name TEXT NOT NULL,
+      player_o_name TEXT NOT NULL,
+      current_turn INTEGER NOT NULL,
+      board TEXT NOT NULL DEFAULT '["","","","","","","","",""]',
+      status TEXT CHECK(status IN ('IN_PROGRESS', 'COMPLETED', 'DRAW', 'ABANDONED')) DEFAULT 'IN_PROGRESS',
+      winner_id INTEGER DEFAULT NULL,
+      winning_line TEXT DEFAULT NULL,
+      pot_amount INTEGER DEFAULT 200,
+      last_move_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(player_x_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(player_o_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // ==========================================
+  // 6. Ensure Allowed Games Exist
   // ==========================================
   
   // Dot Connect
@@ -321,18 +344,22 @@ db.serialize(() => {
     VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)
   `);
 
-  // ==========================================
-  // 6. Cleanup Unused Games
-  // ==========================================
-  db.run("DELETE FROM game_sessions WHERE game_id IN ('tictac', 'tictactoe', 'word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
-  db.run("DELETE FROM games WHERE id IN ('tictac', 'tictactoe', 'word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
-  db.run("DROP TABLE IF EXISTS word_puzzle;");
-  db.run("DROP TABLE IF EXISTS word_puzzles;");
-  db.run("DROP TABLE IF EXISTS tictac;");
-  db.run("DROP TABLE IF EXISTS tic_tac_toe;");
+  // 1v1 Multiplayer Tic-Tac-Toe
+  db.run(`
+    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
+    VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)
+  `);
 
   // ==========================================
-  // 7. Performance Indexes
+  // 7. Cleanup Unused Legacy Games
+  // ==========================================
+  db.run("DELETE FROM game_sessions WHERE game_id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
+  db.run("DELETE FROM games WHERE id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
+  db.run("DROP TABLE IF EXISTS word_puzzle;");
+  db.run("DROP TABLE IF EXISTS word_puzzles;");
+
+  // ==========================================
+  // 8. Performance Indexes
   // ==========================================
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`);
@@ -350,8 +377,13 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`);
 
+  // Indexes for 1v1 Tic-Tac-Toe performance
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ttt_player_x ON tictactoe_matches(player_x_id, status);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ttt_player_o ON tictactoe_matches(player_o_id, status);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ttt_status ON tictactoe_matches(status);`);
+
   // ==========================================
-  // 8. One-Time Database User Reset Flag
+  // 9. One-Time Database User Reset Flag
   // ==========================================
   if (process.env.RESET_DB === 'true') {
     console.log('⚠️ RESET_DB=true detected. Purging all user data...');
@@ -362,8 +394,9 @@ db.serialize(() => {
     db.run('DELETE FROM user_spin_state;');
     db.run('DELETE FROM spin_transactions;');
     db.run('DELETE FROM task_submissions;');
+    db.run('DELETE FROM tictactoe_matches;');
     db.run('DELETE FROM users;');
-    db.run("DELETE FROM sqlite_sequence WHERE name IN ('users', 'transactions', 'withdrawals', 'game_sessions', 'creator_rewards', 'task_submissions');");
+    db.run("DELETE FROM sqlite_sequence WHERE name IN ('users', 'transactions', 'withdrawals', 'game_sessions', 'creator_rewards', 'task_submissions', 'tictactoe_matches');");
     console.log('✅ All users, spin records, tasks submissions, and history successfully wiped clean.');
   }
 });
