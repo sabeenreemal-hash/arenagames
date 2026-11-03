@@ -11,10 +11,14 @@ const WINNER_PRIZE = 200;
 const ROUND_TIME_LIMIT_SEC = 15;
 const WINS_TO_MATCH = 2; // Best of 3: First to 2 wins
 
+function getAuthUserId(req) {
+  if (!req.user) return null;
+  return req.user.id || req.user.userId || req.user.sub || null;
+}
+
 // In-Memory Matchmaking Queue: [{ userId, username, joinedAt }]
 let rpsQueue = [];
 
-// Determine winner of two choices: 'ROCK', 'PAPER', 'SCISSORS'
 function evaluateRound(choiceA, choiceB) {
   if (!choiceA && !choiceB) return { winner: 'DRAW', reason: 'BOTH_TIMEOUT' };
   if (!choiceA) return { winner: 'B', reason: 'A_TIMEOUT' };
@@ -53,7 +57,8 @@ router.get('/waiting-players', authenticateToken, (req, res) => {
 // 2. POST /api/rps/join-queue
 // -----------------------------------------------------------------------------
 router.post('/join-queue', authenticateToken, (req, res) => {
-  const userId = req.user.id;
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized user session' });
 
   // Check active match
   db.get(
@@ -73,7 +78,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
       }
 
       // Check if already in queue
-      if (rpsQueue.some(p => p.userId === userId)) {
+      if (rpsQueue.some(p => String(p.userId) === String(userId))) {
         return res.json({
           success: true,
           matched: false,
@@ -83,10 +88,14 @@ router.post('/join-queue', authenticateToken, (req, res) => {
       }
 
       // Check coins & deduct 100
-      db.get('SELECT balance, username FROM users WHERE id = ?', [userId], (userErr, user) => {
+      db.get('SELECT id, balance, username FROM users WHERE id = ?', [userId], (userErr, user) => {
         if (userErr || !user) return res.status(404).json({ error: 'User not found' });
-        if ((user.balance || 0) < ENTRY_FEE) {
-          return res.status(400).json({ error: `Insufficient coins. ${ENTRY_FEE} coins required.` });
+        
+        const currentBalance = parseInt(user.balance, 10) || 0;
+        if (currentBalance < ENTRY_FEE) {
+          return res.status(400).json({ 
+            error: `Insufficient coins. You have ${currentBalance} coins, but ${ENTRY_FEE} coins are required.` 
+          });
         }
 
         db.serialize(() => {
@@ -94,7 +103,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
 
           db.run(
             `UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?`,
-            [ENTRY_FEE, userId, ENTRY_FEE],
+            [ENTRY_FEE, user.id, ENTRY_FEE],
             function (deductErr) {
               if (deductErr || this.changes === 0) {
                 db.run('ROLLBACK');
@@ -103,7 +112,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
 
               db.run(
                 `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'RPS_ENTRY', ?, ?)`,
-                [userId, -ENTRY_FEE, `RPS_ENTRY_${Date.now()}`]
+                [user.id, -ENTRY_FEE, `RPS_ENTRY_${Date.now()}`]
               );
 
               db.run('COMMIT', (commitErr) => {
@@ -112,8 +121,8 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                   return res.status(500).json({ error: 'Transaction commit failed' });
                 }
 
-                // Match with opponent
-                const oppIndex = rpsQueue.findIndex(p => p.userId !== userId);
+                // Match with opponent (cannot match self)
+                const oppIndex = rpsQueue.findIndex(p => String(p.userId) !== String(user.id));
 
                 if (oppIndex !== -1) {
                   const opponent = rpsQueue.splice(oppIndex, 1)[0];
@@ -163,19 +172,35 @@ router.post('/join-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 3. POST /api/rps/cancel-queue
+// 3. POST /api/rps/cancel-queue (Guaranteed 100-Coin Refund & Queue Removal)
 // -----------------------------------------------------------------------------
 router.post('/cancel-queue', authenticateToken, (req, res) => {
-  const userId = req.user.id;
-  const qIndex = rpsQueue.findIndex(p => p.userId === userId);
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  // String comparison guarantees match regardless of integer vs string token payload
+  const qIndex = rpsQueue.findIndex(p => String(p.userId) === String(userId));
 
   if (qIndex === -1) {
-    return res.status(400).json({ error: 'You are not in the matchmaking queue' });
+    db.get(
+      `SELECT id FROM rps_matches 
+       WHERE (player_a_id = ? OR player_b_id = ?) 
+         AND status IN ('IN_PROGRESS', 'ROUND_REVEAL')`,
+      [userId, userId],
+      (err, activeMatch) => {
+        if (activeMatch) {
+          return res.status(400).json({ error: 'Match has already started! Cannot cancel.' });
+        }
+        return res.status(400).json({ error: 'You are not in the matchmaking queue' });
+      }
+    );
+    return;
   }
 
+  // 1. Remove from waiting queue
   rpsQueue.splice(qIndex, 1);
 
-  // Refund 100 coins
+  // 2. Refund 100 coins
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
     db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, userId]);
@@ -188,6 +213,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
         db.run('ROLLBACK');
         return res.status(500).json({ error: 'Refund failed' });
       }
+      console.log(`[RPS CANCEL] Removed User #${userId} from queue & refunded 100 coins.`);
       return res.json({
         success: true,
         message: 'Matchmaking cancelled. 100 coins refunded.'
@@ -200,7 +226,8 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 // 4. GET /api/rps/check-queue-status
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
-  const userId = req.user.id;
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   db.get(
     `SELECT * FROM rps_matches 
@@ -211,7 +238,7 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
     (err, match) => {
       if (err) return res.status(500).json({ error: 'Query failed' });
       if (match) {
-        const opponentName = match.player_a_id === userId ? match.player_b_name : match.player_a_name;
+        const opponentName = String(match.player_a_id) === String(userId) ? match.player_b_name : match.player_a_name;
         return res.json({
           success: true,
           matched: true,
@@ -220,7 +247,7 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
         });
       }
 
-      const inQueue = rpsQueue.some(p => p.userId === userId);
+      const inQueue = rpsQueue.some(p => String(p.userId) === String(userId));
       return res.json({
         success: true,
         matched: false,
@@ -235,11 +262,11 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
 // -----------------------------------------------------------------------------
 router.get('/match/:matchId', authenticateToken, (req, res) => {
   const { matchId } = req.params;
-  const userId = req.user.id;
+  const userId = getAuthUserId(req);
 
   db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match) return res.status(404).json({ error: 'Match not found' });
-    if (match.player_a_id !== userId && match.player_b_id !== userId) {
+    if (String(match.player_a_id) !== String(userId) && String(match.player_b_id) !== String(userId)) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
@@ -247,7 +274,6 @@ router.get('/match/:matchId', authenticateToken, (req, res) => {
     const elapsedSeconds = Math.max(0, Math.floor((Date.now() - roundStartTime) / 1000));
     const secondsRemaining = Math.max(0, ROUND_TIME_LIMIT_SEC - elapsedSeconds);
 
-    // Auto-resolve timeout if timer hit 0 and still IN_PROGRESS
     if (match.status === 'IN_PROGRESS' && elapsedSeconds >= ROUND_TIME_LIMIT_SEC) {
       return resolveRound(match, (rErr, updatedMatch) => {
         sendMatchPayload(res, updatedMatch || match, userId, 0);
@@ -259,7 +285,7 @@ router.get('/match/:matchId', authenticateToken, (req, res) => {
 });
 
 function sendMatchPayload(res, match, userId, secondsRemaining) {
-  const isPlayerA = match.player_a_id === userId;
+  const isPlayerA = String(match.player_a_id) === String(userId);
   const myChoice = isPlayerA ? match.player_a_choice : match.player_b_choice;
   const hasOpponentSubmitted = isPlayerA ? (match.player_b_choice !== null) : (match.player_a_choice !== null);
 
@@ -268,7 +294,6 @@ function sendMatchPayload(res, match, userId, secondsRemaining) {
     if (match.last_round_result) lastResult = JSON.parse(match.last_round_result);
   } catch (_) {}
 
-  // SECURITY: Opponent's choice is hidden until ROUND_REVEAL or COMPLETED
   let opponentChoiceRevealed = null;
   if (match.status === 'ROUND_REVEAL' || match.status === 'COMPLETED' || match.status === 'DRAW') {
     opponentChoiceRevealed = isPlayerA ? match.player_b_choice : match.player_a_choice;
@@ -286,7 +311,7 @@ function sendMatchPayload(res, match, userId, secondsRemaining) {
     myChoice: myChoice,
     hasSubmitted: myChoice !== null,
     hasOpponentSubmitted: hasOpponentSubmitted,
-    opponentChoice: opponentChoiceRevealed, // Hidden during IN_PROGRESS
+    opponentChoice: opponentChoiceRevealed,
     lastRoundResult: lastResult,
     winnerId: match.winner_id,
     potAmount: match.pot_amount
@@ -298,7 +323,7 @@ function sendMatchPayload(res, match, userId, secondsRemaining) {
 // -----------------------------------------------------------------------------
 router.post('/submit-choice', authenticateToken, (req, res) => {
   const { matchId, choice } = req.body;
-  const userId = req.user.id;
+  const userId = getAuthUserId(req);
 
   const validChoices = ['ROCK', 'PAPER', 'SCISSORS'];
   if (!choice || !validChoices.includes(choice.toUpperCase())) {
@@ -311,11 +336,10 @@ router.post('/submit-choice', authenticateToken, (req, res) => {
       return res.status(400).json({ error: 'Round is not open for submissions' });
     }
 
-    const isPlayerA = match.player_a_id === userId;
-    const isPlayerB = match.player_b_id === userId;
+    const isPlayerA = String(match.player_a_id) === String(userId);
+    const isPlayerB = String(match.player_b_id) === String(userId);
     if (!isPlayerA && !isPlayerB) return res.status(403).json({ error: 'Unauthorized' });
 
-    // Prevent double submissions in same round
     if ((isPlayerA && match.player_a_choice) || (isPlayerB && match.player_b_choice)) {
       return res.status(400).json({ error: 'You have already submitted your choice for this round' });
     }
@@ -329,10 +353,8 @@ router.post('/submit-choice', authenticateToken, (req, res) => {
       (uErr) => {
         if (uErr) return res.status(500).json({ error: 'Failed to record choice' });
 
-        // Re-read match to check if both players have now submitted
         db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (checkErr, updatedMatch) => {
           if (updatedMatch.player_a_choice && updatedMatch.player_b_choice) {
-            // Both submitted -> reveal and evaluate immediately!
             return resolveRound(updatedMatch, (resErr, finalMatch) => {
               if (resErr) return res.status(500).json({ error: 'Resolution error' });
               return res.json({
@@ -344,7 +366,6 @@ router.post('/submit-choice', authenticateToken, (req, res) => {
             });
           }
 
-          // Waiting for opponent
           return res.json({
             success: true,
             status: 'IN_PROGRESS',
@@ -369,7 +390,6 @@ router.post('/next-round', authenticateToken, (req, res) => {
       return res.json({ success: true, status: match.status });
     }
 
-    // Advance to next round
     db.run(
       `UPDATE rps_matches 
        SET current_round = current_round + 1,
@@ -392,7 +412,7 @@ router.post('/next-round', authenticateToken, (req, res) => {
 // -----------------------------------------------------------------------------
 router.post('/surrender', authenticateToken, (req, res) => {
   const { matchId } = req.body;
-  const userId = req.user.id;
+  const userId = getAuthUserId(req);
 
   db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match) return res.status(404).json({ error: 'Match not found' });
@@ -400,7 +420,7 @@ router.post('/surrender', authenticateToken, (req, res) => {
       return res.status(400).json({ error: 'Match has already ended' });
     }
 
-    const winnerId = match.player_a_id === userId ? match.player_b_id : match.player_a_id;
+    const winnerId = String(match.player_a_id) === String(userId) ? match.player_b_id : match.player_a_id;
     settleMatchPayout(match.id, winnerId, false, (pErr) => {
       if (pErr) return res.status(500).json({ error: 'Payout error' });
       res.json({ success: true, message: 'You surrendered the match', winnerId: winnerId });
@@ -408,9 +428,6 @@ router.post('/surrender', authenticateToken, (req, res) => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Internal Round Evaluator & Match Settle
-// -----------------------------------------------------------------------------
 function resolveRound(match, callback) {
   const evalResult = evaluateRound(match.player_a_choice, match.player_b_choice);
 
@@ -435,19 +452,15 @@ function resolveRound(match, callback) {
     reason: evalResult.reason
   });
 
-  // Check if someone reached 2 wins
   if (newScoreA >= WINS_TO_MATCH) {
-    // Player A wins match
     settleMatchPayout(match.id, match.player_a_id, false, (err) => {
       db.get('SELECT * FROM rps_matches WHERE id = ?', [match.id], callback);
     });
   } else if (newScoreB >= WINS_TO_MATCH) {
-    // Player B wins match
     settleMatchPayout(match.id, match.player_b_id, false, (err) => {
       db.get('SELECT * FROM rps_matches WHERE id = ?', [match.id], callback);
     });
   } else {
-    // Set to ROUND_REVEAL so clients can display the side-by-side animation
     db.run(
       `UPDATE rps_matches 
        SET player_a_score = ?,
