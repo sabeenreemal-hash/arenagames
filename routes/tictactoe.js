@@ -16,10 +16,15 @@ const WINNING_COMBOS = [
   [0, 4, 8], [2, 4, 6]             // Diagonals
 ];
 
+// Helper: Safely resolve User ID regardless of token payload format
+function getAuthUserId(req) {
+  if (!req.user) return null;
+  return req.user.id || req.user.userId || req.user.sub || null;
+}
+
 // In-Memory Matchmaking Queue: Array of { userId, username, joinedAt }
 let matchmakingQueue = [];
 
-// Helper: Check winner on a board
 function checkWinner(board) {
   for (const combo of WINNING_COMBOS) {
     const [a, b, c] = combo;
@@ -35,7 +40,6 @@ function checkWinner(board) {
 // 1. GET /api/tictactoe/waiting-players
 // -----------------------------------------------------------------------------
 router.get('/waiting-players', authenticateToken, (req, res) => {
-  // Purge any stale queue tickets (> 90 seconds old)
   const now = Date.now();
   matchmakingQueue = matchmakingQueue.filter(p => (now - p.joinedAt) < 90000);
 
@@ -54,7 +58,8 @@ router.get('/waiting-players', authenticateToken, (req, res) => {
 // 2. POST /api/tictactoe/join-queue
 // -----------------------------------------------------------------------------
 router.post('/join-queue', authenticateToken, (req, res) => {
-  const userId = req.user.id;
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized user session' });
 
   // 1. Check if user already has an active game
   db.get(
@@ -72,8 +77,8 @@ router.post('/join-queue', authenticateToken, (req, res) => {
         });
       }
 
-      // 2. Check if already in queue
-      const existingQueueIndex = matchmakingQueue.findIndex(p => p.userId === userId);
+      // 2. Check if already in queue (string comparison prevents type mismatch)
+      const existingQueueIndex = matchmakingQueue.findIndex(p => String(p.userId) === String(userId));
       if (existingQueueIndex !== -1) {
         return res.json({
           success: true,
@@ -84,11 +89,13 @@ router.post('/join-queue', authenticateToken, (req, res) => {
       }
 
       // 3. Check coin balance and username
-      db.get('SELECT balance, username FROM users WHERE id = ?', [userId], (userErr, user) => {
+      db.get('SELECT id, balance, username FROM users WHERE id = ?', [userId], (userErr, user) => {
         if (userErr || !user) return res.status(404).json({ error: 'User profile not found' });
-        if ((user.balance || 0) < ENTRY_FEE) {
+        
+        const currentBalance = parseInt(user.balance, 10) || 0;
+        if (currentBalance < ENTRY_FEE) {
           return res.status(400).json({
-            error: `Insufficient coins. ${ENTRY_FEE} coins required to enter.`
+            error: `Insufficient coins. You have ${currentBalance} coins, but ${ENTRY_FEE} coins are required.`
           });
         }
 
@@ -98,7 +105,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
 
           db.run(
             `UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?`,
-            [ENTRY_FEE, userId, ENTRY_FEE],
+            [ENTRY_FEE, user.id, ENTRY_FEE],
             function (deductErr) {
               if (deductErr || this.changes === 0) {
                 db.run('ROLLBACK');
@@ -108,7 +115,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
               const refId = `TTT_ENTRY_${Date.now()}`;
               db.run(
                 `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'TICTACTOE_ENTRY', ?, ?)`,
-                [userId, -ENTRY_FEE, refId]
+                [user.id, -ENTRY_FEE, refId]
               );
 
               db.run('COMMIT', (commitErr) => {
@@ -117,15 +124,13 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                   return res.status(500).json({ error: 'Transaction commit failed' });
                 }
 
-                // 5. Matchmaking logic
-                // Find an available opponent (who is not the same user)
-                const opponentIndex = matchmakingQueue.findIndex(p => p.userId !== userId);
+                // Match with opponent (cannot match with self)
+                const opponentIndex = matchmakingQueue.findIndex(p => String(p.userId) !== String(user.id));
 
                 if (opponentIndex !== -1) {
                   const opponent = matchmakingQueue.splice(opponentIndex, 1)[0];
                   const matchId = `match_${crypto.randomBytes(8).toString('hex')}`;
 
-                  // Opponent is Player A (X, goes first), current user is Player B (O)
                   const playerX = opponent;
                   const playerO = { userId: user.id, username: user.username };
                   const initialBoard = JSON.stringify(['', '', '', '', '', '', '', '', '']);
@@ -141,7 +146,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                       playerO.userId,
                       playerX.username,
                       playerO.username,
-                      playerX.userId, // Player X moves first
+                      playerX.userId,
                       initialBoard
                     ],
                     (insErr) => {
@@ -160,7 +165,6 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                     }
                   );
                 } else {
-                  // No opponent found yet -> add to queue
                   matchmakingQueue.push({
                     userId: user.id,
                     username: user.username,
@@ -187,20 +191,20 @@ router.post('/join-queue', authenticateToken, (req, res) => {
 // 3. POST /api/tictactoe/cancel-queue
 // -----------------------------------------------------------------------------
 router.post('/cancel-queue', authenticateToken, (req, res) => {
-  const userId = req.user.id;
-  const queueIndex = matchmakingQueue.findIndex(p => p.userId === userId);
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  // Safe string matching ensures integer/string types always match
+  const queueIndex = matchmakingQueue.findIndex(p => String(p.userId) === String(userId));
 
   if (queueIndex === -1) {
-    // Check if match started right when user hit cancel
     db.get(
       `SELECT id FROM tictactoe_matches 
        WHERE (player_x_id = ? OR player_o_id = ?) AND status = 'IN_PROGRESS'`,
       [userId, userId],
       (err, activeMatch) => {
         if (activeMatch) {
-          return res.status(400).json({
-            error: 'Match has already started! Cannot cancel.'
-          });
+          return res.status(400).json({ error: 'Match has already started! Cannot cancel.' });
         }
         return res.status(400).json({ error: 'You are not in the matchmaking queue' });
       }
@@ -224,6 +228,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
         db.run('ROLLBACK');
         return res.status(500).json({ error: 'Refund processing failed' });
       }
+      console.log(`[TTT CANCEL] Refunded 100 coins to User #${userId}`);
       return res.json({
         success: true,
         message: 'Matchmaking cancelled. 100 coins refunded to your wallet.'
@@ -236,9 +241,9 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 // 4. GET /api/tictactoe/check-queue-status
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
-  const userId = req.user.id;
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  // Check if a match was created with this user
   db.get(
     `SELECT * FROM tictactoe_matches 
      WHERE (player_x_id = ? OR player_o_id = ?) AND status = 'IN_PROGRESS' 
@@ -251,12 +256,12 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
           success: true,
           matched: true,
           matchId: match.id,
-          symbol: match.player_x_id === userId ? 'X' : 'O',
-          opponentName: match.player_x_id === userId ? match.player_o_name : match.player_x_name
+          symbol: String(match.player_x_id) === String(userId) ? 'X' : 'O',
+          opponentName: String(match.player_x_id) === String(userId) ? match.player_o_name : match.player_x_name
         });
       }
 
-      const inQueue = matchmakingQueue.some(p => p.userId === userId);
+      const inQueue = matchmakingQueue.some(p => String(p.userId) === String(userId));
       return res.json({
         success: true,
         matched: false,
@@ -271,20 +276,19 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
 // -----------------------------------------------------------------------------
 router.get('/match/:matchId', authenticateToken, (req, res) => {
   const { matchId } = req.params;
-  const userId = req.user.id;
+  const userId = getAuthUserId(req);
 
   db.get('SELECT * FROM tictactoe_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match) return res.status(404).json({ error: 'Match not found' });
-    if (match.player_x_id !== userId && match.player_o_id !== userId) {
+    if (String(match.player_x_id) !== String(userId) && String(match.player_o_id) !== String(userId)) {
       return res.status(403).json({ error: 'Not authorized for this match' });
     }
 
-    // Auto-timeout check: If a player is inactive for > 35 seconds, forfeit to opponent
     const lastMoveTime = new Date(match.last_move_at || match.created_at).getTime();
     const isTimedOut = (Date.now() - lastMoveTime) > 35000 && match.status === 'IN_PROGRESS';
 
     if (isTimedOut) {
-      const winnerId = match.current_turn === match.player_x_id ? match.player_o_id : match.player_x_id;
+      const winnerId = String(match.current_turn) === String(match.player_x_id) ? match.player_o_id : match.player_x_id;
       handleMatchFinish(match.id, winnerId, null, false, (finishErr) => {
         db.get('SELECT * FROM tictactoe_matches WHERE id = ?', [matchId], (reErr, updatedMatch) => {
           return sendMatchResponse(res, updatedMatch || match, userId);
@@ -303,13 +307,15 @@ function sendMatchResponse(res, match, userId) {
   try { board = JSON.parse(match.board); } catch (_) { board = Array(9).fill(''); }
   try { if (match.winning_line) winningLine = JSON.parse(match.winning_line); } catch (_) {}
 
+  const isPlayerX = String(match.player_x_id) === String(userId);
+
   res.json({
     success: true,
     matchId: match.id,
     playerX: { id: match.player_x_id, username: match.player_x_name },
     playerO: { id: match.player_o_id, username: match.player_o_name },
-    mySymbol: match.player_x_id === userId ? 'X' : 'O',
-    isMyTurn: match.current_turn === userId && match.status === 'IN_PROGRESS',
+    mySymbol: isPlayerX ? 'X' : 'O',
+    isMyTurn: String(match.current_turn) === String(userId) && match.status === 'IN_PROGRESS',
     currentTurnUserId: match.current_turn,
     board: board,
     status: match.status,
@@ -325,7 +331,7 @@ function sendMatchResponse(res, match, userId) {
 // -----------------------------------------------------------------------------
 router.post('/move', authenticateToken, (req, res) => {
   const { matchId, cellIndex } = req.body;
-  const userId = req.user.id;
+  const userId = getAuthUserId(req);
 
   if (cellIndex === undefined || cellIndex < 0 || cellIndex > 8) {
     return res.status(400).json({ error: 'Invalid cell position (must be 0-8)' });
@@ -336,7 +342,7 @@ router.post('/move', authenticateToken, (req, res) => {
     if (match.status !== 'IN_PROGRESS') {
       return res.status(400).json({ error: 'Match is already finished' });
     }
-    if (match.current_turn !== userId) {
+    if (String(match.current_turn) !== String(userId)) {
       return res.status(400).json({ error: "It is not your turn" });
     }
 
@@ -347,13 +353,12 @@ router.post('/move', authenticateToken, (req, res) => {
       return res.status(400).json({ error: 'Cell is already occupied' });
     }
 
-    const symbol = match.player_x_id === userId ? 'X' : 'O';
+    const symbol = String(match.player_x_id) === String(userId) ? 'X' : 'O';
     board[cellIndex] = symbol;
 
     const outcome = checkWinner(board);
 
     if (outcome.winnerSymbol) {
-      // Current player won!
       handleMatchFinish(match.id, userId, outcome.winningLine, false, (finishErr) => {
         if (finishErr) return res.status(500).json({ error: 'Failed to record win' });
         return res.json({
@@ -365,7 +370,6 @@ router.post('/move', authenticateToken, (req, res) => {
         });
       });
     } else if (outcome.isDraw) {
-      // Draw!
       handleMatchFinish(match.id, null, null, true, (finishErr) => {
         if (finishErr) return res.status(500).json({ error: 'Failed to record draw' });
         return res.json({
@@ -375,8 +379,7 @@ router.post('/move', authenticateToken, (req, res) => {
         });
       });
     } else {
-      // Continue game: pass turn to opponent
-      const nextTurn = match.player_x_id === userId ? match.player_o_id : match.player_x_id;
+      const nextTurn = String(match.player_x_id) === String(userId) ? match.player_o_id : match.player_x_id;
       db.run(
         `UPDATE tictactoe_matches 
          SET board = ?, current_turn = ?, last_move_at = CURRENT_TIMESTAMP 
@@ -401,7 +404,7 @@ router.post('/move', authenticateToken, (req, res) => {
 // -----------------------------------------------------------------------------
 router.post('/surrender', authenticateToken, (req, res) => {
   const { matchId } = req.body;
-  const userId = req.user.id;
+  const userId = getAuthUserId(req);
 
   db.get('SELECT * FROM tictactoe_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match) return res.status(404).json({ error: 'Match not found' });
@@ -409,7 +412,7 @@ router.post('/surrender', authenticateToken, (req, res) => {
       return res.status(400).json({ error: 'Match has already ended' });
     }
 
-    const winnerId = match.player_x_id === userId ? match.player_o_id : match.player_x_id;
+    const winnerId = String(match.player_x_id) === String(userId) ? match.player_o_id : match.player_x_id;
     handleMatchFinish(match.id, winnerId, null, false, (finishErr) => {
       if (finishErr) return res.status(500).json({ error: 'Failed to process surrender' });
       res.json({
@@ -421,19 +424,15 @@ router.post('/surrender', authenticateToken, (req, res) => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Internal Helper: Atomically Credit Winner / Refund Draws
-// -----------------------------------------------------------------------------
 function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
   db.get('SELECT * FROM tictactoe_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match) return callback(new Error('Match not found'));
-    if (match.status !== 'IN_PROGRESS') return callback(null); // Already settled
+    if (match.status !== 'IN_PROGRESS') return callback(null);
 
     db.serialize(() => {
       db.run('BEGIN TRANSACTION');
 
       if (isDraw) {
-        // Both players receive their 100 coin entry fee back
         db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, match.player_x_id]);
         db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, match.player_o_id]);
 
@@ -458,10 +457,9 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
           }
         );
       } else {
-        // Winner gets 200 coins
         db.run(
           `UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?`,
-          [WINNER_PRIZE, ENTRY_FEE, winnerId] // Net gain +100
+          [WINNER_PRIZE, ENTRY_FEE, winnerId]
         );
 
         db.run(
