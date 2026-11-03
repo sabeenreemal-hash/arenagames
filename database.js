@@ -176,7 +176,6 @@ db.serialize(() => {
     )
   `);
 
-  // Withdrawals column safety migrations
   addColumnIfNotExists('withdrawals', 'npr_amount', 'REAL', 0.0);
   addColumnIfNotExists('withdrawals', 'inr_amount', 'REAL', 0.0);
 
@@ -193,7 +192,6 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('update_url', 'https://play.google.com/store')`);
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('force_update', 'false')`);
 
-  // Seed default payout methods with updated 5,000 base conversions
   const defaultGateways = JSON.stringify([
     { id: "eSewa", name: "eSewa (NPR)", icon: "🟢", min: 5000, currency: "NPR", label: "eSewa Mobile Number", hint: "98XXXXXXXX" },
     { id: "Khalti", name: "Khalti (NPR)", icon: "🟣", min: 5000, currency: "NPR", label: "Khalti Mobile Number", hint: "98XXXXXXXX" },
@@ -267,8 +265,6 @@ db.serialize(() => {
   // ==========================================
   // 4. Tasks & Submissions System Schema
   // ==========================================
-
-  // Admin Configured Tasks Table
   db.run(`
     CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -282,7 +278,6 @@ db.serialize(() => {
     )
   `);
 
-  // User Task Submissions Table
   db.run(`
     CREATE TABLE IF NOT EXISTS task_submissions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -299,7 +294,6 @@ db.serialize(() => {
     )
   `);
 
-  // Tasks column safety migrations
   addColumnIfNotExists('tasks', 'action_url', 'TEXT', "''");
   addColumnIfNotExists('tasks', 'is_active', 'INTEGER', 1);
   addColumnIfNotExists('task_submissions', 'proof_text', 'TEXT', "''");
@@ -329,29 +323,56 @@ db.serialize(() => {
   `);
 
   // ==========================================
-  // 6. Ensure Allowed Games Exist
+  // 6. 1v1 Rock Paper Scissors Multiplayer Schema
   // ==========================================
-  
-  // Dot Connect
+  db.run(`
+    CREATE TABLE IF NOT EXISTS rps_matches (
+      id TEXT PRIMARY KEY,
+      player_a_id INTEGER NOT NULL,
+      player_b_id INTEGER NOT NULL,
+      player_a_name TEXT NOT NULL,
+      player_b_name TEXT NOT NULL,
+      player_a_score INTEGER DEFAULT 0,
+      player_b_score INTEGER DEFAULT 0,
+      current_round INTEGER DEFAULT 1,
+      player_a_choice TEXT DEFAULT NULL,
+      player_b_choice TEXT DEFAULT NULL,
+      round_start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_round_result TEXT DEFAULT NULL,
+      status TEXT CHECK(status IN ('IN_PROGRESS', 'ROUND_REVEAL', 'COMPLETED', 'DRAW', 'ABANDONED')) DEFAULT 'IN_PROGRESS',
+      winner_id INTEGER DEFAULT NULL,
+      pot_amount INTEGER DEFAULT 200,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(player_a_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(player_b_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // ==========================================
+  // 7. Ensure Allowed Games Exist
+  // ==========================================
   db.run(`
     INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
     VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)
   `);
 
-  // Spin Wheel
   db.run(`
     INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
     VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)
   `);
 
-  // 1v1 Multiplayer Tic-Tac-Toe
   db.run(`
     INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
     VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)
   `);
 
+  db.run(`
+    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
+    VALUES ('rps_1v1', '1v1 Rock Paper Scissors', 50000, 1.0, 1)
+  `);
+
   // ==========================================
-  // 7. Cleanup Unused Legacy Games
+  // 8. Cleanup Unused Legacy Games
   // ==========================================
   db.run("DELETE FROM game_sessions WHERE game_id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
   db.run("DELETE FROM games WHERE id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
@@ -359,7 +380,7 @@ db.serialize(() => {
   db.run("DROP TABLE IF EXISTS word_puzzles;");
 
   // ==========================================
-  // 8. Performance Indexes
+  // 9. Performance Indexes
   // ==========================================
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`);
@@ -367,23 +388,26 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_game_sessions_user ON game_sessions(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_creator_rewards_user ON creator_rewards(user_id);`);
   
-  // Indexes for Spin Wheel performance
   db.run(`CREATE INDEX IF NOT EXISTS idx_user_spin_state_user ON user_spin_state(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_spin_transactions_user ON spin_transactions(user_id);`);
 
-  // Indexes for Task System performance
   db.run(`CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(is_active);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`);
 
-  // Indexes for 1v1 Tic-Tac-Toe performance
+  // Tic-Tac-Toe Indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_ttt_player_x ON tictactoe_matches(player_x_id, status);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_ttt_player_o ON tictactoe_matches(player_o_id, status);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_ttt_status ON tictactoe_matches(status);`);
 
+  // Rock Paper Scissors Indexes
+  db.run(`CREATE INDEX IF NOT EXISTS idx_rps_player_a ON rps_matches(player_a_id, status);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_rps_player_b ON rps_matches(player_b_id, status);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_rps_status ON rps_matches(status);`);
+
   // ==========================================
-  // 9. One-Time Database User Reset Flag
+  // 10. One-Time Database User Reset Flag
   // ==========================================
   if (process.env.RESET_DB === 'true') {
     console.log('⚠️ RESET_DB=true detected. Purging all user data...');
@@ -395,8 +419,9 @@ db.serialize(() => {
     db.run('DELETE FROM spin_transactions;');
     db.run('DELETE FROM task_submissions;');
     db.run('DELETE FROM tictactoe_matches;');
+    db.run('DELETE FROM rps_matches;');
     db.run('DELETE FROM users;');
-    db.run("DELETE FROM sqlite_sequence WHERE name IN ('users', 'transactions', 'withdrawals', 'game_sessions', 'creator_rewards', 'task_submissions', 'tictactoe_matches');");
+    db.run("DELETE FROM sqlite_sequence WHERE name IN ('users', 'transactions', 'withdrawals', 'game_sessions', 'creator_rewards', 'task_submissions', 'tictactoe_matches', 'rps_matches');");
     console.log('✅ All users, spin records, tasks submissions, and history successfully wiped clean.');
   }
 });
