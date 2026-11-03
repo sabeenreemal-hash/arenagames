@@ -24,7 +24,8 @@ const adminRoutes = require('./routes/admin');
 const rewardsRouter = require('./routes/rewards');
 const referralRoutes = require('./routes/referral');
 const taskRoutes = require('./routes/tasks'); // User Tasks Router
-const tictactoeRoutes = require('./routes/tictactoe'); // <-- 1v1 Tic-Tac-Toe Router
+const tictactoeRoutes = require('./routes/tictactoe'); // 1v1 Tic-Tac-Toe Router
+const rpsRoutes = require('./routes/rps'); // 1v1 Rock Paper Scissors Router
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -85,6 +86,7 @@ db.run(`
       ['dot_connect', 'Dot Connect', 500],
       ['spin_wheel', 'Spin Wheel', 5000],
       ['tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000],
+      ['rps_1v1', '1v1 Rock Paper Scissors', 50000],
     ];
     defaultGames.forEach(([id, name, maxReward]) => {
       db.run(
@@ -174,7 +176,7 @@ const getDailyGameCoinsHandler = (req, res) => {
   const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
   const secondsUntilReset = Math.max(0, Math.floor((tomorrow - now) / 1000));
 
-  // Sum up all coins earned today where type is NOT an Offerwall, Check-in, Task Reward, or PvP Wager Match
+  // Sum up all coins earned today where type is NOT an Offerwall, Check-in, Task Reward, or PvP Match Wager
   const query = `
     SELECT COALESCE(SUM(amount), 0) AS total_game_coins
     FROM transactions
@@ -183,7 +185,8 @@ const getDailyGameCoinsHandler = (req, res) => {
       AND type NOT IN (
         'OFFERWALL', 'TIMEWALL', 'OFFERWALL_REVERSAL', 'TIMEWALL_REVERSAL', 
         'REFERRAL', 'CHECKIN', 'TASK_REWARD',
-        'TICTACTOE_WIN', 'TICTACTOE_REFUND', 'TICTACTOE_ENTRY'
+        'TICTACTOE_WIN', 'TICTACTOE_REFUND', 'TICTACTOE_ENTRY',
+        'RPS_WIN', 'RPS_REFUND', 'RPS_ENTRY'
       )
       AND DATE(created_at) = DATE('now')
   `;
@@ -238,7 +241,8 @@ const enforceGameDailyLimitMiddleware = (req, res, next) => {
           AND type NOT IN (
             'OFFERWALL', 'TIMEWALL', 'OFFERWALL_REVERSAL', 'TIMEWALL_REVERSAL', 
             'REFERRAL', 'CHECKIN', 'TASK_REWARD',
-            'TICTACTOE_WIN', 'TICTACTOE_REFUND', 'TICTACTOE_ENTRY'
+            'TICTACTOE_WIN', 'TICTACTOE_REFUND', 'TICTACTOE_ENTRY',
+            'RPS_WIN', 'RPS_REFUND', 'RPS_ENTRY'
           )
           AND DATE(created_at) = DATE('now')
       `;
@@ -273,7 +277,8 @@ const enforceGameDailyLimitMiddleware = (req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/games', enforceGameDailyLimitMiddleware, gamesRoutes);
-app.use('/api/tictactoe', tictactoeRoutes); // <-- Mounted 1v1 Multiplayer Tic-Tac-Toe
+app.use('/api/tictactoe', tictactoeRoutes); // 1v1 Tic-Tac-Toe
+app.use('/api/rps', rpsRoutes);             // 1v1 Rock Paper Scissors
 app.use('/api/admin', adminRoutes);
 app.use('/api/rewards', rewardsRouter);
 app.use('/api/referral', referralRoutes);
