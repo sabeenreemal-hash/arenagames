@@ -10,6 +10,35 @@ const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
 const TURN_TIMEOUT_SECONDS = 30; // 30-Second Turn Timer
 
+// 7-Level Stone Badge definitions
+const STONE_TIERS = [
+  { rank: 7, name: 'RUBY', days: 100 },
+  { rank: 6, name: 'DIAMOND', days: 75 },
+  { rank: 5, name: 'AMETHYST', days: 50 },
+  { rank: 4, name: 'SAPPHIRE', days: 35 },
+  { rank: 3, name: 'JADE', days: 20 },
+  { rank: 2, name: 'QUARTZ', days: 10 },
+  { rank: 1, name: 'AGATE', days: 5 },
+];
+
+function calculateStoneBadge(streakDays) {
+  const days = streakDays || 0;
+  for (const stone of STONE_TIERS) {
+    if (days >= stone.days) return stone.name;
+  }
+  return 'NONE';
+}
+
+function getTodayStr() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function getYesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
 const WINNING_COMBOS = [
   [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
   [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
@@ -252,7 +281,7 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 5. GET /api/tictactoe/match/:matchId (Enforces 30s Turn Countdown)
+// 5. GET /api/tictactoe/match/:matchId
 // -----------------------------------------------------------------------------
 router.get('/match/:matchId', authenticateToken, (req, res) => {
   const { matchId } = req.params;
@@ -268,9 +297,7 @@ router.get('/match/:matchId', authenticateToken, (req, res) => {
     const elapsedSeconds = Math.max(0, Math.floor((Date.now() - lastMoveTime) / 1000));
     const secondsRemaining = Math.max(0, TURN_TIMEOUT_SECONDS - elapsedSeconds);
 
-    // 30-Second Turn Timeout Handler
     if (match.status === 'IN_PROGRESS' && elapsedSeconds >= TURN_TIMEOUT_SECONDS) {
-      // Current turn timed out -> Declare opponent the winner
       const timedOutPlayerId = match.current_turn;
       const winnerId = String(timedOutPlayerId) === String(match.player_x_id)
           ? match.player_o_id
@@ -317,7 +344,7 @@ function sendMatchResponse(res, match, userId, secondsRemaining, timedOut) {
 }
 
 // -----------------------------------------------------------------------------
-// 6. POST /api/tictactoe/move (Resets 30-Second Timer)
+// 6. POST /api/tictactoe/move
 // -----------------------------------------------------------------------------
 router.post('/move', authenticateToken, (req, res) => {
   const { matchId, cellIndex } = req.body;
@@ -369,7 +396,6 @@ router.post('/move', authenticateToken, (req, res) => {
         });
       });
     } else {
-      // Switch turn and RESET 30s timer (last_move_at = CURRENT_TIMESTAMP)
       const nextTurn = String(match.player_x_id) === String(userId) ? match.player_o_id : match.player_x_id;
       db.run(
         `UPDATE tictactoe_matches 
@@ -412,15 +438,15 @@ router.post('/surrender', authenticateToken, (req, res) => {
   });
 });
 
+// Settle match finishes, awards winner, and UPDATES DAILY STREAK
 function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
   db.get('SELECT * FROM tictactoe_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match) return callback(new Error('Match not found'));
     if (match.status !== 'IN_PROGRESS') return callback(null);
 
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-
-      if (isDraw) {
+    if (isDraw) {
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
         db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, match.player_x_id]);
         db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, match.player_o_id]);
 
@@ -441,27 +467,83 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
             db.run('COMMIT', callback);
           }
         );
-      } else {
-        db.run(
-          `UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?`,
-          [WINNER_PRIZE, ENTRY_FEE, winnerId]
-        );
+      });
+    } else {
+      // 1. Fetch winner profile to calculate daily streak progress
+      db.get('SELECT * FROM users WHERE id = ?', [winnerId], (uErr, user) => {
+        if (uErr || !user) return callback(new Error('Winner profile missing'));
 
-        db.run(
-          `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'TICTACTOE_WIN', ?, ?)`,
-          [winnerId, WINNER_PRIZE, `WIN_${match.id}`]
-        );
+        const today = getTodayStr();
+        const yesterday = getYesterdayStr();
+        const coinsEarned = ENTRY_FEE; // Net profit won from match (100 coins)
 
-        db.run(
-          `UPDATE tictactoe_matches SET status = 'COMPLETED', winner_id = ?, winning_line = ? WHERE id = ?`,
-          [winnerId, winningLine ? JSON.stringify(winningLine) : null, match.id],
-          (uErr) => {
-            if (uErr) { db.run('ROLLBACK'); return callback(uErr); }
-            db.run('COMMIT', callback);
-          }
-        );
-      }
-    });
+        let currentStreak = user.current_streak || 0;
+        let highestStreak = user.highest_streak || 0;
+        let lastStreakDate = user.last_streak_date || '';
+
+        // Add match win coins to today's eligible streak counter
+        let newEligible = (user.last_eligible_date === today)
+          ? ((user.eligible_daily_coins || 0) + coinsEarned)
+          : coinsEarned;
+
+        // Reset if streak broke yesterday
+        if (user.last_eligible_date !== today && lastStreakDate !== yesterday && lastStreakDate !== today && currentStreak > 0) {
+          currentStreak = 0;
+        }
+
+        // Milestone: Crossing >= 100 coins activates streak
+        if (newEligible >= 100 && lastStreakDate !== today) {
+          currentStreak += 1;
+          lastStreakDate = today;
+          if (currentStreak > highestStreak) highestStreak = currentStreak;
+        }
+
+        const currentStone = calculateStoneBadge(currentStreak);
+
+        db.serialize(() => {
+          db.run('BEGIN TRANSACTION');
+
+          // Update balance, total_coins_earned, eligible_daily_coins, and streak
+          db.run(
+            `UPDATE users SET 
+              balance = balance + ?, 
+              total_coins_earned = COALESCE(total_coins_earned, 0) + ?, 
+              eligible_daily_coins = ?, 
+              last_eligible_date = ?, 
+              current_streak = ?, 
+              highest_streak = ?, 
+              last_streak_date = ?, 
+              current_stone = ? 
+             WHERE id = ?`,
+            [
+              WINNER_PRIZE,
+              ENTRY_FEE,
+              newEligible,
+              today,
+              currentStreak,
+              highestStreak,
+              lastStreakDate,
+              currentStone,
+              winnerId
+            ]
+          );
+
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'TICTACTOE_WIN', ?, ?)`,
+            [winnerId, WINNER_PRIZE, `WIN_${match.id}`]
+          );
+
+          db.run(
+            `UPDATE tictactoe_matches SET status = 'COMPLETED', winner_id = ?, winning_line = ? WHERE id = ?`,
+            [winnerId, winningLine ? JSON.stringify(winningLine) : null, match.id],
+            (uErr) => {
+              if (uErr) { db.run('ROLLBACK'); return callback(uErr); }
+              db.run('COMMIT', callback);
+            }
+          );
+        });
+      });
+    }
   });
 }
 
