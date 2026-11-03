@@ -11,6 +11,35 @@ const WINNER_PRIZE = 200;
 const ROUND_TIME_LIMIT_SEC = 15;
 const WINS_TO_MATCH = 2; // First to win 2 rounds wins
 
+// 7-Level Stone Badge definitions
+const STONE_TIERS = [
+  { rank: 7, name: 'RUBY', days: 100 },
+  { rank: 6, name: 'DIAMOND', days: 75 },
+  { rank: 5, name: 'AMETHYST', days: 50 },
+  { rank: 4, name: 'SAPPHIRE', days: 35 },
+  { rank: 3, name: 'JADE', days: 20 },
+  { rank: 2, name: 'QUARTZ', days: 10 },
+  { rank: 1, name: 'AGATE', days: 5 },
+];
+
+function calculateStoneBadge(streakDays) {
+  const days = streakDays || 0;
+  for (const stone of STONE_TIERS) {
+    if (days >= stone.days) return stone.name;
+  }
+  return 'NONE';
+}
+
+function getTodayStr() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function getYesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
 function getAuthUserId(req) {
   if (!req.user) return null;
   return req.user.id || req.user.userId || req.user.sub || null;
@@ -391,7 +420,6 @@ router.post('/surrender', authenticateToken, (req, res) => {
   });
 });
 
-// FIX: Resolves rounds and explicitly records final scores (2-0, 2-1)
 function resolveRound(match, callback) {
   if (match.status !== 'IN_PROGRESS') {
     return callback(null, match);
@@ -420,7 +448,6 @@ function resolveRound(match, callback) {
     reason: evalResult.reason
   });
 
-  // End match immediately if someone reaches 2 wins
   if (newScoreA >= WINS_TO_MATCH) {
     settleMatchPayout(match.id, match.player_a_id, false, newScoreA, newScoreB, roundResultData, (err) => {
       db.get('SELECT * FROM rps_matches WHERE id = ?', [match.id], callback);
@@ -430,7 +457,6 @@ function resolveRound(match, callback) {
       db.get('SELECT * FROM rps_matches WHERE id = ?', [match.id], callback);
     });
   } else {
-    // Intermediate round: Set to ROUND_REVEAL with updated scores
     db.run(
       `UPDATE rps_matches 
        SET player_a_score = ?,
@@ -447,16 +473,15 @@ function resolveRound(match, callback) {
   }
 }
 
-// Atomically stores final scores (e.g. 2-0, 2-1) and handles payouts
+// Atomically stores final scores, pays winner, and UPDATES DAILY STREAK
 function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, finalRoundResult, callback) {
   db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match) return callback(new Error('Match not found'));
     if (match.status === 'COMPLETED' || match.status === 'DRAW') return callback(null);
 
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-
-      if (isDraw) {
+    if (isDraw) {
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
         db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, match.player_a_id]);
         db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, match.player_b_id]);
         db.run(`INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'RPS_REFUND', ?, ?)`, [match.player_a_id, ENTRY_FEE, `RPS_DRAW_${match.id}`]);
@@ -474,32 +499,89 @@ function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, 
             db.run('COMMIT', callback);
           }
         );
-      } else {
-        db.run(
-          `UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?`,
-          [WINNER_PRIZE, ENTRY_FEE, winnerId]
-        );
-        db.run(
-          `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'RPS_WIN', ?, ?)`,
-          [winnerId, WINNER_PRIZE, `RPS_WIN_${match.id}`]
-        );
-        // Persist final scores when marking match COMPLETED
-        db.run(
-          `UPDATE rps_matches 
-           SET status = 'COMPLETED', 
-               winner_id = ?, 
-               player_a_score = ?, 
-               player_b_score = ?, 
-               last_round_result = ? 
-           WHERE id = ?`,
-          [winnerId, finalScoreA, finalScoreB, finalRoundResult, matchId],
-          (uErr) => {
-            if (uErr) { db.run('ROLLBACK'); return callback(uErr); }
-            db.run('COMMIT', callback);
-          }
-        );
-      }
-    });
+      });
+    } else {
+      // 1. Fetch winner profile to calculate daily streak progress
+      db.get('SELECT * FROM users WHERE id = ?', [winnerId], (uErr, user) => {
+        if (uErr || !user) return callback(new Error('Winner profile missing'));
+
+        const today = getTodayStr();
+        const yesterday = getYesterdayStr();
+        const coinsEarned = ENTRY_FEE; // Net profit won from match (100 coins)
+
+        let currentStreak = user.current_streak || 0;
+        let highestStreak = user.highest_streak || 0;
+        let lastStreakDate = user.last_streak_date || '';
+
+        // Add match win coins to today's eligible streak counter
+        let newEligible = (user.last_eligible_date === today)
+          ? ((user.eligible_daily_coins || 0) + coinsEarned)
+          : coinsEarned;
+
+        // Reset if streak broke yesterday
+        if (user.last_eligible_date !== today && lastStreakDate !== yesterday && lastStreakDate !== today && currentStreak > 0) {
+          currentStreak = 0;
+        }
+
+        // Milestone: Crossing >= 100 coins activates streak
+        if (newEligible >= 100 && lastStreakDate !== today) {
+          currentStreak += 1;
+          lastStreakDate = today;
+          if (currentStreak > highestStreak) highestStreak = currentStreak;
+        }
+
+        const currentStone = calculateStoneBadge(currentStreak);
+
+        db.serialize(() => {
+          db.run('BEGIN TRANSACTION');
+
+          // Update balance, total_coins_earned, eligible_daily_coins, and streak
+          db.run(
+            `UPDATE users SET 
+              balance = balance + ?, 
+              total_coins_earned = COALESCE(total_coins_earned, 0) + ?, 
+              eligible_daily_coins = ?, 
+              last_eligible_date = ?, 
+              current_streak = ?, 
+              highest_streak = ?, 
+              last_streak_date = ?, 
+              current_stone = ? 
+             WHERE id = ?`,
+            [
+              WINNER_PRIZE,
+              ENTRY_FEE,
+              newEligible,
+              today,
+              currentStreak,
+              highestStreak,
+              lastStreakDate,
+              currentStone,
+              winnerId
+            ]
+          );
+
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'RPS_WIN', ?, ?)`,
+            [winnerId, WINNER_PRIZE, `RPS_WIN_${match.id}`]
+          );
+
+          db.run(
+            `UPDATE rps_matches 
+             SET status = 'COMPLETED', 
+                 winner_id = ?, 
+                 player_a_score = ?, 
+                 player_b_score = ?, 
+                 last_round_result = ? 
+             WHERE id = ?`,
+            [winnerId, finalScoreA, finalScoreB, finalRoundResult, matchId],
+            (finErr) => {
+              if (finErr) { db.run('ROLLBACK'); return callback(finErr); }
+              db.run('COMMIT', callback);
+            }
+          );
+        });
+      });
+    }
   });
 }
 
