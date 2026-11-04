@@ -5,6 +5,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
+const { creditReferralCommission } = require('../services/referralService'); // <-- REFERRAL SERVICE
 
 const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
@@ -80,18 +81,13 @@ function evaluateRound(choiceA, choiceB) {
   return { winner: 'B', reason: 'WIN' };
 }
 
-// Balanced & Beatable RPS choice calculation (~50/50 fair rate)
 function predictCasualRpsMove(lastResult) {
-  // 70% of the time play clean, natural random choice
   if (Math.random() < 0.70 || !lastResult) {
     return CHOICES[Math.floor(Math.random() * CHOICES.length)];
   }
-
-  // 30% of the time, slight human intuition variation
   return CHOICES[Math.floor(Math.random() * CHOICES.length)];
 }
 
-// Automatically submits bot choice with human delay
 function triggerBotRpsChoice(matchId) {
   db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match || match.status !== 'IN_PROGRESS') return;
@@ -107,7 +103,7 @@ function triggerBotRpsChoice(matchId) {
     try { if (match.last_round_result) lastResult = JSON.parse(match.last_round_result); } catch (_) {}
 
     const botChoice = predictCasualRpsMove(lastResult);
-    const delay = Math.floor(Math.random() * 1200) + 1300; // 1.3s - 2.5s delay
+    const delay = Math.floor(Math.random() * 1200) + 1300;
 
     setTimeout(() => {
       db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (reErr, currMatch) => {
@@ -127,13 +123,12 @@ function triggerBotRpsChoice(matchId) {
 }
 
 // -----------------------------------------------------------------------------
-// 1. GET /api/rps/waiting-players (Always shows 100+ waiting players)
+// 1. GET /api/rps/waiting-players
 // -----------------------------------------------------------------------------
 router.get('/waiting-players', authenticateToken, (req, res) => {
   const now = Date.now();
   rpsQueue = rpsQueue.filter(p => (now - p.joinedAt) < 90000);
 
-  // Fluctuates naturally between 100 and 108 players
   const fakeWaitingCount = 100 + Math.floor((now / 15000) % 9);
   const totalCount = Math.max(rpsQueue.length, fakeWaitingCount);
 
@@ -309,7 +304,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 4. GET /api/rps/check-queue-status (Auto Bot Matchmaker)
+// 4. GET /api/rps/check-queue-status
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
@@ -341,7 +336,6 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
       const playerEntry = rpsQueue[qIndex];
       const waitingMs = Date.now() - playerEntry.joinedAt;
 
-      // Bot Fallback: Matches bot after 3.5s wait
       if (waitingMs >= BOT_WAIT_TIMEOUT_MS) {
         const matchId = `rps_${crypto.randomBytes(8).toString('hex')}`;
         const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
@@ -358,9 +352,7 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
               return res.status(500).json({ error: 'Failed to create match' });
             }
 
-            // Remove from queue ONLY after successful insertion
             rpsQueue.splice(qIndex, 1);
-
             triggerBotRpsChoice(matchId);
 
             return res.json({
@@ -620,7 +612,7 @@ function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, 
     if (err || !match) return callback(new Error('Match not found'));
     if (match.status === 'COMPLETED' || match.status === 'DRAW') return callback(null);
 
-    // Case 1: DRAW -> Refund real human players
+    // Case 1: DRAW
     if (isDraw) {
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
@@ -651,7 +643,7 @@ function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, 
       return;
     }
 
-    // Case 2: BOT WINS -> Simply mark match COMPLETED (preserves real player stats)
+    // Case 2: BOT WINS
     if (String(winnerId) === String(BOT_USER_ID)) {
       db.run(
         `UPDATE rps_matches 
@@ -670,7 +662,7 @@ function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, 
       return;
     }
 
-    // Case 3: REAL USER WINS -> Credit 200 coins & advance Daily Streak
+    // Case 3: REAL USER WINS
     db.get('SELECT * FROM users WHERE id = ?', [winnerId], (uErr, user) => {
       if (uErr || !user) return callback(new Error('Winner profile missing'));
 
@@ -743,7 +735,13 @@ function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, 
           [winnerId, finalScoreA, finalScoreB, finalRoundResult, matchId],
           (finErr) => {
             if (finErr) { db.run('ROLLBACK'); return callback(finErr); }
-            db.run('COMMIT', callback);
+            db.run('COMMIT', (cErr) => {
+              if (!cErr) {
+                // >>> DISTRIBUTE REFERRAL COMMISSION FOR RPS WIN <<<
+                creditReferralCommission(winnerId, coinsEarned, 'RPS', `RPS_WIN_${match.id}`, 0.10);
+              }
+              callback(cErr);
+            });
           }
         );
       });
