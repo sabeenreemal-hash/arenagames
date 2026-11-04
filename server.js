@@ -162,6 +162,49 @@ function extractUserId(req) {
 }
 
 // ============================================================
+// AUTOMATIC USER ONLINE / ACTIVITY TRACKER
+// ============================================================
+const userActivityThrottle = new Map(); // userId -> last updated ms timestamp
+
+const trackUserActivityMiddleware = (req, res, next) => {
+  // Avoid tracking static files and admin panel calls
+  if (req.path.startsWith('/api/admin') || req.path.startsWith('/uploads')) {
+    return next();
+  }
+
+  const userId = extractUserId(req) || (req.body && (req.body.userId || req.body.user_id));
+
+  if (userId) {
+    const now = Date.now();
+    const lastUpdated = userActivityThrottle.get(String(userId)) || 0;
+
+    // Throttle: Update database at most once every 60 seconds per user
+    if (now - lastUpdated > 60000) {
+      userActivityThrottle.set(String(userId), now);
+
+      // Periodically prune old cache keys to prevent memory growth
+      if (userActivityThrottle.size > 10000) {
+        for (const [id, time] of userActivityThrottle.entries()) {
+          if (now - time > 3600000) userActivityThrottle.delete(id);
+        }
+      }
+
+      db.run(
+        `UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [userId],
+        (err) => {
+          if (err) console.error('[ACTIVITY DB ERROR]:', err.message);
+        }
+      );
+    }
+  }
+  next();
+};
+
+// Mount tracker globally for all user actions
+app.use(trackUserActivityMiddleware);
+
+// ============================================================
 // 3. DAILY GAME COINS STATUS ENDPOINT (Max 500 for Solo Games Only)
 // ============================================================
 const getDailyGameCoinsHandler = (req, res) => {
