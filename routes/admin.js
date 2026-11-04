@@ -150,7 +150,7 @@ router.get('/dashboard', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// C. Users Registry
+// C. Users Registry (Includes created_at & last_active_at)
 // ---------------------------------------------------------------------------
 router.get('/users', adminAuth, (req, res) => {
   db.all(
@@ -165,7 +165,8 @@ router.get('/users', adminAuth, (req, res) => {
       COALESCE(highest_streak, 0) as highest_streak,
       COALESCE(current_stone, 'NONE') as current_stone,
       is_banned, 
-      created_at 
+      created_at,
+      COALESCE(last_active_at, created_at) as last_active_at
      FROM users
      ORDER BY created_at DESC`,
     (err, rows) => {
@@ -740,6 +741,43 @@ router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
         });
       }
     );
+  });
+});
+
+// ===========================================================================
+// M. Permanent User Deletion (With VPS Screenshot Cleanup)
+// ===========================================================================
+router.post('/users/:id/delete', adminAuth, (req, res) => {
+  const userId = req.params.id;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+
+  // 1. Scan and delete any screenshot files submitted by this user to free VPS disk space
+  db.all('SELECT screenshot_path FROM task_submissions WHERE user_id = ?', [userId], (err, rows) => {
+    if (!err && rows) {
+      rows.forEach(r => deleteScreenshotFile(r.screenshot_path));
+    }
+
+    // 2. Delete user record. Because database.js has PRAGMA foreign_keys = ON and ON DELETE CASCADE,
+    // transactions, withdrawals, game sessions, match histories, and spin records are purged cleanly.
+    db.run('DELETE FROM users WHERE id = ?', [userId], function (delErr) {
+      if (delErr) {
+        console.error('[Permanent Delete User Error]:', delErr.message);
+        return res.status(500).json({ error: 'Database error deleting user account' });
+      }
+
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'User account not found' });
+      }
+
+      console.log(`[Admin User Purge]: Permanently deleted user #${userId}`);
+      res.json({
+        success: true,
+        message: `User #${userId} and all related history have been permanently deleted.`
+      });
+    });
   });
 });
 
