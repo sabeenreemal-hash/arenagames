@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
+const { creditReferralCommission } = require('../services/referralService'); // <-- ADDED
 
 // 7-day cooldown in milliseconds
 const WITHDRAWAL_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
@@ -59,7 +60,6 @@ const DEFAULT_METHODS = [
   { id: "USDT", name: "USDT (TRC20)", icon: "💲", min: 10000, currency: "USD", label: "TRC20 Wallet Address", hint: "T..." }
 ];
 
-// Helper to calculate conversion
 function convertCoins(coins) {
   return {
     usd: parseFloat(((coins / CONVERSION_RATES.COIN_BASE) * CONVERSION_RATES.USD).toFixed(2)),
@@ -226,6 +226,11 @@ function handleOfferwallCredit(req, res) {
               return res.status(500).json({ error: 'Failed to record offerwall credit' });
             }
 
+            // ========================================================
+            // >>> CREDIT REFERRAL COMMISSION TO THE REFERRER (10%) <<<
+            // ========================================================
+            creditReferralCommission(userId, coinAmount, 'OFFERWALL', offerId, 0.10);
+
             res.json({
               success: true,
               creditedCoins: coinAmount,
@@ -269,7 +274,6 @@ router.post('/redeem', authenticateToken, (req, res) => {
   db.get('SELECT balance, last_withdrawal_at FROM users WHERE id = ?', [userId], (err, user) => {
     if (err || !user) return res.status(404).json({ error: 'User record missing' });
 
-    // --- 1-Week Cooldown Check ---
     if (user.last_withdrawal_at) {
       const lastTxTime = new Date(user.last_withdrawal_at).getTime();
       const nextTime = lastTxTime + WITHDRAWAL_COOLDOWN_MS;
@@ -308,7 +312,6 @@ router.post('/redeem', authenticateToken, (req, res) => {
         return res.status(400).json({ error: `Minimum redeem limit for ${methodRule.name} is ${minCoins.toLocaleString()} coins` });
       }
 
-      // Compute Conversions: 5000 coins = $1 USD = 150 NPR = 90 INR
       const usdVal = parseFloat(((coinAmount / 5000) * 1.0).toFixed(2));
       const nprVal = parseFloat(((coinAmount / 5000) * 150.0).toFixed(2));
       const inrVal = parseFloat(((coinAmount / 5000) * 90.0).toFixed(2));
@@ -318,7 +321,6 @@ router.post('/redeem', authenticateToken, (req, res) => {
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        // Deduct balance and update last_withdrawal_at
         db.run(
           'UPDATE users SET balance = balance - ?, last_withdrawal_at = ? WHERE id = ?',
           [coinAmount, nowIso, userId]
