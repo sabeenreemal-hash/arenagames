@@ -101,7 +101,6 @@ router.post('/login', (req, res) => {
     const storedHash = admin.password_hash || admin.password;
     if (!storedHash) return res.status(401).json({ error: 'No password set for this account' });
 
-    // Compare with bcrypt; fallback to plain text if old test row
     if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$')) {
       bcrypt.compare(password.trim(), storedHash, (cmpErr, isValid) => {
         if (cmpErr || !isValid) {
@@ -139,7 +138,6 @@ router.get('/dashboard', adminAuth, (req, res) => {
       stats.totalCoins = r2 ? (r2.coins || 0) : 0;
       db.get("SELECT COUNT(*) as p FROM withdrawals WHERE status = 'PENDING'", (err, r3) => {
         stats.pendingWithdrawals = r3 ? r3.p : 0;
-        // Count pending tasks for notification badge
         db.get("SELECT COUNT(*) as t FROM task_submissions WHERE status = 'pending'", (err, r4) => {
           stats.pendingTasks = r4 ? r4.t : 0;
           res.json(stats);
@@ -179,8 +177,6 @@ router.get('/users', adminAuth, (req, res) => {
 // ---------------------------------------------------------------------------
 // D. Admin Accounts Management
 // ---------------------------------------------------------------------------
-
-// 1. Get all admins
 router.get('/admins', adminAuth, (req, res) => {
   db.all('SELECT * FROM admins ORDER BY id ASC', (err, rows) => {
     if (err) {
@@ -197,7 +193,6 @@ router.get('/admins', adminAuth, (req, res) => {
   });
 });
 
-// 2. Create new admin
 router.post('/admins/create', adminAuth, (req, res) => {
   const { username, full_name, password } = req.body;
 
@@ -228,7 +223,6 @@ router.post('/admins/create', adminAuth, (req, res) => {
   });
 });
 
-// 3. Reset admin password
 router.post('/admins/password', adminAuth, (req, res) => {
   const { username, password } = req.body;
 
@@ -251,7 +245,6 @@ router.post('/admins/password', adminAuth, (req, res) => {
   });
 });
 
-// 4. Delete admin account
 router.post('/admins/delete', adminAuth, (req, res) => {
   const { username } = req.body;
 
@@ -487,11 +480,9 @@ router.post('/config/update', adminAuth, (req, res) => {
   });
 });
 
-// ===========================================================================
-// L. Tasks Management & Proof Verification (With Automatic VPS Cleanup)
-// ===========================================================================
-
-// 1. Fetch all admin tasks
+// ---------------------------------------------------------------------------
+// L. Tasks Management & Proof Verification
+// ---------------------------------------------------------------------------
 router.get('/tasks', adminAuth, (req, res) => {
   db.all(
     `SELECT t.*, 
@@ -506,7 +497,6 @@ router.get('/tasks', adminAuth, (req, res) => {
   );
 });
 
-// 2. Create a new task (title, coins, instructions, proof_type, link)
 router.post('/tasks/create', adminAuth, (req, res) => {
   const { title, reward_coins, instructions, proof_type, action_url, is_active } = req.body;
 
@@ -536,7 +526,6 @@ router.post('/tasks/create', adminAuth, (req, res) => {
   );
 });
 
-// 3. Update an existing task
 router.post('/tasks/:id/update', adminAuth, (req, res) => {
   const taskId = req.params.id;
   const { title, reward_coins, instructions, proof_type, action_url, is_active } = req.body;
@@ -566,11 +555,9 @@ router.post('/tasks/:id/update', adminAuth, (req, res) => {
   );
 });
 
-// 4. Delete a task
 router.post('/tasks/:id/delete', adminAuth, (req, res) => {
   const taskId = req.params.id;
 
-  // First fetch any pending screenshots to free disk storage
   db.all('SELECT screenshot_path FROM task_submissions WHERE task_id = ?', [taskId], (err, rows) => {
     if (!err && rows) {
       rows.forEach(r => deleteScreenshotFile(r.screenshot_path));
@@ -583,7 +570,6 @@ router.post('/tasks/:id/delete', adminAuth, (req, res) => {
   });
 });
 
-// 5. Fetch all user task submissions (with optional status filter: ?status=pending|approved|rejected)
 router.get('/task-submissions', adminAuth, (req, res) => {
   const { status } = req.query;
 
@@ -626,7 +612,6 @@ router.get('/task-submissions', adminAuth, (req, res) => {
   });
 });
 
-// 6. APPROVE SUBMISSION: Credits user coins & DELETES screenshot from VPS to free disk space
 router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
   const subId = req.params.id;
 
@@ -645,7 +630,6 @@ router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        // A. Update submission status to 'approved' and clear the screenshot path in DB
         db.run(
           `UPDATE task_submissions SET 
             status = 'approved', 
@@ -659,7 +643,6 @@ router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
               return res.status(500).json({ error: 'Failed to update submission status' });
             }
 
-            // B. Credit user's wallet & total earned coins
             db.run(
               `UPDATE users SET 
                 balance = balance + ?, 
@@ -672,7 +655,6 @@ router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
                   return res.status(500).json({ error: 'Failed to credit user wallet' });
                 }
 
-                // C. Record transaction audit log
                 db.run(
                   `INSERT INTO transactions (user_id, type, amount, reference_id) 
                    VALUES (?, 'TASK_REWARD', ?, ?)`,
@@ -686,12 +668,11 @@ router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
                     db.run('COMMIT', (commitErr) => {
                       if (commitErr) return res.status(500).json({ error: 'Transaction commit failed' });
 
-                      // D. DELETE SCREENSHOT FILE FROM VPS HARD DRIVE
                       deleteScreenshotFile(sub.screenshot_path);
 
                       res.json({
                         success: true,
-                        message: `Task submission #${subId} approved! ${sub.reward_coins} coins credited and screenshot removed from VPS storage.`
+                        message: `Task submission #${subId} approved! ${sub.reward_coins} coins credited.`
                       });
                     });
                   }
@@ -705,13 +686,12 @@ router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
   );
 });
 
-// 7. REJECT SUBMISSION: Records reason, allows re-apply, & DELETES screenshot from VPS
 router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
   const subId = req.params.id;
   const { reason } = req.body;
 
   if (!reason || reason.trim().length === 0) {
-    return res.status(400).json({ error: 'A rejection reason is required so the user can re-apply' });
+    return res.status(400).json({ error: 'A rejection reason is required' });
   }
 
   db.get('SELECT * FROM task_submissions WHERE id = ?', [subId], (err, sub) => {
@@ -720,7 +700,6 @@ router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
       return res.status(400).json({ error: `Cannot reject submission with status: ${sub.status}` });
     }
 
-    // A. Update submission status to 'rejected', set reason, clear screenshot path
     db.run(
       `UPDATE task_submissions SET 
         status = 'rejected', 
@@ -732,21 +711,20 @@ router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
       function (updateErr) {
         if (updateErr) return res.status(500).json({ error: 'Failed to reject submission' });
 
-        // B. DELETE SCREENSHOT FILE FROM VPS HARD DRIVE
         deleteScreenshotFile(sub.screenshot_path);
 
         res.json({
           success: true,
-          message: `Submission #${subId} rejected with reason: "${reason.trim()}". Screenshot removed from VPS storage.`
+          message: `Submission #${subId} rejected with reason: "${reason.trim()}".`
         });
       }
     );
   });
 });
 
-// ===========================================================================
+// ---------------------------------------------------------------------------
 // M. Permanent User Deletion (With VPS Screenshot Cleanup)
-// ===========================================================================
+// ---------------------------------------------------------------------------
 router.post('/users/:id/delete', adminAuth, (req, res) => {
   const userId = req.params.id;
 
@@ -754,14 +732,11 @@ router.post('/users/:id/delete', adminAuth, (req, res) => {
     return res.status(400).json({ error: 'User ID is required' });
   }
 
-  // 1. Scan and delete any screenshot files submitted by this user to free VPS disk space
   db.all('SELECT screenshot_path FROM task_submissions WHERE user_id = ?', [userId], (err, rows) => {
     if (!err && rows) {
       rows.forEach(r => deleteScreenshotFile(r.screenshot_path));
     }
 
-    // 2. Delete user record. Because database.js has PRAGMA foreign_keys = ON and ON DELETE CASCADE,
-    // transactions, withdrawals, game sessions, match histories, and spin records are purged cleanly.
     db.run('DELETE FROM users WHERE id = ?', [userId], function (delErr) {
       if (delErr) {
         console.error('[Permanent Delete User Error]:', delErr.message);
