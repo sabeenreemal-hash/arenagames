@@ -14,7 +14,7 @@ function addColumnIfNotExists(table, column, type, defaultValue) {
       const exists = columns.some((col) => col.name === column);
       if (!exists) {
         let sql = `ALTER TABLE ${table} ADD COLUMN ${column} ${type}`;
-        if (defaultValue !== undefined) {
+        if (defaultValue !== undefined && defaultValue !== null) {
           sql += ` DEFAULT ${defaultValue}`;
         }
         db.run(sql, (alterErr) => {
@@ -31,17 +31,15 @@ db.serialize(() => {
   // ==========================================
   // 1. VPS & SQLite Concurrency Optimizations
   // ==========================================
-  db.run('PRAGMA journal_mode = WAL;');         // Allows simultaneous reads/writes
-  db.run('PRAGMA synchronous = NORMAL;');        // Faster disk writes, safe in WAL mode
-  db.run('PRAGMA busy_timeout = 5000;');         // Wait up to 5 seconds before locking error
-  db.run('PRAGMA foreign_keys = ON;');           // Enforce relational integrity
-  db.run('PRAGMA cache_size = -16000;');         // 16MB in-memory SQLite page cache
+  db.run('PRAGMA journal_mode = WAL;');
+  db.run('PRAGMA synchronous = NORMAL;');
+  db.run('PRAGMA busy_timeout = 5000;');
+  db.run('PRAGMA foreign_keys = ON;');
+  db.run('PRAGMA cache_size = -16000;');
 
   // ==========================================
   // 2. Schema Definitions (Tables Created First)
   // ==========================================
-
-  // Games Configuration Table
   db.run(`
     CREATE TABLE IF NOT EXISTS games (
       id TEXT PRIMARY KEY,
@@ -80,7 +78,7 @@ db.serialize(() => {
       creator_badge_enabled INTEGER DEFAULT 0,
       creator_badge_id INTEGER DEFAULT NULL,
       last_withdrawal_at DATETIME DEFAULT NULL,
-      last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_active_at DATETIME DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(referred_by_id) REFERENCES users(id) ON DELETE SET NULL
     )
@@ -103,7 +101,9 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'creator_badge_enabled', 'INTEGER', 0);
   addColumnIfNotExists('users', 'creator_badge_id', 'INTEGER', 'NULL');
   addColumnIfNotExists('users', 'last_withdrawal_at', 'DATETIME', 'NULL');
-  addColumnIfNotExists('users', 'last_active_at', 'DATETIME', 'CURRENT_TIMESTAMP');
+  
+  // Safe migration for last_active_at (SQLite does not allow CURRENT_TIMESTAMP in ALTER TABLE)
+  addColumnIfNotExists('users', 'last_active_at', 'DATETIME', 'NULL');
 
   // Badges Table
   db.run(`
@@ -161,7 +161,7 @@ db.serialize(() => {
     )
   `);
 
-  // Withdrawals Table (with USD, NPR, INR support)
+  // Withdrawals Table
   db.run(`
     CREATE TABLE IF NOT EXISTS withdrawals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -230,9 +230,7 @@ db.serialize(() => {
     });
   });
 
-  // ==========================================
-  // 3. Spin Wheel Schema (User State & Logs)
-  // ==========================================
+  // Spin Wheel Schema
   db.run(`
     CREATE TABLE IF NOT EXISTS user_spin_state (
       user_id INTEGER NOT NULL,
@@ -264,9 +262,7 @@ db.serialize(() => {
     )
   `);
 
-  // ==========================================
-  // 4. Tasks & Submissions System Schema
-  // ==========================================
+  // Tasks Schema
   db.run(`
     CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -301,9 +297,7 @@ db.serialize(() => {
   addColumnIfNotExists('task_submissions', 'proof_text', 'TEXT', "''");
   addColumnIfNotExists('task_submissions', 'rejection_reason', 'TEXT', "''");
 
-  // ==========================================
-  // 5. 1v1 Tic-Tac-Toe Multiplayer Schema
-  // ==========================================
+  // Tic-Tac-Toe Schema
   db.run(`
     CREATE TABLE IF NOT EXISTS tictactoe_matches (
       id TEXT PRIMARY KEY,
@@ -324,9 +318,7 @@ db.serialize(() => {
     )
   `);
 
-  // ==========================================
-  // 6. 1v1 Rock Paper Scissors Multiplayer Schema
-  // ==========================================
+  // Rock Paper Scissors Schema
   db.run(`
     CREATE TABLE IF NOT EXISTS rps_matches (
       id TEXT PRIMARY KEY,
@@ -350,83 +342,33 @@ db.serialize(() => {
     )
   `);
 
-  // ==========================================
-  // 7. Ensure Allowed Games Exist
-  // ==========================================
-  db.run(`
-    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
-    VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)
-  `);
+  // Ensure Allowed Games Exist
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`);
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)`);
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)`);
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('rps_1v1', '1v1 Rock Paper Scissors', 50000, 1.0, 1)`);
 
-  db.run(`
-    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
-    VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)
-  `);
-
-  db.run(`
-    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
-    VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)
-  `);
-
-  db.run(`
-    INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) 
-    VALUES ('rps_1v1', '1v1 Rock Paper Scissors', 50000, 1.0, 1)
-  `);
-
-  // ==========================================
-  // 8. Cleanup Unused Legacy Games
-  // ==========================================
+  // Cleanup Unused Legacy Games
   db.run("DELETE FROM game_sessions WHERE game_id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
   db.run("DELETE FROM games WHERE id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
   db.run("DROP TABLE IF EXISTS word_puzzle;");
   db.run("DROP TABLE IF EXISTS word_puzzles;");
 
-  // ==========================================
-  // 9. Performance Indexes
-  // ==========================================
+  // Performance Indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_users_last_active ON users(last_active_at);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_game_sessions_user ON game_sessions(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_creator_rewards_user ON creator_rewards(user_id);`);
-  
   db.run(`CREATE INDEX IF NOT EXISTS idx_user_spin_state_user ON user_spin_state(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_spin_transactions_user ON spin_transactions(user_id);`);
-
   db.run(`CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(is_active);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`);
 
-  // Tic-Tac-Toe Indexes
-  db.run(`CREATE INDEX IF NOT EXISTS idx_ttt_player_x ON tictactoe_matches(player_x_id, status);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_ttt_player_o ON tictactoe_matches(player_o_id, status);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_ttt_status ON tictactoe_matches(status);`);
-
-  // Rock Paper Scissors Indexes
-  db.run(`CREATE INDEX IF NOT EXISTS idx_rps_player_a ON rps_matches(player_a_id, status);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_rps_player_b ON rps_matches(player_b_id, status);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_rps_status ON rps_matches(status);`);
-
-  // ==========================================
-  // 10. One-Time Database User Reset Flag
-  // ==========================================
-  if (process.env.RESET_DB === 'true') {
-    console.log('⚠️ RESET_DB=true detected. Purging all user data...');
-    db.run('DELETE FROM game_sessions;');
-    db.run('DELETE FROM transactions;');
-    db.run('DELETE FROM withdrawals;');
-    db.run('DELETE FROM creator_rewards;');
-    db.run('DELETE FROM user_spin_state;');
-    db.run('DELETE FROM spin_transactions;');
-    db.run('DELETE FROM task_submissions;');
-    db.run('DELETE FROM tictactoe_matches;');
-    db.run('DELETE FROM rps_matches;');
-    db.run('DELETE FROM users;');
-    db.run("DELETE FROM sqlite_sequence WHERE name IN ('users', 'transactions', 'withdrawals', 'game_sessions', 'creator_rewards', 'task_submissions', 'tictactoe_matches', 'rps_matches');");
-    console.log('✅ All users, spin records, tasks submissions, and history successfully wiped clean.');
-  }
+  // Backfill last_active_at for existing accounts safely
+  db.run(`UPDATE users SET last_active_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE last_active_at IS NULL;`, () => {});
 });
 
 module.exports = db;
