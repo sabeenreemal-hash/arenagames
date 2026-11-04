@@ -460,6 +460,7 @@
       letter-spacing: 0.6px;
       padding: 12px 16px;
       border-bottom: 1px solid var(--border);
+      white-space: nowrap;
     }
 
     td {
@@ -510,6 +511,42 @@
       border: 1px solid #9D4EDD;
     }
 
+    /* ONLINE / ACTIVITY PILLS */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .pill-online {
+      background: rgba(0, 230, 118, 0.12);
+      color: var(--primary);
+      border: 1px solid rgba(0, 230, 118, 0.25);
+    }
+
+    .pill-away {
+      background: rgba(255, 165, 2, 0.12);
+      color: var(--warning);
+      border: 1px solid rgba(255, 165, 2, 0.25);
+    }
+
+    .pill-offline {
+      background: rgba(143, 156, 174, 0.12);
+      color: var(--text-muted);
+      border: 1px solid rgba(143, 156, 174, 0.2);
+    }
+
+    .dot-pulse {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
     /* BUTTONS */
     .btn {
       display: inline-flex;
@@ -545,7 +582,7 @@
     }
 
     .btn-action {
-      padding: 5px 10px;
+      padding: 5px 9px;
       font-size: 11.5px;
       font-weight: 700;
       border-radius: 6px;
@@ -660,7 +697,6 @@
       cursor: pointer;
     }
 
-    /* RESPONSIVE */
     @media (max-width: 900px) {
       .sidebar {
         transform: translateX(-100%);
@@ -802,7 +838,7 @@
       <!-- CONTENT BODY -->
       <main class="content-area">
 
-        <!-- 4 OVERVIEW METRIC CARDS -->
+        <!-- OVERVIEW METRIC CARDS -->
         <div class="metrics-grid">
           <div class="metric-card">
             <div class="metric-title">Registered Players</div>
@@ -868,10 +904,9 @@
         </section>
 
         <!-- ======================================================== -->
-        <!-- TAB: TASK HUB (CREATE & MANAGE TASKS)                    -->
+        <!-- TAB: TASK HUB                                            -->
         <!-- ======================================================== -->
         <section id="tab-tasks" class="tab-section">
-          <!-- Create Task Form -->
           <div class="card" style="max-width: 800px; margin-bottom: 24px;">
             <div class="card-header-flex">
               <div>
@@ -916,7 +951,6 @@
             </form>
           </div>
 
-          <!-- Active Tasks Registry -->
           <div class="card">
             <div class="card-header-flex">
               <div>
@@ -950,7 +984,7 @@
         </section>
 
         <!-- ======================================================== -->
-        <!-- TAB: TASK SUBMISSIONS (APPROVE / REJECT / VPS CLEANUP)  -->
+        <!-- TAB: SUBMISSIONS                                         -->
         <!-- ======================================================== -->
         <section id="tab-submissions" class="tab-section">
           <div class="card">
@@ -992,14 +1026,14 @@
         </section>
 
         <!-- ======================================================== -->
-        <!-- TAB 2: USERS REGISTRY                                    -->
+        <!-- TAB 2: USERS REGISTRY (UPDATED WITH ONLINE/ACTIVITY/DELETE) -->
         <!-- ======================================================== -->
         <section id="tab-users" class="tab-section">
           <div class="card">
             <div class="card-header-flex">
               <div>
                 <h2>Registered Users Database</h2>
-                <p>Modify player balances, assign streaks, adjust stone badges, or issue bans.</p>
+                <p>Inspect live player activity, registration dates, modify balances, or permanently remove accounts.</p>
               </div>
               <input type="text" id="user-search" class="search-bar" placeholder="Filter users by username / email..."
                 onkeyup="filterUsersList()">
@@ -1014,13 +1048,15 @@
                     <th>Email</th>
                     <th>Coins</th>
                     <th>Streak / Stone</th>
+                    <th>Account Created</th>
+                    <th>Online Activity</th>
                     <th>Status</th>
                     <th>Admin Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td colspan="7">Fetching user accounts...</td>
+                    <td colspan="9">Fetching user accounts...</td>
                   </tr>
                 </tbody>
               </table>
@@ -1228,6 +1264,41 @@
       document.getElementById('image-modal-src').src = '';
     }
 
+    // Format human-friendly time difference
+    function formatTimeAgo(dateString) {
+      if (!dateString) return "Never";
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return "Never";
+
+      const seconds = Math.floor((new Date() - date) / 1000);
+      if (seconds < 60) return "Just now";
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      if (days < 30) return `${days}d ago`;
+      return date.toLocaleDateString();
+    }
+
+    // Calculate user online badge
+    function getUserActivityBadge(lastActiveAt) {
+      if (!lastActiveAt) {
+        return `<span class="status-pill pill-offline"><span class="dot-pulse"></span> Offline</span><br><span style="font-size:11px; color:var(--text-muted);">Never logged in</span>`;
+      }
+
+      const diffMinutes = Math.floor((new Date() - new Date(lastActiveAt)) / 60000);
+      const readableAgo = formatTimeAgo(lastActiveAt);
+
+      if (diffMinutes < 5) {
+        return `<span class="status-pill pill-online"><span class="dot-pulse"></span> Online</span><br><span style="font-size:11px; color:var(--primary); font-weight:600;">Active now</span>`;
+      } else if (diffMinutes < 60) {
+        return `<span class="status-pill pill-away"><span class="dot-pulse"></span> Away</span><br><span style="font-size:11px; color:var(--text-muted);">${readableAgo}</span>`;
+      } else {
+        return `<span class="status-pill pill-offline"><span class="dot-pulse"></span> Inactive</span><br><span style="font-size:11px; color:var(--text-muted);">${readableAgo}</span>`;
+      }
+    }
+
     // TAB SWITCHING
     function switchTab(tabId, element) {
       document.querySelectorAll('.tab-section').forEach(t => t.classList.remove('active'));
@@ -1245,6 +1316,7 @@
       if (tabId === 'tab-tasks') loadTasksList();
       if (tabId === 'tab-submissions') loadSubmissionsList();
       if (tabId === 'tab-admins') loadAdminUsersList();
+      if (tabId === 'tab-users') loadUsersList();
 
       if (window.innerWidth <= 900) {
         document.getElementById('app-sidebar').classList.remove('open');
@@ -1264,6 +1336,7 @@
 
       if (tabId === 'tab-tasks') loadTasksList();
       if (tabId === 'tab-submissions') loadSubmissionsList();
+      if (tabId === 'tab-users') loadUsersList();
     }
 
     function toggleMobileSidebar() {
@@ -1339,6 +1412,171 @@
       } catch (err) {
         console.error("Dashboard refresh error:", err);
       }
+    }
+
+    // ========================================================
+    // USERS REGISTRY & DELETION
+    // ========================================================
+    async function loadUsersList() {
+      try {
+        const res = await fetch(`${API_BASE}/users`, { headers: getHeaders() });
+        allUsersCache = await res.json();
+        renderUsersTable(allUsersCache);
+      } catch (err) { console.error("Failed to load users database registry"); }
+    }
+
+    function filterUsersList() {
+      const q = document.getElementById('user-search').value.toLowerCase().trim();
+      const filtered = allUsersCache.filter(u =>
+        (u.username && u.username.toLowerCase().includes(q)) ||
+        (u.full_name && u.full_name.toLowerCase().includes(q)) ||
+        (u.email && u.email.toLowerCase().includes(q))
+      );
+      renderUsersTable(filtered);
+    }
+
+    function renderUsersTable(users) {
+      const tbody = document.querySelector("#users-table tbody");
+      tbody.innerHTML = "";
+
+      users.forEach(u => {
+        const statusBadge = u.is_banned === 1
+          ? `<span class="badge badge-banned">Banned</span>`
+          : `<span class="badge badge-active">Active</span>`;
+
+        const streak = u.current_streak || 0;
+        const stone = u.current_stone || 'NONE';
+        const stoneBadge = `<span class="badge badge-stone">🔥 ${streak}d (${stone})</span>`;
+
+        const banButton = u.is_banned === 1
+          ? `<button class="btn-action btn-act-gray" onclick="toggleUserBan(${u.id}, false)">Unban</button>`
+          : `<button class="btn-action btn-act-danger" onclick="toggleUserBan(${u.id}, true)">Ban</button>`;
+
+        const createdDate = u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Initial';
+        const activityStatus = getUserActivityBadge(u.last_active_at);
+
+        tbody.innerHTML += `
+          <tr>
+            <td>#${u.id}</td>
+            <td><strong>@${u.username}</strong><br><span style="font-size:11px; color:var(--text-muted);">${u.full_name || ''}</span></td>
+            <td>${u.email}</td>
+            <td><strong style="color:var(--primary);">${(u.balance || 0).toLocaleString()}</strong></td>
+            <td>${stoneBadge}</td>
+            <td><span style="font-size:12px; font-weight:600;">${createdDate}</span></td>
+            <td>${activityStatus}</td>
+            <td>${statusBadge}</td>
+            <td>
+              <button class="btn-action btn-act-streak" title="Edit Streak" onclick="editUserStreak(${u.id}, '${u.username}', ${streak})">Streak</button>
+              <button class="btn-action btn-act-coins" title="Adjust Coins" onclick="editUserCoins(${u.id}, '${u.username}')">Coins</button>
+              <button class="btn-action btn-act-pass" title="Reset Password" onclick="resetUserPassword(${u.id}, '${u.username}')">PW</button>
+              ${banButton}
+              <button class="btn-action btn-act-danger" style="background:#B3001E;" title="Delete User Permanently" onclick="deleteUserPermanently(${u.id}, '${u.username}')">🗑️ Delete</button>
+            </td>
+          </tr>
+        `;
+      });
+
+      if (tbody.innerHTML === "") {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted);">No players found.</td></tr>`;
+      }
+    }
+
+    async function deleteUserPermanently(userId, username) {
+      const confirmFirst = confirm(`⚠️ PERMANENT DELETE WARNING:\n\nAre you sure you want to permanently delete user @${username} (UID #${userId})?\n\nThis will wipe out their entire wallet, task history, and database records forever. This action CANNOT be undone!`);
+      if (!confirmFirst) return;
+
+      const confirmVerification = prompt(`To confirm deletion, please type the username "${username}" exactly:`);
+      if (confirmVerification !== username) {
+        return alert("Username does not match. Deletion cancelled.");
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/users/${userId}/delete`, {
+          method: "POST",
+          headers: getHeaders()
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message || `User @${username} has been permanently deleted.`);
+          loadDashboard();
+        } else {
+          alert(data.error || "Failed to delete user account.");
+        }
+      } catch (err) {
+        alert("Server error processing user deletion.");
+      }
+    }
+
+    async function editUserStreak(id, username, currentStreak) {
+      const input = prompt(`Set Streak Days for @${username} (Current: ${currentStreak} Days):\n\nEnter new streak count:`, currentStreak);
+      if (input === null || input.trim() === "") return;
+
+      const streakVal = parseInt(input.trim(), 10);
+      if (isNaN(streakVal) || streakVal < 0) return alert("Please enter a valid positive number.");
+
+      try {
+        const res = await fetch(`${API_BASE}/users/${id}/streak`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ streak: streakVal })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message || "Streak updated!");
+          loadDashboard();
+        }
+      } catch (_) { alert("Connection Error"); }
+    }
+
+    async function editUserCoins(id, username) {
+      const adjustment = prompt(`Adjust Coin balance for @${username}:\nEnter positive (e.g. 500) or negative (e.g. -500):`);
+      if (adjustment === null || adjustment === "") return;
+      const amt = parseInt(adjustment, 10);
+      if (isNaN(amt)) return alert("Please provide a valid integer amount.");
+
+      try {
+        const res = await fetch(`${API_BASE}/users/${id}/coins`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ amount: amt })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`Coin adjustment applied for @${username}`);
+          loadDashboard();
+        }
+      } catch (_) { alert("Connection Error"); }
+    }
+
+    async function resetUserPassword(id, username) {
+      const newPassword = prompt(`Enter new password for @${username} (min 6 chars):`);
+      if (!newPassword || newPassword.trim().length < 6) return alert("Password must be at least 6 characters.");
+
+      try {
+        const res = await fetch(`${API_BASE}/users/${id}/password`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ password: newPassword.trim() })
+        });
+        const data = await res.json();
+        if (data.success) alert(`Password successfully changed for @${username}`);
+      } catch (_) { alert("Connection Error"); }
+    }
+
+    async function toggleUserBan(id, shouldBan) {
+      if (!confirm(`Are you sure you want to ${shouldBan ? "BAN" : "UNBAN"} this user?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/users/${id}/ban`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ isBanned: shouldBan })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("User ban status updated!");
+          loadDashboard();
+        }
+      } catch (_) { alert("Connection Error"); }
     }
 
     // ========================================================
@@ -1520,7 +1758,7 @@
     }
 
     async function approveSubmission(id, rewardCoins, username) {
-      if (!confirm(`Approve submission #${id} for @${username}?\n\nThis will credit ${rewardCoins} coins to the user's unified wallet and permanently DELETE the screenshot from VPS storage to save disk space.`)) return;
+      if (!confirm(`Approve submission #${id} for @${username}?\n\nThis will credit ${rewardCoins} coins to user wallet and permanently DELETE the screenshot from VPS storage.`)) return;
 
       try {
         const res = await fetch(`${API_BASE}/task-submissions/${id}/approve`, {
@@ -1540,7 +1778,7 @@
     }
 
     async function rejectSubmission(id, username) {
-      const reason = prompt(`Enter rejection reason for @${username} (shown in their app so they can re-apply):\n\nNote: Screenshot will be permanently deleted from VPS storage to save space.`, "Screenshot is unclear / proof requirement not satisfied");
+      const reason = prompt(`Enter rejection reason for @${username}:\n\nScreenshot will be permanently deleted from VPS storage.`, "Screenshot is unclear / proof requirement not satisfied");
       if (reason === null || reason.trim() === "") return;
 
       try {
@@ -1559,139 +1797,6 @@
       } catch (err) {
         alert("Server error rejecting submission.");
       }
-    }
-
-    // ========================================================
-    // USERS REGISTRY
-    // ========================================================
-    async function loadUsersList() {
-      try {
-        const res = await fetch(`${API_BASE}/users`, { headers: getHeaders() });
-        allUsersCache = await res.json();
-        renderUsersTable(allUsersCache);
-      } catch (err) { console.error("Failed to load users database registry"); }
-    }
-
-    function filterUsersList() {
-      const q = document.getElementById('user-search').value.toLowerCase().trim();
-      const filtered = allUsersCache.filter(u =>
-        (u.username && u.username.toLowerCase().includes(q)) ||
-        (u.full_name && u.full_name.toLowerCase().includes(q)) ||
-        (u.email && u.email.toLowerCase().includes(q))
-      );
-      renderUsersTable(filtered);
-    }
-
-    function renderUsersTable(users) {
-      const tbody = document.querySelector("#users-table tbody");
-      tbody.innerHTML = "";
-
-      users.forEach(u => {
-        const statusBadge = u.is_banned === 1
-          ? `<span class="badge badge-banned">Banned</span>`
-          : `<span class="badge badge-active">Active</span>`;
-
-        const streak = u.current_streak || 0;
-        const stone = u.current_stone || 'NONE';
-        const stoneBadge = `<span class="badge badge-stone">🔥 ${streak}d (${stone})</span>`;
-
-        const banButton = u.is_banned === 1
-          ? `<button class="btn-action btn-act-gray" onclick="toggleUserBan(${u.id}, false)">Unban</button>`
-          : `<button class="btn-action btn-act-danger" onclick="toggleUserBan(${u.id}, true)">Ban</button>`;
-
-        tbody.innerHTML += `
-          <tr>
-            <td>${u.id}</td>
-            <td><strong>@${u.username}</strong><br><span style="font-size:11px; color:var(--text-muted);">${u.full_name || ''}</span></td>
-            <td>${u.email}</td>
-            <td><strong>${(u.balance || 0).toLocaleString()}</strong></td>
-            <td>${stoneBadge}</td>
-            <td>${statusBadge}</td>
-            <td>
-              <button class="btn-action btn-act-streak" onclick="editUserStreak(${u.id}, '${u.username}', ${streak})">Streak</button>
-              <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${u.username}')">Coins</button>
-              <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${u.username}')">PW</button>
-              ${banButton}
-            </td>
-          </tr>
-        `;
-      });
-
-      if (tbody.innerHTML === "") {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No players found.</td></tr>`;
-      }
-    }
-
-    async function editUserStreak(id, username, currentStreak) {
-      const input = prompt(`Set Streak Days for @${username} (Current: ${currentStreak} Days):\n\nEnter new streak count:`, currentStreak);
-      if (input === null || input.trim() === "") return;
-
-      const streakVal = parseInt(input.trim(), 10);
-      if (isNaN(streakVal) || streakVal < 0) return alert("Please enter a valid positive number.");
-
-      try {
-        const res = await fetch(`${API_BASE}/users/${id}/streak`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ streak: streakVal })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert(data.message || "Streak updated!");
-          loadDashboard();
-        }
-      } catch (_) { alert("Connection Error"); }
-    }
-
-    async function editUserCoins(id, username) {
-      const adjustment = prompt(`Adjust Coin balance for @${username}:\nEnter positive (e.g. 500) or negative (e.g. -500):`);
-      if (adjustment === null || adjustment === "") return;
-      const amt = parseInt(adjustment, 10);
-      if (isNaN(amt)) return alert("Please provide a valid integer amount.");
-
-      try {
-        const res = await fetch(`${API_BASE}/users/${id}/coins`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ amount: amt })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert(`Coin adjustment applied for @${username}`);
-          loadDashboard();
-        }
-      } catch (_) { alert("Connection Error"); }
-    }
-
-    async function resetUserPassword(id, username) {
-      const newPassword = prompt(`Enter new password for @${username} (min 6 chars):`);
-      if (!newPassword || newPassword.trim().length < 6) return alert("Password must be at least 6 characters.");
-
-      try {
-        const res = await fetch(`${API_BASE}/users/${id}/password`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ password: newPassword.trim() })
-        });
-        const data = await res.json();
-        if (data.success) alert(`Password successfully changed for @${username}`);
-      } catch (_) { alert("Connection Error"); }
-    }
-
-    async function toggleUserBan(id, shouldBan) {
-      if (!confirm(`Are you sure you want to ${shouldBan ? "BAN" : "UNBAN"} this user?`)) return;
-      try {
-        const res = await fetch(`${API_BASE}/users/${id}/ban`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ isBanned: shouldBan })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert("User ban status updated!");
-          loadDashboard();
-        }
-      } catch (_) { alert("Connection Error"); }
     }
 
     // ========================================================
