@@ -10,16 +10,23 @@ const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
 const ROUND_TIME_LIMIT_SEC = 15;
 const WINS_TO_MATCH = 2; // First to win 2 rounds wins
-const BOT_WAIT_TIMEOUT_MS = 5000; // 5s wait for real player before bot match
+const BOT_WAIT_TIMEOUT_MS = 3500; // Wait 3.5s for real player before matching bot
 const BOT_USER_ID = 999999;
 
 const BOT_NAMES = [
   'ShadowNinja', 'ViperQueen', 'Alex_Pro99', 'CyberSamurai', 'NovaStrike',
   'Elena_92', 'ApexHunter', 'GhostRider_X', 'BlazeFury', 'ZenithPulse',
-  'AeroKnight', 'PixelWarrior', 'ThunderHawk', 'EchoGamer', 'TitanX'
+  'AeroKnight', 'PixelWarrior', 'ThunderHawk', 'EchoGamer', 'TitanX',
+  'Vortex_77', 'Krypton', 'CrimsonBlade', 'NeonRider', 'Spectre_01'
 ];
 
 const CHOICES = ['ROCK', 'PAPER', 'SCISSORS'];
+
+// Self-healing: Ensure Bot account exists in SQLite users table
+db.run(`
+  INSERT OR IGNORE INTO users (id, full_name, username, email, password_hash, referral_code, balance) 
+  VALUES (999999, 'Arena Challenger', 'arena_bot_system', 'bot@arenagames.internal', 'DISABLED_BOT_ACCOUNT', 'BOT9999', 1000000)
+`);
 
 // 7-Level Stone Badge definitions
 const STONE_TIERS = [
@@ -73,43 +80,18 @@ function evaluateRound(choiceA, choiceB) {
   return { winner: 'B', reason: 'WIN' };
 }
 
-// Unpredictable Bot Decision Engine (Cognitive Pattern Modeling)
-function predictSmartRpsMove(lastResult, isBotPlayerA) {
-  if (!lastResult) {
+// Balanced & Beatable RPS choice calculation (~50/50 fair rate)
+function predictCasualRpsMove(lastResult) {
+  // 70% of the time play clean, natural random choice
+  if (Math.random() < 0.70 || !lastResult) {
     return CHOICES[Math.floor(Math.random() * CHOICES.length)];
   }
 
-  const humanChoice = isBotPlayerA ? lastResult.playerBChoice : lastResult.playerAChoice;
-  const humanWon = (isBotPlayerA && lastResult.winner === 'B') || (!isBotPlayerA && lastResult.winner === 'A');
-  const wasDraw = lastResult.winner === 'DRAW';
-
-  function getCounter(move) {
-    if (move === 'ROCK') return 'PAPER';
-    if (move === 'PAPER') return 'SCISSORS';
-    return 'ROCK';
-  }
-
-  function getBeatenBy(move) {
-    if (move === 'ROCK') return 'SCISSORS';
-    if (move === 'PAPER') return 'ROCK';
-    return 'PAPER';
-  }
-
-  // Counter Win-Stay habits (~65% probability)
-  if (humanWon && Math.random() < 0.65) {
-    return getCounter(humanChoice);
-  }
-
-  // Counter Lose-Shift habits (~60% probability)
-  if (!humanWon && !wasDraw && Math.random() < 0.60) {
-    return getBeatenBy(humanChoice);
-  }
-
-  // Unpredictable fallback
+  // 30% of the time, slight human intuition variation
   return CHOICES[Math.floor(Math.random() * CHOICES.length)];
 }
 
-// Submits bot move with human reaction time delay
+// Automatically submits bot choice with human delay
 function triggerBotRpsChoice(matchId) {
   db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match || match.status !== 'IN_PROGRESS') return;
@@ -124,8 +106,8 @@ function triggerBotRpsChoice(matchId) {
     let lastResult = null;
     try { if (match.last_round_result) lastResult = JSON.parse(match.last_round_result); } catch (_) {}
 
-    const botChoice = predictSmartRpsMove(lastResult, isBotPlayerA);
-    const delay = Math.floor(Math.random() * 1400) + 1600; // 1.6s to 3.0s delay
+    const botChoice = predictCasualRpsMove(lastResult);
+    const delay = Math.floor(Math.random() * 1200) + 1300; // 1.3s - 2.5s delay
 
     setTimeout(() => {
       db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (reErr, currMatch) => {
@@ -145,20 +127,32 @@ function triggerBotRpsChoice(matchId) {
 }
 
 // -----------------------------------------------------------------------------
-// 1. GET /api/rps/waiting-players
+// 1. GET /api/rps/waiting-players (Always shows 100+ waiting players)
 // -----------------------------------------------------------------------------
 router.get('/waiting-players', authenticateToken, (req, res) => {
   const now = Date.now();
   rpsQueue = rpsQueue.filter(p => (now - p.joinedAt) < 90000);
 
+  // Fluctuates naturally between 100 and 108 players
+  const fakeWaitingCount = 100 + Math.floor((now / 15000) % 9);
+  const totalCount = Math.max(rpsQueue.length, fakeWaitingCount);
+
+  const sampleList = BOT_NAMES.slice(0, 10).map((name, i) => ({
+    userId: 900000 + i,
+    username: name,
+    waitingSeconds: (i * 2) + 1
+  }));
+
   res.json({
     success: true,
-    count: rpsQueue.length + Math.floor(Math.random() * 3) + 1,
-    players: rpsQueue.map(p => ({
-      userId: p.userId,
-      username: p.username,
-      waitingSeconds: Math.floor((now - p.joinedAt) / 1000)
-    }))
+    count: totalCount,
+    players: rpsQueue.length > 0
+      ? rpsQueue.map(p => ({
+          userId: p.userId,
+          username: p.username,
+          waitingSeconds: Math.floor((now - p.joinedAt) / 1000)
+        })).concat(sampleList)
+      : sampleList
   });
 });
 
@@ -227,7 +221,6 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                   return res.status(500).json({ error: 'Transaction commit failed' });
                 }
 
-                // Check if real human is waiting
                 const oppIndex = rpsQueue.findIndex(p => String(p.userId) !== String(user.id));
 
                 if (oppIndex !== -1) {
@@ -240,7 +233,8 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                       player_a_score, player_b_score, current_round, status, pot_amount, round_start_time
                     ) VALUES (?, ?, ?, ?, ?, 0, 0, 1, 'IN_PROGRESS', 200, CURRENT_TIMESTAMP)`,
                     [matchId, opponent.userId, user.id, opponent.username, user.username],
-                    () => {
+                    (insErr) => {
+                      if (insErr) return res.status(500).json({ error: 'Failed to create match' });
                       return res.json({
                         success: true,
                         matched: true,
@@ -347,10 +341,8 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
       const playerEntry = rpsQueue[qIndex];
       const waitingMs = Date.now() - playerEntry.joinedAt;
 
-      // Bot Fallback after 5s wait
+      // Bot Fallback: Matches bot after 3.5s wait
       if (waitingMs >= BOT_WAIT_TIMEOUT_MS) {
-        rpsQueue.splice(qIndex, 1);
-
         const matchId = `rps_${crypto.randomBytes(8).toString('hex')}`;
         const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
 
@@ -361,7 +353,13 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
           ) VALUES (?, ?, ?, ?, ?, 0, 0, 1, 'IN_PROGRESS', 200, CURRENT_TIMESTAMP)`,
           [matchId, playerEntry.userId, BOT_USER_ID, playerEntry.username, botName],
           (insErr) => {
-            if (insErr) return res.status(500).json({ error: 'Failed to create bot match' });
+            if (insErr) {
+              console.error('[RPS BOT MATCH INSERT ERROR]:', insErr.message);
+              return res.status(500).json({ error: 'Failed to create match' });
+            }
+
+            // Remove from queue ONLY after successful insertion
+            rpsQueue.splice(qIndex, 1);
 
             triggerBotRpsChoice(matchId);
 
@@ -564,7 +562,6 @@ router.post('/surrender', authenticateToken, (req, res) => {
   });
 });
 
-// Resolves round and settles final scores immediately upon 2 wins
 function resolveRound(match, callback) {
   if (match.status !== 'IN_PROGRESS') {
     return callback(null, match);
@@ -618,13 +615,12 @@ function resolveRound(match, callback) {
   }
 }
 
-// Atomically stores final scores, pays winner, and UPDATES DAILY STREAK
 function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, finalRoundResult, callback) {
   db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match) return callback(new Error('Match not found'));
     if (match.status === 'COMPLETED' || match.status === 'DRAW') return callback(null);
 
-    // Case 1: DRAW -> Refund human players
+    // Case 1: DRAW -> Refund real human players
     if (isDraw) {
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
@@ -655,7 +651,7 @@ function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, 
       return;
     }
 
-    // Case 2: BOT WINS -> Simply complete match without modifying human streaks
+    // Case 2: BOT WINS -> Simply mark match COMPLETED (preserves real player stats)
     if (String(winnerId) === String(BOT_USER_ID)) {
       db.run(
         `UPDATE rps_matches 
@@ -680,23 +676,20 @@ function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, 
 
       const today = getTodayStr();
       const yesterday = getYesterdayStr();
-      const coinsEarned = ENTRY_FEE; // 100 net profit coins won
+      const coinsEarned = ENTRY_FEE; // Net profit (+100 coins)
 
       let currentStreak = user.current_streak || 0;
       let highestStreak = user.highest_streak || 0;
       let lastStreakDate = user.last_streak_date || '';
 
-      // Add match net coins to today's eligible streak counter
       let newEligible = (user.last_eligible_date === today)
         ? ((user.eligible_daily_coins || 0) + coinsEarned)
         : coinsEarned;
 
-      // Reset streak if broken yesterday
       if (user.last_eligible_date !== today && lastStreakDate !== yesterday && lastStreakDate !== today && currentStreak > 0) {
         currentStreak = 0;
       }
 
-      // Milestone: Crossing >= 100 daily coins increments streak
       if (newEligible >= 100 && lastStreakDate !== today) {
         currentStreak += 1;
         lastStreakDate = today;
@@ -710,7 +703,6 @@ function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, 
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        // Update balance, total_coins_earned, daily eligible coins, and streak
         db.run(
           `UPDATE users SET 
             balance = balance + ?, 
