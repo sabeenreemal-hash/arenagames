@@ -5,6 +5,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
+const { creditReferralCommission } = require('../services/referralService'); // <-- REFERRAL SERVICE
 
 const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
@@ -86,7 +87,6 @@ function calculateCasualBotMove(board, botSymbol, humanSymbol) {
   }
   if (emptyCells.length === 0) return -1;
 
-  // 1. Can Bot win this turn? (Take it 60% of the time, 40% casual oversight)
   if (Math.random() < 0.60) {
     for (const combo of WINNING_COMBOS) {
       const [a, b, c] = combo;
@@ -99,8 +99,6 @@ function calculateCasualBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
-  // 2. Can Human win next turn? Block it with only 55% probability
-  // (45% chance bot makes a mistake so human can actually win and celebrate!)
   if (Math.random() < 0.55) {
     for (const combo of WINNING_COMBOS) {
       const [a, b, c] = combo;
@@ -113,16 +111,13 @@ function calculateCasualBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
-  // 3. Take Center (45% chance)
   if (board[4] === '' && Math.random() < 0.45) {
     return 4;
   }
 
-  // 4. Random casual move from remaining cells
   return emptyCells[Math.floor(Math.random() * emptyCells.length)];
 }
 
-// Executes bot move with human delay
 function triggerBotMoveIfTurn(matchId) {
   db.get('SELECT * FROM tictactoe_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match || match.status !== 'IN_PROGRESS') return;
@@ -138,7 +133,6 @@ function triggerBotMoveIfTurn(matchId) {
     const chosenCell = calculateCasualBotMove(board, botSymbol, humanSymbol);
     if (chosenCell === -1) return;
 
-    // Realistic human response time: 1.2s - 2.2s
     const delay = Math.floor(Math.random() * 1000) + 1200;
 
     setTimeout(() => {
@@ -172,17 +166,15 @@ function triggerBotMoveIfTurn(matchId) {
 }
 
 // -----------------------------------------------------------------------------
-// 1. GET /api/tictactoe/waiting-players (Always shows 100+ waiting players)
+// 1. GET /api/tictactoe/waiting-players
 // -----------------------------------------------------------------------------
 router.get('/waiting-players', authenticateToken, (req, res) => {
   const now = Date.now();
   matchmakingQueue = matchmakingQueue.filter(p => (now - p.joinedAt) < 90000);
 
-  // Fluctuates naturally between 100 and 108 players
   const fakeWaitingCount = 100 + Math.floor((now / 15000) % 9);
   const totalCount = Math.max(matchmakingQueue.length, fakeWaitingCount);
 
-  // Generate populated sample list with authentic usernames
   const sampleList = BOT_NAMES.slice(0, 10).map((name, i) => ({
     userId: 900000 + i,
     username: name,
@@ -266,7 +258,6 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                   return res.status(500).json({ error: 'Transaction commit failed' });
                 }
 
-                // Check for real human in queue
                 const opponentIndex = matchmakingQueue.findIndex(p => String(p.userId) !== String(user.id));
 
                 if (opponentIndex !== -1) {
@@ -356,13 +347,12 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 4. GET /api/tictactoe/check-queue-status (Auto Bot Matchmaker)
+// 4. GET /api/tictactoe/check-queue-status
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  // 1. Check if active match exists
   db.get(
     `SELECT * FROM tictactoe_matches 
      WHERE (player_x_id = ? OR player_o_id = ?) AND status = 'IN_PROGRESS' 
@@ -380,7 +370,6 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
         });
       }
 
-      // 2. Check if user is in queue
       const qIndex = matchmakingQueue.findIndex(p => String(p.userId) === String(userId));
       if (qIndex === -1) {
         return res.json({ success: true, matched: false, inQueue: false });
@@ -389,7 +378,6 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
       const playerEntry = matchmakingQueue[qIndex];
       const waitingMs = Date.now() - playerEntry.joinedAt;
 
-      // 3. Bot Fallback: Matches bot after 3.5s wait
       if (waitingMs >= BOT_WAIT_TIMEOUT_MS) {
         const matchId = `match_${crypto.randomBytes(8).toString('hex')}`;
         const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
@@ -413,7 +401,6 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
               return res.status(500).json({ error: 'Failed to create match' });
             }
 
-            // Remove from queue ONLY after successful insertion
             matchmakingQueue.splice(qIndex, 1);
 
             if (!isUserPlayerX) {
@@ -613,7 +600,7 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
     if (err || !match) return callback(new Error('Match not found'));
     if (match.status !== 'IN_PROGRESS') return callback(null);
 
-    // Case 1: DRAW -> Refund real human players
+    // Case 1: DRAW
     if (isDraw) {
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
@@ -640,7 +627,7 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
       return;
     }
 
-    // Case 2: BOT WINS -> Simply mark match COMPLETED (preserves real player stats)
+    // Case 2: BOT WINS
     if (String(winnerId) === String(BOT_USER_ID)) {
       db.run(
         `UPDATE tictactoe_matches SET status = 'COMPLETED', winner_id = ?, winning_line = ? WHERE id = ?`,
@@ -653,7 +640,7 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
       return;
     }
 
-    // Case 3: REAL HUMAN WINS -> Award 200 coins and advance Daily Streak
+    // Case 3: REAL HUMAN WINS
     db.get('SELECT * FROM users WHERE id = ?', [winnerId], (uErr, user) => {
       if (uErr || !user) return callback(new Error('Winner profile missing'));
 
@@ -718,7 +705,13 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
           [winnerId, winningLine ? JSON.stringify(winningLine) : null, match.id],
           (finErr) => {
             if (finErr) { db.run('ROLLBACK'); return callback(finErr); }
-            db.run('COMMIT', callback);
+            db.run('COMMIT', (cErr) => {
+              if (!cErr) {
+                // >>> DISTRIBUTE REFERRAL COMMISSION FOR TICTACTOE WIN <<<
+                creditReferralCommission(winnerId, coinsEarned, 'TICTACTOE', `WIN_${match.id}`, 0.10);
+              }
+              callback(cErr);
+            });
           }
         );
       });
