@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../database');
 const adminAuth = require('../middleware/adminAuth');
+const { creditReferralCommission } = require('../services/referralService'); // <-- ADDED REFERRAL SERVICE
 
 const JWT_ADMIN_SECRET = 'ARENA_GAMES_ADMIN_SECRET_KEY';
 
@@ -324,12 +325,14 @@ router.post('/users/:id/coins', adminAuth, (req, res) => {
     return res.status(400).json({ error: 'Valid coin amount is required' });
   }
 
+  const coinAmount = parseInt(amount, 10);
+
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
 
     db.run(
       'UPDATE users SET balance = MAX(0, balance + ?), total_coins_earned = MAX(0, COALESCE(total_coins_earned, 0) + ?) WHERE id = ?',
-      [amount, amount > 0 ? amount : 0, userId],
+      [coinAmount, coinAmount > 0 ? coinAmount : 0, userId],
       function (err) {
         if (err) {
           db.run('ROLLBACK');
@@ -339,15 +342,23 @@ router.post('/users/:id/coins', adminAuth, (req, res) => {
         db.run(
           `INSERT INTO transactions (user_id, type, amount, reference_id) 
            VALUES (?, 'GAME_REWARD', ?, 'MANUAL_ADMIN_ADJUSTMENT')`,
-          [userId, amount],
+          [userId, coinAmount],
           (txErr) => {
             if (txErr) {
               db.run('ROLLBACK');
               return res.status(500).json({ error: 'Failed to write transaction record' });
             }
 
-            db.run('COMMIT');
-            res.json({ success: true });
+            db.run('COMMIT', (commitErr) => {
+              if (commitErr) return res.status(500).json({ error: 'Transaction failed' });
+
+              // If admin manually awarded positive coins, give 10% commission to referrer
+              if (coinAmount > 0) {
+                creditReferralCommission(userId, coinAmount, 'ADMIN_MANUAL', 'ADMIN_COIN_GRANT', 0.10);
+              }
+
+              res.json({ success: true });
+            });
           }
         );
       }
@@ -612,6 +623,9 @@ router.get('/task-submissions', adminAuth, (req, res) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Task Approval with Referral Commission Trigger
+// ---------------------------------------------------------------------------
 router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
   const subId = req.params.id;
 
@@ -669,6 +683,11 @@ router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
                       if (commitErr) return res.status(500).json({ error: 'Transaction commit failed' });
 
                       deleteScreenshotFile(sub.screenshot_path);
+
+                      // ========================================================
+                      // >>> CREDIT 10% REFERRAL COMMISSION FOR TASK REWARD <<<
+                      // ========================================================
+                      creditReferralCommission(sub.user_id, sub.reward_coins, 'TASK', `TASK_SUB_${subId}`, 0.10);
 
                       res.json({
                         success: true,
