@@ -10,8 +10,10 @@ const { creditReferralCommission } = require('../services/referralService');
 const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
 const TURN_TIMEOUT_SECONDS = 30;
-const BOT_WAIT_TIMEOUT_MS = 3500; // Wait 3.5s for real player before matching bot
+const BOT_WAIT_TIMEOUT_MS = 3500;
 const BOT_USER_ID = 999999;
+const MAX_MATCHES_PER_HOUR = 10;
+const COOLDOWN_WINDOW_MS = 60 * 60 * 1000; // 1 Hour
 
 const BOT_NAMES = [
   'ShadowNinja', 'ViperQueen', 'Alex_Pro99', 'CyberSamurai', 'NovaStrike',
@@ -20,7 +22,7 @@ const BOT_NAMES = [
   'Vortex_77', 'Krypton', 'CrimsonBlade', 'NeonRider', 'Spectre_01'
 ];
 
-// Self-healing: Ensure Bot account exists in SQLite users table
+// Self-healing bot account
 db.run(`
   INSERT OR IGNORE INTO users (id, full_name, username, email, password_hash, referral_code, balance) 
   VALUES (999999, 'Arena Challenger', 'arena_bot_system', 'bot@arenagames.internal', 'DISABLED_BOT_ACCOUNT', 'BOT9999', 1000000)
@@ -56,14 +58,59 @@ function getYesterdayStr() {
 }
 
 const WINNING_COMBOS = [
-  [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
-  [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
-  [0, 4, 8], [2, 4, 6]             // Diagonals
+  [0, 1, 2], [3, 4, 5], [6, 7, 8],
+  [0, 3, 6], [1, 4, 7], [2, 5, 8],
+  [0, 4, 8], [2, 4, 6]
 ];
 
 function getAuthUserId(req) {
   if (!req.user) return null;
   return req.user.id || req.user.userId || req.user.sub || null;
+}
+
+// -----------------------------------------------------------------------------
+// SERVER-SIDE 10-MATCH / 1-HOUR COOLDOWN CHECK (Both TTT & RPS combined)
+// -----------------------------------------------------------------------------
+function checkMatchLimit(userId, callback) {
+  const query = `
+    SELECT created_at FROM (
+      SELECT created_at FROM tictactoe_matches 
+      WHERE (player_x_id = ? OR player_o_id = ?) 
+        AND status IN ('COMPLETED', 'DRAW', 'ABANDONED')
+      UNION ALL
+      SELECT created_at FROM rps_matches 
+      WHERE (player_a_id = ? OR player_b_id = ?) 
+        AND status IN ('COMPLETED', 'DRAW', 'ABANDONED')
+    )
+    ORDER BY created_at DESC 
+    LIMIT ?
+  `;
+
+  db.all(query, [userId, userId, userId, userId, MAX_MATCHES_PER_HOUR], (err, rows) => {
+    if (err || !rows || rows.length < MAX_MATCHES_PER_HOUR) {
+      return callback(null, { isBlocked: false });
+    }
+
+    // 10th most recent match
+    const tenthMatchStr = rows[MAX_MATCHES_PER_HOUR - 1].created_at.includes('Z')
+      ? rows[MAX_MATCHES_PER_HOUR - 1].created_at
+      : rows[MAX_MATCHES_PER_HOUR - 1].created_at.replace(' ', 'T') + 'Z';
+
+    const tenthMatchTime = new Date(tenthMatchStr).getTime();
+    const elapsedMs = Date.now() - tenthMatchTime;
+
+    if (elapsedMs < COOLDOWN_WINDOW_MS) {
+      const remainingMs = COOLDOWN_WINDOW_MS - elapsedMs;
+      const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+      return callback(null, {
+        isBlocked: true,
+        remainingMinutes: remainingMinutes,
+        message: `Hourly limit reached (10/10 matches). Take a 1-hour break to protect fair play & ad policy. Next match in ${remainingMinutes} min.`
+      });
+    }
+
+    return callback(null, { isBlocked: false });
+  });
 }
 
 let matchmakingQueue = [];
@@ -79,7 +126,6 @@ function checkWinner(board) {
   return { winnerSymbol: null, winningLine: null, isDraw: isFull };
 }
 
-// Challenging & Unpredictable Bot AI for Tic Tac Toe
 function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
   const emptyCells = [];
   for (let i = 0; i < 9; i++) {
@@ -87,7 +133,6 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
   }
   if (emptyCells.length === 0) return -1;
 
-  // 1. Instant Win Check: Take win 95% of the time
   if (Math.random() < 0.95) {
     for (const combo of WINNING_COMBOS) {
       const [a, b, c] = combo;
@@ -100,7 +145,6 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
-  // 2. Direct Threat Block: Block player's 2-in-a-row 90% of the time
   if (Math.random() < 0.90) {
     for (const combo of WINNING_COMBOS) {
       const [a, b, c] = combo;
@@ -113,7 +157,6 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
-  // 3. Counter Corner-Fork Traps (e.g. human takes opposite corners [0,8] or [2,6])
   const humanCorners = [0, 2, 6, 8].filter(idx => board[idx] === humanSymbol);
   if (humanCorners.length === 2 && board[4] === botSymbol) {
     const emptyEdges = [1, 3, 5, 7].filter(idx => board[idx] === '');
@@ -122,7 +165,6 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
-  // 4. Center vs Corner Strategy (Unpredictable Openings)
   if (board[4] === '' && Math.random() < 0.60) {
     return 4;
   }
@@ -132,7 +174,6 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
     return corners[Math.floor(Math.random() * corners.length)];
   }
 
-  // 5. Remaining empty cells fallback
   return emptyCells[Math.floor(Math.random() * emptyCells.length)];
 }
 
@@ -151,7 +192,6 @@ function triggerBotMoveIfTurn(matchId) {
     const chosenCell = calculateAdvancedBotMove(board, botSymbol, humanSymbol);
     if (chosenCell === -1) return;
 
-    // Realistic human response delay: 1.2s - 2.5s
     const delay = Math.floor(Math.random() * 1300) + 1200;
 
     setTimeout(() => {
@@ -214,114 +254,127 @@ router.get('/waiting-players', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 2. POST /api/tictactoe/join-queue
+// 2. POST /api/tictactoe/join-queue (ENFORCES 10-MATCH / 1-HOUR BREAK)
 // -----------------------------------------------------------------------------
 router.post('/join-queue', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  db.get(
-    `SELECT id FROM tictactoe_matches 
-     WHERE (player_x_id = ? OR player_o_id = ?) AND status = 'IN_PROGRESS'`,
-    [userId, userId],
-    (matchErr, activeMatch) => {
-      if (matchErr) return res.status(500).json({ error: 'Database error' });
-      if (activeMatch) {
-        return res.json({
-          success: true,
-          matched: true,
-          matchId: activeMatch.id,
-          message: 'Active match resumed.'
-        });
-      }
+  // 1. CHECK COOLDOWN FIRST
+  checkMatchLimit(userId, (limitErr, limitInfo) => {
+    if (limitInfo && limitInfo.isBlocked) {
+      return res.status(400).json({
+        success: false,
+        error: limitInfo.message,
+        remainingMinutes: limitInfo.remainingMinutes,
+        cooldown: true
+      });
+    }
 
-      if (matchmakingQueue.some(p => String(p.userId) === String(userId))) {
-        return res.json({
-          success: true,
-          matched: false,
-          inQueue: true,
-          message: 'Already in matchmaking queue.'
-        });
-      }
-
-      db.get('SELECT id, balance, username FROM users WHERE id = ?', [userId], (userErr, user) => {
-        if (userErr || !user) return res.status(404).json({ error: 'User profile not found' });
-        
-        const currentBalance = parseInt(user.balance, 10) || 0;
-        if (currentBalance < ENTRY_FEE) {
-          return res.status(400).json({
-            error: `Insufficient coins. You have ${currentBalance} coins, but ${ENTRY_FEE} coins are required.`
+    // 2. Check active matches
+    db.get(
+      `SELECT id FROM tictactoe_matches 
+       WHERE (player_x_id = ? OR player_o_id = ?) AND status = 'IN_PROGRESS'`,
+      [userId, userId],
+      (matchErr, activeMatch) => {
+        if (matchErr) return res.status(500).json({ error: 'Database error' });
+        if (activeMatch) {
+          return res.json({
+            success: true,
+            matched: true,
+            matchId: activeMatch.id,
+            message: 'Active match resumed.'
           });
         }
 
-        db.serialize(() => {
-          db.run('BEGIN TRANSACTION');
+        if (matchmakingQueue.some(p => String(p.userId) === String(userId))) {
+          return res.json({
+            success: true,
+            matched: false,
+            inQueue: true,
+            message: 'Already in matchmaking queue.'
+          });
+        }
 
-          db.run(
-            `UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?`,
-            [ENTRY_FEE, user.id, ENTRY_FEE],
-            function (deductErr) {
-              if (deductErr || this.changes === 0) {
-                db.run('ROLLBACK');
-                return res.status(400).json({ error: 'Failed to reserve entry fee' });
-              }
+        db.get('SELECT id, balance, username FROM users WHERE id = ?', [userId], (userErr, user) => {
+          if (userErr || !user) return res.status(404).json({ error: 'User profile not found' });
+          
+          const currentBalance = parseInt(user.balance, 10) || 0;
+          if (currentBalance < ENTRY_FEE) {
+            return res.status(400).json({
+              error: `Insufficient coins. You have ${currentBalance} coins, but ${ENTRY_FEE} coins are required.`
+            });
+          }
 
-              db.run(
-                `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'TICTACTOE_ENTRY', ?, ?)`,
-                [user.id, -ENTRY_FEE, `TTT_ENTRY_${Date.now()}`]
-              );
+          db.serialize(() => {
+            db.run('BEGIN TRANSACTION');
 
-              db.run('COMMIT', (commitErr) => {
-                if (commitErr) {
+            db.run(
+              `UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?`,
+              [ENTRY_FEE, user.id, ENTRY_FEE],
+              function (deductErr) {
+                if (deductErr || this.changes === 0) {
                   db.run('ROLLBACK');
-                  return res.status(500).json({ error: 'Transaction commit failed' });
+                  return res.status(400).json({ error: 'Failed to reserve entry fee' });
                 }
 
-                const opponentIndex = matchmakingQueue.findIndex(p => String(p.userId) !== String(user.id));
+                db.run(
+                  `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'TICTACTOE_ENTRY', ?, ?)`,
+                  [user.id, -ENTRY_FEE, `TTT_ENTRY_${Date.now()}`]
+                );
 
-                if (opponentIndex !== -1) {
-                  const opponent = matchmakingQueue.splice(opponentIndex, 1)[0];
-                  const matchId = `match_${crypto.randomBytes(8).toString('hex')}`;
-                  const initialBoard = JSON.stringify(['', '', '', '', '', '', '', '', '']);
+                db.run('COMMIT', (commitErr) => {
+                  if (commitErr) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ error: 'Transaction commit failed' });
+                  }
 
-                  db.run(
-                    `INSERT INTO tictactoe_matches (
-                      id, player_x_id, player_o_id, player_x_name, player_o_name,
-                      current_turn, board, status, pot_amount, last_move_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'IN_PROGRESS', 200, CURRENT_TIMESTAMP)`,
-                    [matchId, opponent.userId, user.id, opponent.username, user.username, opponent.userId, initialBoard],
-                    (insErr) => {
-                      if (insErr) return res.status(500).json({ error: 'Failed to create match' });
-                      return res.json({
-                        success: true,
-                        matched: true,
-                        matchId: matchId,
-                        symbol: 'O',
-                        opponentName: opponent.username
-                      });
-                    }
-                  );
-                } else {
-                  matchmakingQueue.push({
-                    userId: user.id,
-                    username: user.username,
-                    joinedAt: Date.now()
-                  });
+                  const opponentIndex = matchmakingQueue.findIndex(p => String(p.userId) !== String(user.id));
 
-                  return res.json({
-                    success: true,
-                    matched: false,
-                    inQueue: true,
-                    message: 'Searching for opponent...'
-                  });
-                }
-              });
-            }
-          );
+                  if (opponentIndex !== -1) {
+                    const opponent = matchmakingQueue.splice(opponentIndex, 1)[0];
+                    const matchId = `match_${crypto.randomBytes(8).toString('hex')}`;
+                    const initialBoard = JSON.stringify(['', '', '', '', '', '', '', '', '']);
+
+                    db.run(
+                      `INSERT INTO tictactoe_matches (
+                        id, player_x_id, player_o_id, player_x_name, player_o_name,
+                        current_turn, board, status, pot_amount, last_move_at
+                      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'IN_PROGRESS', 200, CURRENT_TIMESTAMP)`,
+                      [matchId, opponent.userId, user.id, opponent.username, user.username, opponent.userId, initialBoard],
+                      (insErr) => {
+                        if (insErr) return res.status(500).json({ error: 'Failed to create match' });
+                        return res.json({
+                          success: true,
+                          matched: true,
+                          matchId: matchId,
+                          symbol: 'O',
+                          opponentName: opponent.username
+                        });
+                      }
+                    );
+                  } else {
+                    matchmakingQueue.push({
+                      userId: user.id,
+                      username: user.username,
+                      joinedAt: Date.now()
+                    });
+
+                    return res.json({
+                      success: true,
+                      matched: false,
+                      inQueue: true,
+                      message: 'Searching for opponent...'
+                    });
+                  }
+                });
+              }
+            );
+          });
         });
-      });
-    }
-  );
+      }
+    );
+  });
 });
 
 // -----------------------------------------------------------------------------
@@ -366,7 +419,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 4. GET /api/tictactoe/check-queue-status (Auto Bot Matchmaker)
+// 4. GET /api/tictactoe/check-queue-status
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
@@ -397,7 +450,6 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
       const playerEntry = matchmakingQueue[qIndex];
       const waitingMs = Date.now() - playerEntry.joinedAt;
 
-      // Bot Fallback after 3.5s
       if (waitingMs >= BOT_WAIT_TIMEOUT_MS) {
         const matchId = `match_${crypto.randomBytes(8).toString('hex')}`;
         const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
@@ -727,7 +779,6 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
             if (finErr) { db.run('ROLLBACK'); return callback(finErr); }
             db.run('COMMIT', (cErr) => {
               if (!cErr) {
-                // >>> DISTRIBUTE REFERRAL COMMISSION FOR TICTACTOE WIN <<<
                 creditReferralCommission(winnerId, coinsEarned, 'TICTACTOE', `WIN_${match.id}`, 0.10);
               }
               callback(cErr);
