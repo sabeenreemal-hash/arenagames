@@ -5,7 +5,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
-const { creditReferralCommission } = require('../services/referralService'); // <-- REFERRAL SERVICE
+const { creditReferralCommission } = require('../services/referralService');
 
 const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
@@ -81,13 +81,66 @@ function evaluateRound(choiceA, choiceB) {
   return { winner: 'B', reason: 'WIN' };
 }
 
-function predictCasualRpsMove(lastResult) {
-  if (Math.random() < 0.70 || !lastResult) {
-    return CHOICES[Math.floor(Math.random() * CHOICES.length)];
+// Unpredictable & Adaptive Psychological AI for RPS
+function predictAdvancedRpsMove(lastResult, isBotPlayerA) {
+  if (!lastResult) {
+    // Opening distribution with weighted unpredictability
+    const openingDistribution = ['ROCK', 'PAPER', 'SCISSORS', 'PAPER'];
+    return openingDistribution[Math.floor(Math.random() * openingDistribution.length)];
   }
-  return CHOICES[Math.floor(Math.random() * CHOICES.length)];
+
+  const humanChoice = isBotPlayerA ? lastResult.playerBChoice : lastResult.playerAChoice;
+  const botChoice = isBotPlayerA ? lastResult.playerAChoice : lastResult.playerBChoice;
+  const humanWon = (isBotPlayerA && lastResult.winner === 'B') || (!isBotPlayerA && lastResult.winner === 'A');
+  const wasDraw = lastResult.winner === 'DRAW';
+
+  function getBeatingMove(move) {
+    if (move === 'ROCK') return 'PAPER';
+    if (move === 'PAPER') return 'SCISSORS';
+    return 'ROCK';
+  }
+
+  function getLosingMove(move) {
+    if (move === 'ROCK') return 'SCISSORS';
+    if (move === 'PAPER') return 'ROCK';
+    return 'PAPER';
+  }
+
+  const roll = Math.random();
+
+  // 1. Post-Draw psychology: Players rarely replay the tie move
+  if (wasDraw) {
+    if (roll < 0.65) {
+      return getBeatingMove(getBeatingMove(humanChoice));
+    } else {
+      return CHOICES[Math.floor(Math.random() * CHOICES.length)];
+    }
+  }
+
+  // 2. Win-Stay vs Double-Bluff countering
+  if (humanWon) {
+    if (roll < 0.50) {
+      // Counter expected human repeat
+      return getBeatingMove(humanChoice);
+    } else if (roll < 0.80) {
+      // Counter expected human shift (double-bluff)
+      return getBeatingMove(getBeatingMove(humanChoice));
+    } else {
+      return CHOICES[Math.floor(Math.random() * CHOICES.length)];
+    }
+  } else {
+    // 3. Lose-Shift countering
+    if (roll < 0.55) {
+      return getBeatingMove(botChoice);
+    } else if (roll < 0.85) {
+      return getLosingMove(humanChoice);
+    } else {
+      return CHOICES[Math.floor(Math.random() * CHOICES.length)];
+    }
+  }
 }
 
+// Submits bot move with realistic human delay
 function triggerBotRpsChoice(matchId) {
   db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match || match.status !== 'IN_PROGRESS') return;
@@ -102,8 +155,8 @@ function triggerBotRpsChoice(matchId) {
     let lastResult = null;
     try { if (match.last_round_result) lastResult = JSON.parse(match.last_round_result); } catch (_) {}
 
-    const botChoice = predictCasualRpsMove(lastResult);
-    const delay = Math.floor(Math.random() * 1200) + 1300;
+    const botChoice = predictAdvancedRpsMove(lastResult, isBotPlayerA);
+    const delay = Math.floor(Math.random() * 1500) + 1400; // 1.4s - 2.9s human-like response delay
 
     setTimeout(() => {
       db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (reErr, currMatch) => {
@@ -304,7 +357,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 4. GET /api/rps/check-queue-status
+// 4. GET /api/rps/check-queue-status (Auto Bot Matchmaker)
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
@@ -336,6 +389,7 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
       const playerEntry = rpsQueue[qIndex];
       const waitingMs = Date.now() - playerEntry.joinedAt;
 
+      // Bot Fallback after 3.5s wait
       if (waitingMs >= BOT_WAIT_TIMEOUT_MS) {
         const matchId = `rps_${crypto.randomBytes(8).toString('hex')}`;
         const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
