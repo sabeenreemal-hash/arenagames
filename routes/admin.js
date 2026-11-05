@@ -129,7 +129,7 @@ router.post('/login', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// B. Dashboard Overview Metrics
+// B. Dashboard Overview Metrics (WITH REALTIME LIVE ACTIVE USERS)
 // ---------------------------------------------------------------------------
 router.get('/dashboard', adminAuth, (req, res) => {
   const stats = {};
@@ -141,7 +141,18 @@ router.get('/dashboard', adminAuth, (req, res) => {
         stats.pendingWithdrawals = r3 ? r3.p : 0;
         db.get("SELECT COUNT(*) as t FROM task_submissions WHERE status = 'pending'", (err, r4) => {
           stats.pendingTasks = r4 ? r4.t : 0;
-          res.json(stats);
+          
+          // Count active users in the last 5 minutes (supports both ISO string and standard SQLite timestamps)
+          db.get(
+            `SELECT COUNT(*) as active 
+             FROM users 
+             WHERE last_active_at IS NOT NULL 
+               AND datetime(substr(replace(last_active_at, 'T', ' '), 1, 19)) >= datetime('now', '-5 minutes')`,
+            (err, r5) => {
+              stats.activeUsers = r5 ? r5.active : 0;
+              res.json(stats);
+            }
+          );
         });
       });
     });
