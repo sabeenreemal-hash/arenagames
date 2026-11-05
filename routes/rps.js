@@ -11,8 +11,10 @@ const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
 const ROUND_TIME_LIMIT_SEC = 15;
 const WINS_TO_MATCH = 2; // First to win 2 rounds wins
-const BOT_WAIT_TIMEOUT_MS = 3500; // Wait 3.5s for real player before matching bot
+const BOT_WAIT_TIMEOUT_MS = 3500;
 const BOT_USER_ID = 999999;
+const MAX_MATCHES_PER_HOUR = 10;
+const COOLDOWN_WINDOW_MS = 60 * 60 * 1000; // 1 Hour
 
 const BOT_NAMES = [
   'ShadowNinja', 'ViperQueen', 'Alex_Pro99', 'CyberSamurai', 'NovaStrike',
@@ -23,7 +25,7 @@ const BOT_NAMES = [
 
 const CHOICES = ['ROCK', 'PAPER', 'SCISSORS'];
 
-// Self-healing: Ensure Bot account exists in SQLite users table
+// Self-healing bot account
 db.run(`
   INSERT OR IGNORE INTO users (id, full_name, username, email, password_hash, referral_code, balance) 
   VALUES (999999, 'Arena Challenger', 'arena_bot_system', 'bot@arenagames.internal', 'DISABLED_BOT_ACCOUNT', 'BOT9999', 1000000)
@@ -63,6 +65,50 @@ function getAuthUserId(req) {
   return req.user.id || req.user.userId || req.user.sub || null;
 }
 
+// -----------------------------------------------------------------------------
+// SERVER-SIDE 10-MATCH / 1-HOUR COOLDOWN CHECK (Both TTT & RPS combined)
+// -----------------------------------------------------------------------------
+function checkMatchLimit(userId, callback) {
+  const query = `
+    SELECT created_at FROM (
+      SELECT created_at FROM tictactoe_matches 
+      WHERE (player_x_id = ? OR player_o_id = ?) 
+        AND status IN ('COMPLETED', 'DRAW', 'ABANDONED')
+      UNION ALL
+      SELECT created_at FROM rps_matches 
+      WHERE (player_a_id = ? OR player_b_id = ?) 
+        AND status IN ('COMPLETED', 'DRAW', 'ABANDONED')
+    )
+    ORDER BY created_at DESC 
+    LIMIT ?
+  `;
+
+  db.all(query, [userId, userId, userId, userId, MAX_MATCHES_PER_HOUR], (err, rows) => {
+    if (err || !rows || rows.length < MAX_MATCHES_PER_HOUR) {
+      return callback(null, { isBlocked: false });
+    }
+
+    const tenthMatchStr = rows[MAX_MATCHES_PER_HOUR - 1].created_at.includes('Z')
+      ? rows[MAX_MATCHES_PER_HOUR - 1].created_at
+      : rows[MAX_MATCHES_PER_HOUR - 1].created_at.replace(' ', 'T') + 'Z';
+
+    const tenthMatchTime = new Date(tenthMatchStr).getTime();
+    const elapsedMs = Date.now() - tenthMatchTime;
+
+    if (elapsedMs < COOLDOWN_WINDOW_MS) {
+      const remainingMs = COOLDOWN_WINDOW_MS - elapsedMs;
+      const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+      return callback(null, {
+        isBlocked: true,
+        remainingMinutes: remainingMinutes,
+        message: `Hourly limit reached (10/10 matches). Take a 1-hour break to protect fair play & ad policy. Next match in ${remainingMinutes} min.`
+      });
+    }
+
+    return callback(null, { isBlocked: false });
+  });
+}
+
 let rpsQueue = [];
 
 function evaluateRound(choiceA, choiceB) {
@@ -81,10 +127,8 @@ function evaluateRound(choiceA, choiceB) {
   return { winner: 'B', reason: 'WIN' };
 }
 
-// Unpredictable & Adaptive Psychological AI for RPS
 function predictAdvancedRpsMove(lastResult, isBotPlayerA) {
   if (!lastResult) {
-    // Opening distribution with weighted unpredictability
     const openingDistribution = ['ROCK', 'PAPER', 'SCISSORS', 'PAPER'];
     return openingDistribution[Math.floor(Math.random() * openingDistribution.length)];
   }
@@ -108,7 +152,6 @@ function predictAdvancedRpsMove(lastResult, isBotPlayerA) {
 
   const roll = Math.random();
 
-  // 1. Post-Draw psychology: Players rarely replay the tie move
   if (wasDraw) {
     if (roll < 0.65) {
       return getBeatingMove(getBeatingMove(humanChoice));
@@ -117,19 +160,15 @@ function predictAdvancedRpsMove(lastResult, isBotPlayerA) {
     }
   }
 
-  // 2. Win-Stay vs Double-Bluff countering
   if (humanWon) {
     if (roll < 0.50) {
-      // Counter expected human repeat
       return getBeatingMove(humanChoice);
     } else if (roll < 0.80) {
-      // Counter expected human shift (double-bluff)
       return getBeatingMove(getBeatingMove(humanChoice));
     } else {
       return CHOICES[Math.floor(Math.random() * CHOICES.length)];
     }
   } else {
-    // 3. Lose-Shift countering
     if (roll < 0.55) {
       return getBeatingMove(botChoice);
     } else if (roll < 0.85) {
@@ -140,7 +179,6 @@ function predictAdvancedRpsMove(lastResult, isBotPlayerA) {
   }
 }
 
-// Submits bot move with realistic human delay
 function triggerBotRpsChoice(matchId) {
   db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (err, match) => {
     if (err || !match || match.status !== 'IN_PROGRESS') return;
@@ -156,7 +194,7 @@ function triggerBotRpsChoice(matchId) {
     try { if (match.last_round_result) lastResult = JSON.parse(match.last_round_result); } catch (_) {}
 
     const botChoice = predictAdvancedRpsMove(lastResult, isBotPlayerA);
-    const delay = Math.floor(Math.random() * 1500) + 1400; // 1.4s - 2.9s human-like response delay
+    const delay = Math.floor(Math.random() * 1500) + 1400;
 
     setTimeout(() => {
       db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (reErr, currMatch) => {
@@ -205,113 +243,126 @@ router.get('/waiting-players', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 2. POST /api/rps/join-queue
+// 2. POST /api/rps/join-queue (ENFORCES 10-MATCH / 1-HOUR BREAK)
 // -----------------------------------------------------------------------------
 router.post('/join-queue', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  db.get(
-    `SELECT id FROM rps_matches 
-     WHERE (player_a_id = ? OR player_b_id = ?) 
-       AND status IN ('IN_PROGRESS', 'ROUND_REVEAL')`,
-    [userId, userId],
-    (matchErr, activeMatch) => {
-      if (matchErr) return res.status(500).json({ error: 'Database error' });
-      if (activeMatch) {
-        return res.json({
-          success: true,
-          matched: true,
-          matchId: activeMatch.id,
-          message: 'Active match resumed.'
-        });
-      }
+  // 1. CHECK COOLDOWN FIRST
+  checkMatchLimit(userId, (limitErr, limitInfo) => {
+    if (limitInfo && limitInfo.isBlocked) {
+      return res.status(400).json({
+        success: false,
+        error: limitInfo.message,
+        remainingMinutes: limitInfo.remainingMinutes,
+        cooldown: true
+      });
+    }
 
-      if (rpsQueue.some(p => String(p.userId) === String(userId))) {
-        return res.json({
-          success: true,
-          matched: false,
-          inQueue: true,
-          message: 'Already in matchmaking queue.'
-        });
-      }
-
-      db.get('SELECT id, balance, username FROM users WHERE id = ?', [userId], (userErr, user) => {
-        if (userErr || !user) return res.status(404).json({ error: 'User not found' });
-        
-        const currentBalance = parseInt(user.balance, 10) || 0;
-        if (currentBalance < ENTRY_FEE) {
-          return res.status(400).json({ 
-            error: `Insufficient coins. You have ${currentBalance} coins, but ${ENTRY_FEE} coins are required.` 
+    // 2. Check active matches
+    db.get(
+      `SELECT id FROM rps_matches 
+       WHERE (player_a_id = ? OR player_b_id = ?) 
+         AND status IN ('IN_PROGRESS', 'ROUND_REVEAL')`,
+      [userId, userId],
+      (matchErr, activeMatch) => {
+        if (matchErr) return res.status(500).json({ error: 'Database error' });
+        if (activeMatch) {
+          return res.json({
+            success: true,
+            matched: true,
+            matchId: activeMatch.id,
+            message: 'Active match resumed.'
           });
         }
 
-        db.serialize(() => {
-          db.run('BEGIN TRANSACTION');
+        if (rpsQueue.some(p => String(p.userId) === String(userId))) {
+          return res.json({
+            success: true,
+            matched: false,
+            inQueue: true,
+            message: 'Already in matchmaking queue.'
+          });
+        }
 
-          db.run(
-            `UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?`,
-            [ENTRY_FEE, user.id, ENTRY_FEE],
-            function (deductErr) {
-              if (deductErr || this.changes === 0) {
-                db.run('ROLLBACK');
-                return res.status(400).json({ error: 'Failed to reserve entry fee' });
-              }
+        db.get('SELECT id, balance, username FROM users WHERE id = ?', [userId], (userErr, user) => {
+          if (userErr || !user) return res.status(404).json({ error: 'User not found' });
+          
+          const currentBalance = parseInt(user.balance, 10) || 0;
+          if (currentBalance < ENTRY_FEE) {
+            return res.status(400).json({ 
+              error: `Insufficient coins. You have ${currentBalance} coins, but ${ENTRY_FEE} coins are required.` 
+            });
+          }
 
-              db.run(
-                `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'RPS_ENTRY', ?, ?)`,
-                [user.id, -ENTRY_FEE, `RPS_ENTRY_${Date.now()}`]
-              );
+          db.serialize(() => {
+            db.run('BEGIN TRANSACTION');
 
-              db.run('COMMIT', (commitErr) => {
-                if (commitErr) {
+            db.run(
+              `UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?`,
+              [ENTRY_FEE, user.id, ENTRY_FEE],
+              function (deductErr) {
+                if (deductErr || this.changes === 0) {
                   db.run('ROLLBACK');
-                  return res.status(500).json({ error: 'Transaction commit failed' });
+                  return res.status(400).json({ error: 'Failed to reserve entry fee' });
                 }
 
-                const oppIndex = rpsQueue.findIndex(p => String(p.userId) !== String(user.id));
+                db.run(
+                  `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'RPS_ENTRY', ?, ?)`,
+                  [user.id, -ENTRY_FEE, `RPS_ENTRY_${Date.now()}`]
+                );
 
-                if (oppIndex !== -1) {
-                  const opponent = rpsQueue.splice(oppIndex, 1)[0];
-                  const matchId = `rps_${crypto.randomBytes(8).toString('hex')}`;
+                db.run('COMMIT', (commitErr) => {
+                  if (commitErr) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ error: 'Transaction commit failed' });
+                  }
 
-                  db.run(
-                    `INSERT INTO rps_matches (
-                      id, player_a_id, player_b_id, player_a_name, player_b_name,
-                      player_a_score, player_b_score, current_round, status, pot_amount, round_start_time
-                    ) VALUES (?, ?, ?, ?, ?, 0, 0, 1, 'IN_PROGRESS', 200, CURRENT_TIMESTAMP)`,
-                    [matchId, opponent.userId, user.id, opponent.username, user.username],
-                    (insErr) => {
-                      if (insErr) return res.status(500).json({ error: 'Failed to create match' });
-                      return res.json({
-                        success: true,
-                        matched: true,
-                        matchId: matchId,
-                        opponentName: opponent.username
-                      });
-                    }
-                  );
-                } else {
-                  rpsQueue.push({
-                    userId: user.id,
-                    username: user.username,
-                    joinedAt: Date.now()
-                  });
+                  const oppIndex = rpsQueue.findIndex(p => String(p.userId) !== String(user.id));
 
-                  return res.json({
-                    success: true,
-                    matched: false,
-                    inQueue: true,
-                    message: 'Searching for opponent...'
-                  });
-                }
-              });
-            }
-          );
+                  if (oppIndex !== -1) {
+                    const opponent = rpsQueue.splice(oppIndex, 1)[0];
+                    const matchId = `rps_${crypto.randomBytes(8).toString('hex')}`;
+
+                    db.run(
+                      `INSERT INTO rps_matches (
+                        id, player_a_id, player_b_id, player_a_name, player_b_name,
+                        player_a_score, player_b_score, current_round, status, pot_amount, round_start_time
+                      ) VALUES (?, ?, ?, ?, ?, 0, 0, 1, 'IN_PROGRESS', 200, CURRENT_TIMESTAMP)`,
+                      [matchId, opponent.userId, user.id, opponent.username, user.username],
+                      (insErr) => {
+                        if (insErr) return res.status(500).json({ error: 'Failed to create match' });
+                        return res.json({
+                          success: true,
+                          matched: true,
+                          matchId: matchId,
+                          opponentName: opponent.username
+                        });
+                      }
+                    );
+                  } else {
+                    rpsQueue.push({
+                      userId: user.id,
+                      username: user.username,
+                      joinedAt: Date.now()
+                    });
+
+                    return res.json({
+                      success: true,
+                      matched: false,
+                      inQueue: true,
+                      message: 'Searching for opponent...'
+                    });
+                  }
+                });
+              }
+            );
+          });
         });
-      });
-    }
-  );
+      }
+    );
+  });
 });
 
 // -----------------------------------------------------------------------------
@@ -357,7 +408,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 4. GET /api/rps/check-queue-status (Auto Bot Matchmaker)
+// 4. GET /api/rps/check-queue-status
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
@@ -389,7 +440,6 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
       const playerEntry = rpsQueue[qIndex];
       const waitingMs = Date.now() - playerEntry.joinedAt;
 
-      // Bot Fallback after 3.5s wait
       if (waitingMs >= BOT_WAIT_TIMEOUT_MS) {
         const matchId = `rps_${crypto.randomBytes(8).toString('hex')}`;
         const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
@@ -791,7 +841,6 @@ function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, 
             if (finErr) { db.run('ROLLBACK'); return callback(finErr); }
             db.run('COMMIT', (cErr) => {
               if (!cErr) {
-                // >>> DISTRIBUTE REFERRAL COMMISSION FOR RPS WIN <<<
                 creditReferralCommission(winnerId, coinsEarned, 'RPS', `RPS_WIN_${match.id}`, 0.10);
               }
               callback(cErr);
