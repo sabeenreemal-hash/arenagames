@@ -315,12 +315,42 @@
       border: 1px solid rgba(0, 230, 118, 0.2);
     }
 
+    .live-users-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--primary);
+      background: rgba(0, 230, 118, 0.12);
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(0, 230, 118, 0.35);
+      letter-spacing: 0.3px;
+    }
+
     .status-dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
       background: var(--primary);
       box-shadow: 0 0 8px var(--primary);
+      animation: pulseGlow 1.8s infinite;
+    }
+
+    @keyframes pulseGlow {
+      0% {
+        transform: scale(0.9);
+        box-shadow: 0 0 4px var(--primary);
+      }
+      50% {
+        transform: scale(1.25);
+        box-shadow: 0 0 12px var(--primary);
+      }
+      100% {
+        transform: scale(0.9);
+        box-shadow: 0 0 4px var(--primary);
+      }
     }
 
     /* CONTENT BODY */
@@ -332,7 +362,7 @@
     /* METRIC CARDS */
     .metrics-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: 18px;
       margin-bottom: 28px;
     }
@@ -344,6 +374,11 @@
       padding: 20px;
       position: relative;
       overflow: hidden;
+    }
+
+    .metric-card.live-card {
+      border: 1px solid rgba(0, 230, 118, 0.35);
+      background: linear-gradient(145deg, rgba(18, 22, 31, 1) 0%, rgba(0, 230, 118, 0.05) 100%);
     }
 
     .metric-card::after {
@@ -826,6 +861,12 @@
           <div class="page-title" id="current-page-title">Dashboard Overview</div>
         </div>
         <div class="topbar-right">
+          <!-- LIVE ACTIVE USERS TOPBAR COUNTER -->
+          <div class="live-users-indicator" title="Active users currently on the app within the last 5 minutes">
+            <div class="status-dot"></div>
+            <span>Live Active Users: <strong id="topbar-live-users" style="color: white; font-size: 13px;">00</strong></span>
+          </div>
+
           <div class="status-indicator">
             <div class="status-dot"></div>
             <span>Server Live</span>
@@ -840,6 +881,16 @@
 
         <!-- OVERVIEW METRIC CARDS -->
         <div class="metrics-grid">
+          <!-- REALTIME ACTIVE USERS METRIC CARD -->
+          <div class="metric-card live-card">
+            <div class="metric-title" style="display: flex; align-items: center; gap: 8px;">
+              <span class="status-dot" style="display: inline-block;"></span>
+              <span style="color: var(--primary);">Realtime Active Users</span>
+            </div>
+            <div class="metric-val" id="stat-active-users" style="color: var(--primary);">00</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">Active in last 5 mins</div>
+          </div>
+
           <div class="metric-card">
             <div class="metric-title">Registered Players</div>
             <div class="metric-val" id="stat-users" style="color: white;">...</div>
@@ -1026,7 +1077,7 @@
         </section>
 
         <!-- ======================================================== -->
-        <!-- TAB 2: USERS REGISTRY (UPDATED WITH ONLINE/ACTIVITY/DELETE) -->
+        <!-- TAB 2: USERS REGISTRY                                    -->
         <!-- ======================================================== -->
         <section id="tab-users" class="tab-section">
           <div class="card">
@@ -1236,6 +1287,7 @@
     let paymentMethodsList = [];
     let currentSubmissionsCache = [];
     let activeSubFilter = 'pending';
+    let livePulseInterval = null;
 
     function getHeaders() {
       const token = localStorage.getItem('admin_token');
@@ -1297,6 +1349,16 @@
       } else {
         return `<span class="status-pill pill-offline"><span class="dot-pulse"></span> Inactive</span><br><span style="font-size:11px; color:var(--text-muted);">${readableAgo}</span>`;
       }
+    }
+
+    // Helper: Update live counters across UI
+    function updateLiveActiveCount(count) {
+      const formatted = count < 10 ? `0${count}` : `${count}`;
+      const cardEl = document.getElementById('stat-active-users');
+      const topbarEl = document.getElementById('topbar-live-users');
+
+      if (cardEl) cardEl.innerText = formatted;
+      if (topbarEl) topbarEl.innerText = formatted;
     }
 
     // TAB SWITCHING
@@ -1376,15 +1438,54 @@
         document.getElementById('login-overlay').style.display = 'none';
         document.getElementById('admin-content').style.display = 'flex';
         loadDashboard();
+
+        // Start auto-refreshing live active users every 15 seconds
+        if (!livePulseInterval) {
+          livePulseInterval = setInterval(() => {
+            fetchLiveActiveCount();
+          }, 15000);
+        }
       } else {
+        if (livePulseInterval) {
+          clearInterval(livePulseInterval);
+          livePulseInterval = null;
+        }
         document.getElementById('login-overlay').style.display = 'flex';
         document.getElementById('admin-content').style.display = 'none';
       }
     }
 
     function logout() {
+      if (livePulseInterval) {
+        clearInterval(livePulseInterval);
+        livePulseInterval = null;
+      }
       localStorage.removeItem('admin_token');
       checkSession();
+    }
+
+    // Live Users Counter fetcher
+    async function fetchLiveActiveCount() {
+      try {
+        const statsRes = await fetch(`${API_BASE}/dashboard`, { headers: getHeaders() });
+        if (statsRes.status === 200) {
+          const stats = await statsRes.json();
+          if (stats.activeUsers !== undefined) {
+            updateLiveActiveCount(stats.activeUsers);
+          } else {
+            // Fallback: calculate from user registry cache if backend does not yet return activeUsers
+            const now = new Date().getTime();
+            const activeNow = allUsersCache.filter(u => {
+              if (!u.last_active_at) return false;
+              const diffMinutes = (now - new Date(u.last_active_at).getTime()) / 60000;
+              return diffMinutes < 5;
+            }).length;
+            updateLiveActiveCount(activeNow);
+          }
+        }
+      } catch (e) {
+        // Silent fail on background tick
+      }
     }
 
     async function loadDashboard() {
@@ -1401,6 +1502,10 @@
         document.getElementById('nav-users-count').innerText = stats.totalUsers || 0;
         document.getElementById('nav-redeem-count').innerText = stats.pendingWithdrawals || 0;
         document.getElementById('nav-sub-pending-count').innerText = stats.pendingTasks || 0;
+
+        if (stats.activeUsers !== undefined) {
+          updateLiveActiveCount(stats.activeUsers);
+        }
 
         await loadUsersList();
         loadTasksList();
@@ -1421,6 +1526,16 @@
       try {
         const res = await fetch(`${API_BASE}/users`, { headers: getHeaders() });
         allUsersCache = await res.json();
+
+        // Calculate live users if not set
+        const now = new Date().getTime();
+        const activeNow = allUsersCache.filter(u => {
+          if (!u.last_active_at) return false;
+          const diffMinutes = (now - new Date(u.last_active_at).getTime()) / 60000;
+          return diffMinutes < 5;
+        }).length;
+        updateLiveActiveCount(activeNow);
+
         renderUsersTable(allUsersCache);
       } catch (err) { console.error("Failed to load users database registry"); }
     }
