@@ -5,7 +5,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
-const { creditReferralCommission } = require('../services/referralService'); // <-- REFERRAL SERVICE
+const { creditReferralCommission } = require('../services/referralService');
 
 const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
@@ -79,15 +79,16 @@ function checkWinner(board) {
   return { winnerSymbol: null, winningLine: null, isDraw: isFull };
 }
 
-// Casual, Beatable Bot Move Calculation (Not impossible or frustrating)
-function calculateCasualBotMove(board, botSymbol, humanSymbol) {
+// Challenging & Unpredictable Bot AI for Tic Tac Toe
+function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
   const emptyCells = [];
   for (let i = 0; i < 9; i++) {
     if (board[i] === '') emptyCells.push(i);
   }
   if (emptyCells.length === 0) return -1;
 
-  if (Math.random() < 0.60) {
+  // 1. Instant Win Check: Take win 95% of the time
+  if (Math.random() < 0.95) {
     for (const combo of WINNING_COMBOS) {
       const [a, b, c] = combo;
       const line = [board[a], board[b], board[c]];
@@ -99,7 +100,8 @@ function calculateCasualBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
-  if (Math.random() < 0.55) {
+  // 2. Direct Threat Block: Block player's 2-in-a-row 90% of the time
+  if (Math.random() < 0.90) {
     for (const combo of WINNING_COMBOS) {
       const [a, b, c] = combo;
       const line = [board[a], board[b], board[c]];
@@ -111,10 +113,26 @@ function calculateCasualBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
-  if (board[4] === '' && Math.random() < 0.45) {
+  // 3. Counter Corner-Fork Traps (e.g. human takes opposite corners [0,8] or [2,6])
+  const humanCorners = [0, 2, 6, 8].filter(idx => board[idx] === humanSymbol);
+  if (humanCorners.length === 2 && board[4] === botSymbol) {
+    const emptyEdges = [1, 3, 5, 7].filter(idx => board[idx] === '');
+    if (emptyEdges.length > 0 && Math.random() < 0.85) {
+      return emptyEdges[Math.floor(Math.random() * emptyEdges.length)];
+    }
+  }
+
+  // 4. Center vs Corner Strategy (Unpredictable Openings)
+  if (board[4] === '' && Math.random() < 0.60) {
     return 4;
   }
 
+  const corners = [0, 2, 6, 8].filter(idx => board[idx] === '');
+  if (corners.length > 0) {
+    return corners[Math.floor(Math.random() * corners.length)];
+  }
+
+  // 5. Remaining empty cells fallback
   return emptyCells[Math.floor(Math.random() * emptyCells.length)];
 }
 
@@ -130,10 +148,11 @@ function triggerBotMoveIfTurn(matchId) {
     const botSymbol = isBotPlayerX ? 'X' : 'O';
     const humanSymbol = isBotPlayerX ? 'O' : 'X';
 
-    const chosenCell = calculateCasualBotMove(board, botSymbol, humanSymbol);
+    const chosenCell = calculateAdvancedBotMove(board, botSymbol, humanSymbol);
     if (chosenCell === -1) return;
 
-    const delay = Math.floor(Math.random() * 1000) + 1200;
+    // Realistic human response delay: 1.2s - 2.5s
+    const delay = Math.floor(Math.random() * 1300) + 1200;
 
     setTimeout(() => {
       db.get('SELECT * FROM tictactoe_matches WHERE id = ?', [matchId], (currErr, currentMatch) => {
@@ -347,7 +366,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 4. GET /api/tictactoe/check-queue-status
+// 4. GET /api/tictactoe/check-queue-status (Auto Bot Matchmaker)
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
@@ -378,6 +397,7 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
       const playerEntry = matchmakingQueue[qIndex];
       const waitingMs = Date.now() - playerEntry.joinedAt;
 
+      // Bot Fallback after 3.5s
       if (waitingMs >= BOT_WAIT_TIMEOUT_MS) {
         const matchId = `match_${crypto.randomBytes(8).toString('hex')}`;
         const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
