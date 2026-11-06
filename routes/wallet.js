@@ -4,23 +4,39 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
-const { creditReferralCommission } = require('../services/referralService'); // <-- ADDED
+const { creditReferralCommission } = require('../services/referralService');
 
 // 7-day cooldown in milliseconds
-const WITHDRAWAL_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Conversion base: 5,000 coins
-const CONVERSION_RATES = {
-  COIN_BASE: 5000,
-  USD: 1.0,     // 5000 coins = $1.00 USD
-  NPR: 150.0,   // 5000 coins = रू 150 NPR
-  INR: 90.0,    // 5000 coins = ₹ 90 INR
-};
+// Fixed redemption tiers (Coins -> NPR)
+const REDEMPTION_TIERS = [
+  { coins: 5000, npr: 50 },
+  { coins: 10000, npr: 100 },
+  { coins: 20000, npr: 200 }
+];
 
-// Ensure last_withdrawal_at column exists in users table
-db.run("ALTER TABLE users ADD COLUMN last_withdrawal_at TEXT", (err) => {
-  // Ignore error if column already exists
-});
+// Supported payment methods
+const SUPPORTED_PAYMENT_METHODS = [
+  {
+    id: "eSewa",
+    name: "eSewa",
+    icon: "🟢",
+    label: "eSewa Mobile Number",
+    hint: "98XXXXXXXX"
+  },
+  {
+    id: "Khalti",
+    name: "Khalti",
+    icon: "🟣",
+    label: "Khalti Mobile Number",
+    hint: "98XXXXXXXX"
+  }
+];
+
+// Ensure schema columns exist
+db.run("ALTER TABLE users ADD COLUMN last_withdrawal_at TEXT", () => {});
+db.run("ALTER TABLE withdrawals ADD COLUMN npr_amount REAL", () => {});
 
 // 7-Level Stone Badge Tier Definitions
 const STONE_TIERS = [
@@ -51,74 +67,82 @@ function getYesterdayStr() {
   return d.toISOString().split('T')[0];
 }
 
-// Default fallback payment methods (configured with min 5000 coins base)
-const DEFAULT_METHODS = [
-  { id: "eSewa", name: "eSewa (NPR)", icon: "🟢", min: 5000, currency: "NPR", label: "eSewa Mobile Number", hint: "98XXXXXXXX" },
-  { id: "Khalti", name: "Khalti (NPR)", icon: "🟣", min: 5000, currency: "NPR", label: "Khalti Mobile Number", hint: "98XXXXXXXX" },
-  { id: "UPI", name: "UPI / Paytm (INR)", icon: "🇮🇳", min: 5000, currency: "INR", label: "UPI ID / Number", hint: "user@upi" },
-  { id: "PayPal", name: "PayPal (USD)", icon: "🅿️", min: 5000, currency: "USD", label: "PayPal Email Address", hint: "user@example.com" },
-  { id: "USDT", name: "USDT (TRC20)", icon: "💲", min: 10000, currency: "USD", label: "TRC20 Wallet Address", hint: "T..." }
-];
-
-function convertCoins(coins) {
-  return {
-    usd: parseFloat(((coins / CONVERSION_RATES.COIN_BASE) * CONVERSION_RATES.USD).toFixed(2)),
-    npr: parseFloat(((coins / CONVERSION_RATES.COIN_BASE) * CONVERSION_RATES.NPR).toFixed(2)),
-    inr: parseFloat(((coins / CONVERSION_RATES.COIN_BASE) * CONVERSION_RATES.INR).toFixed(2)),
-  };
-}
-
 // ---------------------------------------------------------------------------
-// 1. Payment Methods List
+// 1. Get Payment Methods & Redemption Tiers
 // ---------------------------------------------------------------------------
 router.get('/payment-methods', (req, res) => {
-  db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, config) => {
-    if (err || !config || !config.value) {
-      return res.json(DEFAULT_METHODS);
-    }
-    try {
-      const methods = JSON.parse(config.value);
-      res.json(methods);
-    } catch {
-      res.json(DEFAULT_METHODS);
-    }
+  res.json({
+    methods: SUPPORTED_PAYMENT_METHODS,
+    tiers: REDEMPTION_TIERS
   });
 });
 
 // ---------------------------------------------------------------------------
-// 2. Fetch User Wallet Balance & Withdrawal Cooldown Status
+// 2. Fetch User Wallet Balance, Cooldown, and Pending Status
 // ---------------------------------------------------------------------------
 router.get('/', authenticateToken, (req, res) => {
-  db.get('SELECT balance, last_withdrawal_at FROM users WHERE id = ?', [req.user.id], (err, user) => {
-    if (err || !user) return res.status(404).json({ error: 'Profile not found' });
+  db.get(
+    'SELECT id, balance, created_at, last_withdrawal_at FROM users WHERE id = ?',
+    [req.user.id],
+    (err, user) => {
+      if (err || !user) return res.status(404).json({ error: 'Profile not found' });
 
-    let canWithdraw = true;
-    let nextAvailableWithdrawal = null;
-    let remainingMs = 0;
+      // Check if user has an ongoing pending withdrawal
+      db.get(
+        "SELECT id, coin_amount, npr_amount, payment_method, account_info, created_at FROM withdrawals WHERE user_id = ? AND status = 'PENDING' ORDER BY id DESC LIMIT 1",
+        [req.user.id],
+        (wErr, pendingWithdrawal) => {
+          const now = Date.now();
+          let canWithdraw = true;
+          let lockReason = null;
+          let nextAvailableWithdrawal = null;
+          let remainingMs = 0;
 
-    if (user.last_withdrawal_at) {
-      const lastTxTime = new Date(user.last_withdrawal_at).getTime();
-      const nextTime = lastTxTime + WITHDRAWAL_COOLDOWN_MS;
-      const now = Date.now();
+          // Rule 1: Account age must be at least 7 days
+          if (user.created_at) {
+            const joinTime = new Date(user.created_at).getTime();
+            const minAllowedTime = joinTime + SEVEN_DAYS_MS;
+            if (now < minAllowedTime) {
+              canWithdraw = false;
+              remainingMs = minAllowedTime - now;
+              nextAvailableWithdrawal = new Date(minAllowedTime).toISOString();
+              lockReason = 'ACCOUNT_AGE_RESTRICTION';
+            }
+          }
 
-      if (now < nextTime) {
-        canWithdraw = false;
-        remainingMs = nextTime - now;
-        nextAvailableWithdrawal = new Date(nextTime).toISOString();
-      }
+          // Rule 2: 7-day cooldown from previous successful redemption
+          if (canWithdraw && user.last_withdrawal_at) {
+            const lastTime = new Date(user.last_withdrawal_at).getTime();
+            const nextUnlockTime = lastTime + SEVEN_DAYS_MS;
+            if (now < nextUnlockTime) {
+              canWithdraw = false;
+              remainingMs = nextUnlockTime - now;
+              nextAvailableWithdrawal = new Date(nextUnlockTime).toISOString();
+              lockReason = 'WEEKLY_COOLDOWN_ACTIVE';
+            }
+          }
+
+          // Rule 3: Cannot request if already has a pending withdrawal
+          const hasPending = !!pendingWithdrawal;
+          if (hasPending) {
+            canWithdraw = false;
+            if (!lockReason) lockReason = 'PENDING_REQUEST_EXISTS';
+          }
+
+          res.json({
+            balance: user.balance || 0,
+            can_withdraw: canWithdraw,
+            has_pending: hasPending,
+            pending_withdrawal: pendingWithdrawal || null,
+            lock_reason: lockReason,
+            next_withdrawal_date: nextAvailableWithdrawal,
+            cooldown_remaining_ms: remainingMs,
+            tiers: REDEMPTION_TIERS
+          });
+        }
+      );
     }
-
-    const conversions = convertCoins(user.balance || 0);
-
-    res.json({
-      balance: user.balance || 0,
-      converted: conversions,
-      can_withdraw: canWithdraw,
-      last_withdrawal_at: user.last_withdrawal_at,
-      next_withdrawal_date: nextAvailableWithdrawal,
-      cooldown_remaining_ms: remainingMs,
-    });
-  });
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -136,7 +160,7 @@ router.get('/transactions', authenticateToken, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Offerwall Credit & Streak Counter
+// 4. Offerwall Credit & Streak Counter (Unchanged)
 // ---------------------------------------------------------------------------
 function handleOfferwallCredit(req, res) {
   const userId = (req.user && req.user.id) ? req.user.id : (req.body.userId || req.query.userId || req.query.user_id);
@@ -226,9 +250,6 @@ function handleOfferwallCredit(req, res) {
               return res.status(500).json({ error: 'Failed to record offerwall credit' });
             }
 
-            // ========================================================
-            // >>> CREDIT REFERRAL COMMISSION TO THE REFERRER (10%) <<<
-            // ========================================================
             creditReferralCommission(userId, coinAmount, 'OFFERWALL', offerId, 0.10);
 
             res.json({
@@ -261,103 +282,120 @@ router.all('/offerwall-postback', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. Submit Withdrawal Request (with 7-Day Cooldown Validation)
+// 5. Submit Fixed Redemption Request (eSewa / Khalti)
 // ---------------------------------------------------------------------------
 router.post('/redeem', authenticateToken, (req, res) => {
   const { paymentMethod, accountInfo, coinAmount } = req.body;
   const userId = req.user.id;
+  const parsedCoins = parseInt(coinAmount, 10);
 
-  if (!paymentMethod || !accountInfo || !coinAmount || coinAmount <= 0) {
-    return res.status(400).json({ error: 'Invalid parameters provided' });
+  // 1. Validate fixed tier
+  const matchedTier = REDEMPTION_TIERS.find(t => t.coins === parsedCoins);
+  if (!matchedTier) {
+    return res.status(400).json({ 
+      error: 'Invalid redemption tier. You can only redeem 5,000, 10,000, or 20,000 coins.' 
+    });
   }
 
-  db.get('SELECT balance, last_withdrawal_at FROM users WHERE id = ?', [userId], (err, user) => {
-    if (err || !user) return res.status(404).json({ error: 'User record missing' });
+  // 2. Validate Payment Method (eSewa or Khalti only)
+  const normalizedMethod = (paymentMethod || '').trim().toLowerCase();
+  let selectedMethod = null;
+  if (normalizedMethod === 'esewa') {
+    selectedMethod = 'eSewa';
+  } else if (normalizedMethod === 'khalti') {
+    selectedMethod = 'Khalti';
+  } else {
+    return res.status(400).json({ error: 'Invalid payment method. Only eSewa and Khalti are supported.' });
+  }
 
-    if (user.last_withdrawal_at) {
-      const lastTxTime = new Date(user.last_withdrawal_at).getTime();
-      const nextTime = lastTxTime + WITHDRAWAL_COOLDOWN_MS;
-      const now = Date.now();
+  // 3. Validate Nepali 10-Digit Mobile Number (starts with 98 or 97)
+  const cleanMobile = (accountInfo || '').toString().trim();
+  const nepalPhoneRegex = /^(98|97)\d{8}$/;
+  if (!nepalPhoneRegex.test(cleanMobile)) {
+    return res.status(400).json({ 
+      error: 'Invalid mobile number. Please enter a valid 10-digit Nepali number starting with 98 or 97.' 
+    });
+  }
 
-      if (now < nextTime) {
-        const remainingHours = Math.ceil((nextTime - now) / (1000 * 60 * 60));
-        const remainingDays = Math.floor(remainingHours / 24);
-        return res.status(429).json({
-          error: `Withdrawal cooldown active. You can withdraw once every 7 days. Next available in ${remainingDays}d ${remainingHours % 24}h.`,
-          next_available: new Date(nextTime).toISOString()
+  // 4. Retrieve User and Check Rules
+  db.get('SELECT balance, created_at, last_withdrawal_at FROM users WHERE id = ?', [userId], (err, user) => {
+    if (err || !user) return res.status(404).json({ error: 'User record not found.' });
+
+    const now = Date.now();
+
+    // Account age check: at least 7 days
+    if (user.created_at) {
+      const joinTime = new Date(user.created_at).getTime();
+      if (now - joinTime < SEVEN_DAYS_MS) {
+        const remainingDays = Math.ceil((joinTime + SEVEN_DAYS_MS - now) / (1000 * 60 * 60 * 24));
+        return res.status(403).json({
+          error: `New accounts must wait 7 days before making their first redemption. Available in ${remainingDays} day(s).`
         });
       }
     }
 
-    if (user.balance < coinAmount) {
-      return res.status(400).json({ error: 'Insufficient balance to complete request' });
+    // Weekly cooldown check: at least 7 days from last successful withdrawal
+    if (user.last_withdrawal_at) {
+      const lastTime = new Date(user.last_withdrawal_at).getTime();
+      if (now - lastTime < SEVEN_DAYS_MS) {
+        const remainingHours = Math.ceil((lastTime + SEVEN_DAYS_MS - now) / (1000 * 60 * 60));
+        const remainingDays = Math.floor(remainingHours / 24);
+        return res.status(429).json({
+          error: `Weekly cooldown active. You can redeem once every 7 days. Next available in ${remainingDays}d ${remainingHours % 24}h.`
+        });
+      }
     }
 
-    db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, config) => {
-      let methods = DEFAULT_METHODS;
-      if (config && config.value) {
-        try { methods = JSON.parse(config.value); } catch (_) {}
-      }
+    // Check available balance
+    if ((user.balance || 0) < parsedCoins) {
+      return res.status(400).json({
+        error: `Insufficient coins. You have ${user.balance || 0} coins, but ${parsedCoins} coins are required.`
+      });
+    }
 
-      const methodRule = methods.find(
-        m => m.id.toLowerCase() === paymentMethod.toLowerCase() || m.name.toLowerCase() === paymentMethod.toLowerCase()
-      );
+    // Check for duplicate pending requests
+    db.get(
+      "SELECT id FROM withdrawals WHERE user_id = ? AND status = 'PENDING'",
+      [userId],
+      (wErr, pendingWithdrawal) => {
+        if (pendingWithdrawal) {
+          return res.status(400).json({
+            error: 'You already have a pending redemption request. Please wait until it is processed by the admin.'
+          });
+        }
 
-      if (!methodRule) {
-        return res.status(400).json({ error: 'Unsupported payment gateway' });
-      }
-
-      const minCoins = methodRule.min || 5000;
-      if (coinAmount < minCoins) {
-        return res.status(400).json({ error: `Minimum redeem limit for ${methodRule.name} is ${minCoins.toLocaleString()} coins` });
-      }
-
-      const usdVal = parseFloat(((coinAmount / 5000) * 1.0).toFixed(2));
-      const nprVal = parseFloat(((coinAmount / 5000) * 150.0).toFixed(2));
-      const inrVal = parseFloat(((coinAmount / 5000) * 90.0).toFixed(2));
-
-      const nowIso = new Date().toISOString();
-
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
-
+        // NOTE: As per instructions, DO NOT deduct user balance immediately when request is PENDING.
+        // Balance will be deducted by admin approval process.
         db.run(
-          'UPDATE users SET balance = balance - ?, last_withdrawal_at = ? WHERE id = ?',
-          [coinAmount, nowIso, userId]
-        );
-
-        db.run(
-          `INSERT INTO withdrawals (user_id, payment_method, account_info, coin_amount, usd_amount, status) 
+          `INSERT INTO withdrawals (user_id, payment_method, account_info, coin_amount, npr_amount, status) 
            VALUES (?, ?, ?, ?, ?, 'PENDING')`,
-          [userId, methodRule.name || methodRule.id, accountInfo, coinAmount, usdVal],
-          function (err) {
-            if (err) {
-              db.run('ROLLBACK');
-              return res.status(500).json({ error: 'Failed to record withdrawal' });
+          [userId, selectedMethod, cleanMobile, parsedCoins, matchedTier.npr],
+          function (insertErr) {
+            if (insertErr) {
+              return res.status(500).json({ error: 'Failed to record redemption request.' });
             }
 
             const withdrawalId = this.lastID;
 
+            // Record transaction audit trail (amount = 0 while pending to preserve balance)
             db.run(
-              `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_REQUEST', ?, ?)`,
-              [userId, -coinAmount, withdrawalId.toString()],
-              (txErr) => {
-                if (txErr) {
-                  db.run('ROLLBACK');
-                  return res.status(500).json({ error: 'Failed to balance account' });
-                }
-                db.run('COMMIT');
+              `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_REQUEST', 0, ?)`,
+              [userId, withdrawalId.toString()],
+              () => {
                 res.json({
                   success: true,
-                  message: `Withdrawal request submitted! (${coinAmount} coins = $${usdVal} USD / रू${nprVal} NPR / ₹${inrVal} INR). Next withdrawal unlocks in 7 days.`,
-                  next_withdrawal_date: new Date(Date.now() + WITHDRAWAL_COOLDOWN_MS).toISOString()
+                  message: `Redemption request of ${parsedCoins.toLocaleString()} coins for NPR ${matchedTier.npr} submitted successfully! Your coins will be deducted once verified and approved.`,
+                  pending_id: withdrawalId,
+                  coin_amount: parsedCoins,
+                  npr_amount: matchedTier.npr,
+                  payment_method: selectedMethod
                 });
               }
             );
           }
         );
-      });
-    });
+      }
+    );
   });
 });
 
