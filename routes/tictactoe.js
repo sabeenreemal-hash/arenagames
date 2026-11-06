@@ -7,13 +7,14 @@ const db = require('../database');
 const authenticateToken = require('../middleware/auth');
 const { creditReferralCommission } = require('../services/referralService');
 
+const GAME_ID = 'tictactoe_1v1';
 const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
 const TURN_TIMEOUT_SECONDS = 30;
 const BOT_WAIT_TIMEOUT_MS = 3500;
 const BOT_USER_ID = 999999;
-const MAX_MATCHES_PER_HOUR = 10;
-const COOLDOWN_WINDOW_MS = 60 * 60 * 1000; // 1 Hour
+const MAX_MATCHES = 10;
+const BREAK_DURATION_SEC = 10 * 60; // 10 Minutes Break
 
 const BOT_NAMES = [
   'ShadowNinja', 'ViperQueen', 'Alex_Pro99', 'CyberSamurai', 'NovaStrike',
@@ -22,7 +23,19 @@ const BOT_NAMES = [
   'Vortex_77', 'Krypton', 'CrimsonBlade', 'NeonRider', 'Spectre_01'
 ];
 
-// Self-healing bot account
+// Self-healing: Table for tracking 10-match game cycles & 10-minute cooldown
+db.run(`
+  CREATE TABLE IF NOT EXISTS user_game_cooldowns (
+    user_id INTEGER NOT NULL,
+    game_id TEXT NOT NULL,
+    games_played INTEGER DEFAULT 0,
+    cooldown_until DATETIME DEFAULT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, game_id)
+  )
+`);
+
+// Self-healing bot account in users table
 db.run(`
   INSERT OR IGNORE INTO users (id, full_name, username, email, password_hash, referral_code, balance) 
   VALUES (999999, 'Arena Challenger', 'arena_bot_system', 'bot@arenagames.internal', 'DISABLED_BOT_ACCOUNT', 'BOT9999', 1000000)
@@ -68,49 +81,75 @@ function getAuthUserId(req) {
   return req.user.id || req.user.userId || req.user.sub || null;
 }
 
-// -----------------------------------------------------------------------------
-// SERVER-SIDE 10-MATCH / 1-HOUR COOLDOWN CHECK (Both TTT & RPS combined)
-// -----------------------------------------------------------------------------
-function checkMatchLimit(userId, callback) {
-  const query = `
-    SELECT created_at FROM (
-      SELECT created_at FROM tictactoe_matches 
-      WHERE (player_x_id = ? OR player_o_id = ?) 
-        AND status IN ('COMPLETED', 'DRAW', 'ABANDONED')
-      UNION ALL
-      SELECT created_at FROM rps_matches 
-      WHERE (player_a_id = ? OR player_b_id = ?) 
-        AND status IN ('COMPLETED', 'DRAW', 'ABANDONED')
-    )
-    ORDER BY created_at DESC 
-    LIMIT ?
-  `;
+// Check 10-match / 10-minute cooldown
+function getGameCooldown(userId, callback) {
+  db.get(
+    'SELECT games_played, cooldown_until FROM user_game_cooldowns WHERE user_id = ? AND game_id = ?',
+    [userId, GAME_ID],
+    (err, row) => {
+      if (err || !row) {
+        return callback(null, { gamesPlayed: 0, maxGames: MAX_MATCHES, isBlocked: false, remainingSeconds: 0 });
+      }
 
-  db.all(query, [userId, userId, userId, userId, MAX_MATCHES_PER_HOUR], (err, rows) => {
-    if (err || !rows || rows.length < MAX_MATCHES_PER_HOUR) {
-      return callback(null, { isBlocked: false });
+      const now = Date.now();
+      if (row.cooldown_until) {
+        const untilStr = row.cooldown_until.includes('Z') ? row.cooldown_until : row.cooldown_until.replace(' ', 'T') + 'Z';
+        const cooldownTime = new Date(untilStr).getTime();
+        if (now < cooldownTime) {
+          const remainingSeconds = Math.max(1, Math.ceil((cooldownTime - now) / 1000));
+          return callback(null, {
+            gamesPlayed: MAX_MATCHES,
+            maxGames: MAX_MATCHES,
+            isBlocked: true,
+            remainingSeconds: remainingSeconds
+          });
+        } else {
+          // Cooldown finished -> Reset to 0
+          db.run(
+            'UPDATE user_game_cooldowns SET games_played = 0, cooldown_until = NULL, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND game_id = ?',
+            [userId, GAME_ID]
+          );
+          return callback(null, { gamesPlayed: 0, maxGames: MAX_MATCHES, isBlocked: false, remainingSeconds: 0 });
+        }
+      }
+
+      const played = Math.min(MAX_MATCHES, row.games_played || 0);
+      return callback(null, { gamesPlayed: played, maxGames: MAX_MATCHES, isBlocked: false, remainingSeconds: 0 });
     }
+  );
+}
 
-    // 10th most recent match
-    const tenthMatchStr = rows[MAX_MATCHES_PER_HOUR - 1].created_at.includes('Z')
-      ? rows[MAX_MATCHES_PER_HOUR - 1].created_at
-      : rows[MAX_MATCHES_PER_HOUR - 1].created_at.replace(' ', 'T') + 'Z';
+// Record match completion (+1 count, triggers 10m cooldown when reaching 10)
+function recordMatchCompleted(userId) {
+  if (String(userId) === String(BOT_USER_ID)) return;
+  const now = Date.now();
+  const cooldownEndIso = new Date(now + BREAK_DURATION_SEC * 1000).toISOString();
 
-    const tenthMatchTime = new Date(tenthMatchStr).getTime();
-    const elapsedMs = Date.now() - tenthMatchTime;
-
-    if (elapsedMs < COOLDOWN_WINDOW_MS) {
-      const remainingMs = COOLDOWN_WINDOW_MS - elapsedMs;
-      const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
-      return callback(null, {
-        isBlocked: true,
-        remainingMinutes: remainingMinutes,
-        message: `Hourly limit reached (10/10 matches). Take a 1-hour break to protect fair play & ad policy. Next match in ${remainingMinutes} min.`
-      });
+  db.get(
+    'SELECT games_played, cooldown_until FROM user_game_cooldowns WHERE user_id = ? AND game_id = ?',
+    [userId, GAME_ID],
+    (err, row) => {
+      if (!row) {
+        db.run(
+          'INSERT INTO user_game_cooldowns (user_id, game_id, games_played, cooldown_until) VALUES (?, ?, 1, NULL)',
+          [userId, GAME_ID]
+        );
+      } else {
+        const nextCount = (row.games_played || 0) + 1;
+        if (nextCount >= MAX_MATCHES) {
+          db.run(
+            'UPDATE user_game_cooldowns SET games_played = ?, cooldown_until = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND game_id = ?',
+            [MAX_MATCHES, cooldownEndIso, userId, GAME_ID]
+          );
+        } else {
+          db.run(
+            'UPDATE user_game_cooldowns SET games_played = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND game_id = ?',
+            [nextCount, userId, GAME_ID]
+          );
+        }
+      }
     }
-
-    return callback(null, { isBlocked: false });
-  });
+  );
 }
 
 let matchmakingQueue = [];
@@ -122,10 +161,10 @@ function checkWinner(board) {
       return { winnerSymbol: board[a], winningLine: combo };
     }
   }
-  const isFull = board.every(cell => cell !== '');
-  return { winnerSymbol: null, winningLine: null, isDraw: isFull };
+  return { winnerSymbol: null, winningLine: null, isDraw: board.every(cell => cell !== '') };
 }
 
+// Challenging & Unpredictable Bot AI
 function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
   const emptyCells = [];
   for (let i = 0; i < 9; i++) {
@@ -133,6 +172,7 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
   }
   if (emptyCells.length === 0) return -1;
 
+  // 1. Instant Win Check: Take win 95% of the time
   if (Math.random() < 0.95) {
     for (const combo of WINNING_COMBOS) {
       const [a, b, c] = combo;
@@ -145,6 +185,7 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
+  // 2. Direct Threat Block: Block player's 2-in-a-row 90% of the time
   if (Math.random() < 0.90) {
     for (const combo of WINNING_COMBOS) {
       const [a, b, c] = combo;
@@ -157,6 +198,7 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
+  // 3. Counter Corner-Fork Traps (e.g., human takes opposite corners [0,8] or [2,6])
   const humanCorners = [0, 2, 6, 8].filter(idx => board[idx] === humanSymbol);
   if (humanCorners.length === 2 && board[4] === botSymbol) {
     const emptyEdges = [1, 3, 5, 7].filter(idx => board[idx] === '');
@@ -165,6 +207,7 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
+  // 4. Center vs Corner Strategy (Unpredictable Openings)
   if (board[4] === '' && Math.random() < 0.60) {
     return 4;
   }
@@ -192,6 +235,7 @@ function triggerBotMoveIfTurn(matchId) {
     const chosenCell = calculateAdvancedBotMove(board, botSymbol, humanSymbol);
     if (chosenCell === -1) return;
 
+    // Realistic human response delay: 1.2s - 2.5s
     const delay = Math.floor(Math.random() * 1300) + 1200;
 
     setTimeout(() => {
@@ -228,6 +272,7 @@ function triggerBotMoveIfTurn(matchId) {
 // 1. GET /api/tictactoe/waiting-players
 // -----------------------------------------------------------------------------
 router.get('/waiting-players', authenticateToken, (req, res) => {
+  const userId = getAuthUserId(req);
   const now = Date.now();
   matchmakingQueue = matchmakingQueue.filter(p => (now - p.joinedAt) < 90000);
 
@@ -240,38 +285,41 @@ router.get('/waiting-players', authenticateToken, (req, res) => {
     waitingSeconds: (i * 2) + 1
   }));
 
-  res.json({
-    success: true,
-    count: totalCount,
-    players: matchmakingQueue.length > 0
-      ? matchmakingQueue.map(p => ({
-          userId: p.userId,
-          username: p.username,
-          waitingSeconds: Math.floor((now - p.joinedAt) / 1000)
-        })).concat(sampleList)
-      : sampleList
+  getGameCooldown(userId, (cdErr, cdInfo) => {
+    res.json({
+      success: true,
+      count: totalCount,
+      players: matchmakingQueue.length > 0
+        ? matchmakingQueue.map(p => ({
+            userId: p.userId,
+            username: p.username,
+            waitingSeconds: Math.floor((now - p.joinedAt) / 1000)
+          })).concat(sampleList)
+        : sampleList,
+      cooldown: cdInfo
+    });
   });
 });
 
 // -----------------------------------------------------------------------------
-// 2. POST /api/tictactoe/join-queue (ENFORCES 10-MATCH / 1-HOUR BREAK)
+// 2. POST /api/tictactoe/join-queue
 // -----------------------------------------------------------------------------
 router.post('/join-queue', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  // 1. CHECK COOLDOWN FIRST
-  checkMatchLimit(userId, (limitErr, limitInfo) => {
-    if (limitInfo && limitInfo.isBlocked) {
+  // Enforce 10-match limit / 10-minute break
+  getGameCooldown(userId, (cdErr, cdInfo) => {
+    if (cdInfo && cdInfo.isBlocked) {
+      const mins = Math.floor(cdInfo.remainingSeconds / 60);
+      const secs = cdInfo.remainingSeconds % 60;
       return res.status(400).json({
         success: false,
-        error: limitInfo.message,
-        remainingMinutes: limitInfo.remainingMinutes,
-        cooldown: true
+        error: `10-match limit reached! Take a 10-minute break. Next match in ${mins}m ${secs}s.`,
+        cooldown: cdInfo
       });
     }
 
-    // 2. Check active matches
     db.get(
       `SELECT id FROM tictactoe_matches 
        WHERE (player_x_id = ? OR player_o_id = ?) AND status = 'IN_PROGRESS'`,
@@ -385,7 +433,6 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   const queueIndex = matchmakingQueue.findIndex(p => String(p.userId) === String(userId));
-
   if (queueIndex === -1) {
     db.get(
       `SELECT id FROM tictactoe_matches 
@@ -419,7 +466,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 4. GET /api/tictactoe/check-queue-status
+// 4. GET /api/tictactoe/check-queue-status (Bot Matchmaker fallback)
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
@@ -450,6 +497,7 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
       const playerEntry = matchmakingQueue[qIndex];
       const waitingMs = Date.now() - playerEntry.joinedAt;
 
+      // 3.5s Bot Fallback
       if (waitingMs >= BOT_WAIT_TIMEOUT_MS) {
         const matchId = `match_${crypto.randomBytes(8).toString('hex')}`;
         const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
@@ -672,6 +720,10 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
     if (err || !match) return callback(new Error('Match not found'));
     if (match.status !== 'IN_PROGRESS') return callback(null);
 
+    // Record game completion for 10-match cycle
+    recordMatchCompleted(match.player_x_id);
+    recordMatchCompleted(match.player_o_id);
+
     // Case 1: DRAW
     if (isDraw) {
       db.serialize(() => {
@@ -718,7 +770,7 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
 
       const today = getTodayStr();
       const yesterday = getYesterdayStr();
-      const coinsEarned = ENTRY_FEE; // Net profit (+100 coins)
+      const coinsEarned = ENTRY_FEE;
 
       let currentStreak = user.current_streak || 0;
       let highestStreak = user.highest_streak || 0;
