@@ -8,9 +8,33 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../database');
 const adminAuth = require('../middleware/adminAuth');
-const { creditReferralCommission } = require('../services/referralService'); // <-- ADDED REFERRAL SERVICE
+const { creditReferralCommission } = require('../services/referralService');
 
 const JWT_ADMIN_SECRET = 'ARENA_GAMES_ADMIN_SECRET_KEY';
+
+// Default payment methods seeded if none exists in database
+const DEFAULT_PAYMENT_METHODS = [
+  {
+    id: "eSewa",
+    name: "eSewa",
+    icon: "🟢",
+    currency: "NPR",
+    min: 5000,
+    label: "eSewa Mobile Number",
+    hint: "98XXXXXXXX",
+    is_active: true
+  },
+  {
+    id: "Khalti",
+    name: "Khalti",
+    icon: "🟣",
+    currency: "NPR",
+    min: 5000,
+    label: "Khalti Mobile Number",
+    hint: "98XXXXXXXX",
+    is_active: true
+  }
+];
 
 // Helper: Safely delete screenshot from VPS disk to keep storage free
 function deleteScreenshotFile(filePath) {
@@ -49,7 +73,6 @@ db.serialize(() => {
       return;
     }
 
-    // Seed default admin account if table is empty
     db.get("SELECT COUNT(*) as count FROM admins", (cErr, row) => {
       if (!cErr && row && row.count === 0) {
         bcrypt.hash('admin123', 10, (hErr, hash) => {
@@ -65,6 +88,16 @@ db.serialize(() => {
         });
       }
     });
+  });
+
+  // Ensure default payment methods exist in app_config
+  db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, row) => {
+    if (!err && (!row || !row.value)) {
+      db.run(
+        "INSERT OR REPLACE INTO app_config (key, value) VALUES ('payment_methods', ?)",
+        [JSON.stringify(DEFAULT_PAYMENT_METHODS)]
+      );
+    }
   });
 });
 
@@ -141,8 +174,7 @@ router.get('/dashboard', adminAuth, (req, res) => {
         stats.pendingWithdrawals = r3 ? r3.p : 0;
         db.get("SELECT COUNT(*) as t FROM task_submissions WHERE status = 'pending'", (err, r4) => {
           stats.pendingTasks = r4 ? r4.t : 0;
-          
-          // Count active users in the last 5 minutes (supports both ISO string and standard SQLite timestamps)
+
           db.get(
             `SELECT COUNT(*) as active 
              FROM users 
@@ -191,10 +223,7 @@ router.get('/users', adminAuth, (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/admins', adminAuth, (req, res) => {
   db.all('SELECT * FROM admins ORDER BY id ASC', (err, rows) => {
-    if (err) {
-      console.error("[Get Admins SQL Error]:", err.message);
-      return res.status(500).json({ error: 'Failed to fetch admin accounts' });
-    }
+    if (err) return res.status(500).json({ error: 'Failed to fetch admin accounts' });
     const sanitized = (rows || []).map(admin => ({
       id: admin.id,
       username: admin.username,
@@ -223,7 +252,6 @@ router.post('/admins/create', adminAuth, (req, res) => {
       [cleanUser, cleanName, hash],
       function (err) {
         if (err) {
-          console.error("[Admin Create Error]:", err.message);
           if (err.message && (err.message.includes('UNIQUE') || err.message.includes('PRIMARY KEY'))) {
             return res.status(400).json({ error: `Username @${cleanUser} already exists.` });
           }
@@ -363,7 +391,6 @@ router.post('/users/:id/coins', adminAuth, (req, res) => {
             db.run('COMMIT', (commitErr) => {
               if (commitErr) return res.status(500).json({ error: 'Transaction failed' });
 
-              // If admin manually awarded positive coins, give 10% commission to referrer
               if (coinAmount > 0) {
                 creditReferralCommission(userId, coinAmount, 'ADMIN_MANUAL', 'ADMIN_COIN_GRANT', 0.10);
               }
@@ -395,16 +422,16 @@ router.post('/users/:id/ban', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// I. Dynamic Payment Gateways Configuration
+// I. Payment Gateways Configuration (Add / Edit / Delete Supported)
 // ---------------------------------------------------------------------------
 router.get('/payment-methods', adminAuth, (req, res) => {
   db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
     try {
-      const data = row && row.value ? JSON.parse(row.value) : [];
+      const data = row && row.value ? JSON.parse(row.value) : DEFAULT_PAYMENT_METHODS;
       res.json(data);
     } catch {
-      res.json([]);
+      res.json(DEFAULT_PAYMENT_METHODS);
     }
   });
 });
@@ -428,12 +455,26 @@ router.post('/payment-methods', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// J. Withdrawals Pipeline & Resolutions
+// J. Withdrawals Pipeline & Resolutions (Shows Gateways & Deducts Coins on Approval)
 // ---------------------------------------------------------------------------
 router.get('/withdrawals', adminAuth, (req, res) => {
   db.all(
-    `SELECT w.*, u.username FROM withdrawals w 
-     JOIN users u ON w.user_id = u.id ORDER BY w.created_at DESC`,
+    `SELECT 
+      w.id,
+      w.user_id,
+      w.payment_method,
+      w.account_info,
+      w.coin_amount,
+      w.npr_amount,
+      w.usd_amount,
+      w.status,
+      w.created_at,
+      u.username,
+      u.email,
+      u.balance as user_balance
+     FROM withdrawals w 
+     LEFT JOIN users u ON w.user_id = u.id 
+     ORDER BY w.created_at DESC`,
     (err, rows) => {
       if (err) return res.status(500).json({ error: 'Database read failure' });
       res.json(rows || []);
@@ -445,31 +486,78 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
   const { status } = req.body;
   const withdrawalId = req.params.id;
 
+  if (!['APPROVED', 'REJECTED'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status. Must be APPROVED or REJECTED.' });
+  }
+
   db.get('SELECT * FROM withdrawals WHERE id = ?', [withdrawalId], (err, record) => {
     if (err || !record) return res.status(404).json({ error: 'Withdrawal not found' });
     if (record.status !== 'PENDING') return res.status(400).json({ error: 'Request already resolved' });
 
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-      db.run('UPDATE withdrawals SET status = ? WHERE id = ?', [status, withdrawalId]);
+    db.get('SELECT balance FROM users WHERE id = ?', [record.user_id], (uErr, user) => {
+      if (uErr || !user) return res.status(404).json({ error: 'User not found' });
+
+      const nowIso = new Date().toISOString();
 
       if (status === 'APPROVED') {
-        db.run(
-          `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_APPROVED', ?, ?)`,
-          [record.user_id, -record.coin_amount, withdrawalId]
-        );
-      } else if (status === 'REJECTED') {
-        db.run('UPDATE users SET balance = balance + ? WHERE id = ?', [record.coin_amount, record.user_id]);
-        db.run(
-          `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_REJECTED', ?, ?)`,
-          [record.user_id, record.coin_amount, withdrawalId]
-        );
-      }
+        // Verify balance
+        if ((user.balance || 0) < record.coin_amount) {
+          return res.status(400).json({
+            error: `User has insufficient balance (${user.balance || 0} coins). Required: ${record.coin_amount} coins.`
+          });
+        }
 
-      db.run('COMMIT', (err) => {
-        if (err) return res.status(500).json({ error: 'Failed to finalize resolution' });
-        res.json({ success: true });
-      });
+        db.serialize(() => {
+          db.run('BEGIN TRANSACTION');
+
+          // Deduct coins and reset weekly cooldown timestamp
+          db.run(
+            'UPDATE users SET balance = balance - ?, last_withdrawal_at = ? WHERE id = ?',
+            [record.coin_amount, nowIso, record.user_id]
+          );
+
+          db.run(
+            'UPDATE withdrawals SET status = ?, processed_at = ? WHERE id = ?',
+            ['APPROVED', nowIso, withdrawalId]
+          );
+
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_APPROVED', ?, ?)`,
+            [record.user_id, -record.coin_amount, withdrawalId.toString()]
+          );
+
+          db.run('COMMIT', (commitErr) => {
+            if (commitErr) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: 'Failed to approve withdrawal' });
+            }
+            res.json({ success: true, message: 'Withdrawal approved and coins deducted successfully' });
+          });
+        });
+      } else if (status === 'REJECTED') {
+        db.serialize(() => {
+          db.run('BEGIN TRANSACTION');
+
+          // Coins were never deducted during PENDING, so just mark REJECTED without modifying balance
+          db.run(
+            'UPDATE withdrawals SET status = ?, processed_at = ? WHERE id = ?',
+            ['REJECTED', nowIso, withdrawalId]
+          );
+
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_REJECTED', 0, ?)`,
+            [record.user_id, withdrawalId.toString()]
+          );
+
+          db.run('COMMIT', (commitErr) => {
+            if (commitErr) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: 'Failed to reject withdrawal' });
+            }
+            res.json({ success: true, message: 'Withdrawal rejected successfully' });
+          });
+        });
+      }
     });
   });
 });
@@ -539,10 +627,7 @@ router.post('/tasks/create', adminAuth, (req, res) => {
      VALUES (?, ?, ?, ?, ?, ?)`,
     [title.trim(), coins, instructions.trim(), validProof, (action_url || '').trim(), activeStatus],
     function (err) {
-      if (err) {
-        console.error("[Task Create Error]:", err.message);
-        return res.status(500).json({ error: 'Failed to create task' });
-      }
+      if (err) return res.status(500).json({ error: 'Failed to create task' });
       res.json({ success: true, message: 'Task created successfully', taskId: this.lastID });
     }
   );
@@ -626,17 +711,11 @@ router.get('/task-submissions', adminAuth, (req, res) => {
   sql += ` ORDER BY ts.submitted_at DESC`;
 
   db.all(sql, params, (err, rows) => {
-    if (err) {
-      console.error("[Get Submissions Error]:", err.message);
-      return res.status(500).json({ error: 'Failed to retrieve task submissions' });
-    }
+    if (err) return res.status(500).json({ error: 'Failed to retrieve task submissions' });
     res.json(rows || []);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Task Approval with Referral Commission Trigger
-// ---------------------------------------------------------------------------
 router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
   const subId = req.params.id;
 
@@ -695,9 +774,6 @@ router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
 
                       deleteScreenshotFile(sub.screenshot_path);
 
-                      // ========================================================
-                      // >>> CREDIT 10% REFERRAL COMMISSION FOR TASK REWARD <<<
-                      // ========================================================
                       creditReferralCommission(sub.user_id, sub.reward_coins, 'TASK', `TASK_SUB_${subId}`, 0.10);
 
                       res.json({
@@ -768,14 +844,8 @@ router.post('/users/:id/delete', adminAuth, (req, res) => {
     }
 
     db.run('DELETE FROM users WHERE id = ?', [userId], function (delErr) {
-      if (delErr) {
-        console.error('[Permanent Delete User Error]:', delErr.message);
-        return res.status(500).json({ error: 'Database error deleting user account' });
-      }
-
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'User account not found' });
-      }
+      if (delErr) return res.status(500).json({ error: 'Database error deleting user account' });
+      if (this.changes === 0) return res.status(404).json({ error: 'User account not found' });
 
       console.log(`[Admin User Purge]: Permanently deleted user #${userId}`);
       res.json({
