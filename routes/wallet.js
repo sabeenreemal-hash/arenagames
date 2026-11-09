@@ -9,7 +9,15 @@ const { creditReferralCommission } = require('../services/referralService');
 // 7-day cooldown in milliseconds
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Fixed redemption tiers (Coins -> NPR)
+// Conversion base for legacy support
+const CONVERSION_RATES = {
+  COIN_BASE: 5000,
+  USD: 1.0,
+  NPR: 50.0,
+  INR: 30.0,
+};
+
+// Fixed redemption tiers
 const REDEMPTION_TIERS = [
   { coins: 5000, npr: 50 },
   { coins: 10000, npr: 100 },
@@ -18,27 +26,14 @@ const REDEMPTION_TIERS = [
 
 // Supported payment methods
 const SUPPORTED_PAYMENT_METHODS = [
-  {
-    id: "eSewa",
-    name: "eSewa",
-    icon: "🟢",
-    label: "eSewa Mobile Number",
-    hint: "98XXXXXXXX"
-  },
-  {
-    id: "Khalti",
-    name: "Khalti",
-    icon: "🟣",
-    label: "Khalti Mobile Number",
-    hint: "98XXXXXXXX"
-  }
+  { id: "eSewa", name: "eSewa", icon: "🟢", min: 5000, currency: "NPR", label: "eSewa Mobile Number", hint: "98XXXXXXXX" },
+  { id: "Khalti", name: "Khalti", icon: "🟣", min: 5000, currency: "NPR", label: "Khalti Mobile Number", hint: "98XXXXXXXX" }
 ];
 
 // ---------------------------------------------------------------------------
-// 0. Auto-Migrate Database Schema Safely
+// 0. Database Auto-Migration & Schema Safety
 // ---------------------------------------------------------------------------
 db.serialize(() => {
-  // Ensure withdrawals table exists with all required columns
   db.run(`
     CREATE TABLE IF NOT EXISTS withdrawals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,21 +49,19 @@ db.serialize(() => {
     )
   `);
 
-  // Auto-add columns if migrating from an older database schema
   db.run("ALTER TABLE withdrawals ADD COLUMN npr_amount REAL", () => {});
   db.run("ALTER TABLE withdrawals ADD COLUMN usd_amount REAL", () => {});
   db.run("ALTER TABLE withdrawals ADD COLUMN processed_at DATETIME", () => {});
   db.run("ALTER TABLE users ADD COLUMN last_withdrawal_at TEXT", () => {});
 });
 
-// Helper: Safely insert withdrawal record regardless of older SQLite schema constraints
+// Helper: Safely insert withdrawal record regardless of older SQLite schema variations
 function insertWithdrawalRecord(userId, paymentMethod, accountInfo, coinAmount, nprAmount, usdAmount, callback) {
   db.all("PRAGMA table_info(withdrawals)", (err, columns) => {
     const colNames = (columns || []).map(c => c.name);
     const hasNpr = colNames.includes('npr_amount');
     const hasUsd = colNames.includes('usd_amount');
 
-    // Build query matching existing database columns to avoid SQLITE_ERROR
     if (hasNpr && hasUsd) {
       db.run(
         `INSERT INTO withdrawals (user_id, payment_method, account_info, coin_amount, npr_amount, usd_amount, status) 
@@ -101,6 +94,14 @@ function insertWithdrawalRecord(userId, paymentMethod, accountInfo, coinAmount, 
   });
 }
 
+function convertCoins(coins) {
+  return {
+    usd: parseFloat(((coins / CONVERSION_RATES.COIN_BASE) * CONVERSION_RATES.USD).toFixed(2)),
+    npr: parseFloat(((coins / CONVERSION_RATES.COIN_BASE) * CONVERSION_RATES.NPR).toFixed(2)),
+    inr: parseFloat(((coins / CONVERSION_RATES.COIN_BASE) * CONVERSION_RATES.INR).toFixed(2)),
+  };
+}
+
 // 7-Level Stone Badge Tier Definitions
 const STONE_TIERS = [
   { rank: 7, name: 'RUBY', days: 100 },
@@ -131,17 +132,22 @@ function getYesterdayStr() {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Get Payment Methods & Redemption Tiers
+// 1. Payment Methods List (Backward compatible with live app)
 // ---------------------------------------------------------------------------
 router.get('/payment-methods', (req, res) => {
-  res.json({
-    methods: SUPPORTED_PAYMENT_METHODS,
-    tiers: REDEMPTION_TIERS
+  db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, config) => {
+    if (!err && config && config.value) {
+      try {
+        const methods = JSON.parse(config.value);
+        return res.json(methods);
+      } catch (_) {}
+    }
+    res.json(SUPPORTED_PAYMENT_METHODS);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 2. Fetch User Wallet Balance, Cooldown, and Pending Status
+// 2. Fetch User Wallet Balance & Auto 100 Coins if 0 (Unlimited)
 // ---------------------------------------------------------------------------
 router.get('/', authenticateToken, (req, res) => {
   db.get(
@@ -150,7 +156,28 @@ router.get('/', authenticateToken, (req, res) => {
     (err, user) => {
       if (err || !user) return res.status(404).json({ error: 'Profile not found' });
 
-      // Check if user has an ongoing pending withdrawal
+      let currentBalance = user.balance || 0;
+      let autoRefilled = false;
+
+      // =========================================================================
+      // AUTO 100 COINS ON 0 BALANCE: Always give 100 coins so they can play again!
+      // =========================================================================
+      if (currentBalance <= 0) {
+        const REFILL_COINS = 100;
+        currentBalance = REFILL_COINS;
+        autoRefilled = true;
+
+        db.serialize(() => {
+          db.run('UPDATE users SET balance = ? WHERE id = ?', [REFILL_COINS, user.id]);
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) 
+             VALUES (?, 'ZERO_BALANCE_BONUS', ?, ?)`,
+            [user.id, REFILL_COINS, `PLAY_REFILL_${Date.now()}`]
+          );
+        });
+      }
+
+      // Check ongoing pending withdrawal
       db.get(
         "SELECT * FROM withdrawals WHERE user_id = ? AND status = 'PENDING' ORDER BY id DESC LIMIT 1",
         [req.user.id],
@@ -185,19 +212,24 @@ router.get('/', authenticateToken, (req, res) => {
             }
           }
 
-          // Rule 3: Cannot request if already has a pending withdrawal
           const hasPending = !!pendingWithdrawal;
           if (hasPending) {
             canWithdraw = false;
             if (!lockReason) lockReason = 'PENDING_REQUEST_EXISTS';
           }
 
+          const conversions = convertCoins(currentBalance);
+
+          // Combined payload matching both legacy and new Flutter app screens
           res.json({
-            balance: user.balance || 0,
+            balance: currentBalance,
+            auto_refilled: autoRefilled,
+            converted: conversions,
             can_withdraw: canWithdraw,
             has_pending: hasPending,
             pending_withdrawal: pendingWithdrawal || null,
             lock_reason: lockReason,
+            last_withdrawal_at: user.last_withdrawal_at,
             next_withdrawal_date: nextAvailableWithdrawal,
             cooldown_remaining_ms: remainingMs,
             tiers: REDEMPTION_TIERS
@@ -352,7 +384,7 @@ router.post('/redeem', authenticateToken, (req, res) => {
   const userId = req.user.id;
   const parsedCoins = parseInt(coinAmount, 10);
 
-  // 1. Validate fixed tier
+  // 1. Validate fixed tier (5000, 10000, 20000)
   const matchedTier = REDEMPTION_TIERS.find(t => t.coins === parsedCoins);
   if (!matchedTier) {
     return res.status(400).json({ 
@@ -360,27 +392,26 @@ router.post('/redeem', authenticateToken, (req, res) => {
     });
   }
 
-  // 2. Validate Payment Method (eSewa or Khalti only)
+  // 2. Validate Payment Method (eSewa or Khalti)
   const normalizedMethod = (paymentMethod || '').trim().toLowerCase();
   let selectedMethod = null;
-  if (normalizedMethod === 'esewa') {
+  if (normalizedMethod.includes('esewa')) {
     selectedMethod = 'eSewa';
-  } else if (normalizedMethod === 'khalti') {
+  } else if (normalizedMethod.includes('khalti')) {
     selectedMethod = 'Khalti';
   } else {
-    return res.status(400).json({ error: 'Invalid payment method. Only eSewa and Khalti are supported.' });
+    selectedMethod = paymentMethod || 'eSewa';
   }
 
-  // 3. Validate Nepali 10-Digit Mobile Number (starts with 98 or 97)
+  // 3. Validate Account / Phone Number
   const cleanMobile = (accountInfo || '').toString().trim();
-  const nepalPhoneRegex = /^(98|97)\d{8}$/;
-  if (!nepalPhoneRegex.test(cleanMobile)) {
+  if (!cleanMobile || cleanMobile.length < 8) {
     return res.status(400).json({ 
-      error: 'Invalid mobile number. Please enter a valid 10-digit Nepali number starting with 98 or 97.' 
+      error: 'Please enter a valid mobile number or account ID.' 
     });
   }
 
-  // 4. Retrieve User and Check Rules
+  // 4. Retrieve User and Validate Restrictions
   db.get('SELECT balance, created_at, last_withdrawal_at FROM users WHERE id = ?', [userId], (err, user) => {
     if (err || !user) return res.status(404).json({ error: 'User record not found.' });
 
@@ -397,7 +428,7 @@ router.post('/redeem', authenticateToken, (req, res) => {
       }
     }
 
-    // Weekly cooldown check: at least 7 days from last successful withdrawal
+    // Weekly cooldown check: at least 7 days from last successful redemption
     if (user.last_withdrawal_at) {
       const lastTime = new Date(user.last_withdrawal_at).getTime();
       if (now - lastTime < SEVEN_DAYS_MS) {
@@ -427,7 +458,7 @@ router.post('/redeem', authenticateToken, (req, res) => {
           });
         }
 
-        // Backward compatibility: calculate approximate USD equivalent so legacy NOT NULL columns are satisfied
+        // Calculate USD value for legacy database column compatibility
         const usdVal = parseFloat((parsedCoins / 5000.0).toFixed(2));
 
         // Insert using safe multi-column adapter
@@ -446,21 +477,21 @@ router.post('/redeem', authenticateToken, (req, res) => {
 
             const withdrawalId = this.lastID;
 
-            // Audit transaction record (amount = 0 while pending to preserve balance)
+            // Audit transaction record (amount = 0 while pending to preserve user balance until admin approval)
             db.run(
               `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_REQUEST', 0, ?)`,
               [userId, withdrawalId.toString()],
               (tErr) => {
-                if (tErr) {
-                  console.error('[Transaction Audit Error]:', tErr);
-                }
+                if (tErr) console.error('[Transaction Audit Error]:', tErr);
+
                 res.json({
                   success: true,
                   message: `Redemption request of ${parsedCoins.toLocaleString()} coins for NPR ${matchedTier.npr} submitted successfully! Your coins will be deducted once verified and approved.`,
                   pending_id: withdrawalId,
                   coin_amount: parsedCoins,
                   npr_amount: matchedTier.npr,
-                  payment_method: selectedMethod
+                  payment_method: selectedMethod,
+                  next_withdrawal_date: new Date(Date.now() + SEVEN_DAYS_MS).toISOString()
                 });
               }
             );
