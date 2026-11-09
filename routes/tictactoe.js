@@ -104,7 +104,6 @@ function getGameCooldown(userId, callback) {
             remainingSeconds: remainingSeconds
           });
         } else {
-          // Cooldown finished -> Reset to 0
           db.run(
             'UPDATE user_game_cooldowns SET games_played = 0, cooldown_until = NULL, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND game_id = ?',
             [userId, GAME_ID]
@@ -198,7 +197,7 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
-  // 3. Counter Corner-Fork Traps (e.g., human takes opposite corners [0,8] or [2,6])
+  // 3. Counter Corner-Fork Traps
   const humanCorners = [0, 2, 6, 8].filter(idx => board[idx] === humanSymbol);
   if (humanCorners.length === 2 && board[4] === botSymbol) {
     const emptyEdges = [1, 3, 5, 7].filter(idx => board[idx] === '');
@@ -207,7 +206,7 @@ function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
     }
   }
 
-  // 4. Center vs Corner Strategy (Unpredictable Openings)
+  // 4. Center vs Corner Strategy
   if (board[4] === '' && Math.random() < 0.60) {
     return 4;
   }
@@ -235,7 +234,6 @@ function triggerBotMoveIfTurn(matchId) {
     const chosenCell = calculateAdvancedBotMove(board, botSymbol, humanSymbol);
     if (chosenCell === -1) return;
 
-    // Realistic human response delay: 1.2s - 2.5s
     const delay = Math.floor(Math.random() * 1300) + 1200;
 
     setTimeout(() => {
@@ -253,12 +251,21 @@ function triggerBotMoveIfTurn(matchId) {
         if (outcome.winnerSymbol) {
           handleMatchFinish(matchId, BOT_USER_ID, outcome.winningLine, false, () => {});
         } else if (outcome.isDraw) {
-          handleMatchFinish(matchId, null, null, true, () => {});
+          // Bot made 9th move causing a draw -> automatically reset board for continuous rematch!
+          const nextTurn = isBotPlayerX ? currentMatch.player_o_id : currentMatch.player_x_id;
+          const freshBoard = JSON.stringify(['', '', '', '', '', '', '', '', '']);
+
+          db.run(
+            `UPDATE tictactoe_matches 
+             SET board = ?, current_turn = ?, winning_line = 'DRAW_RESET', last_move_at = CURRENT_TIMESTAMP 
+             WHERE id = ?`,
+            [freshBoard, nextTurn, matchId]
+          );
         } else {
           const nextTurn = isBotPlayerX ? currentMatch.player_o_id : currentMatch.player_x_id;
           db.run(
             `UPDATE tictactoe_matches 
-             SET board = ?, current_turn = ?, last_move_at = CURRENT_TIMESTAMP 
+             SET board = ?, current_turn = ?, winning_line = NULL, last_move_at = CURRENT_TIMESTAMP 
              WHERE id = ?`,
             [JSON.stringify(curBoard), nextTurn, matchId]
           );
@@ -308,7 +315,6 @@ router.post('/join-queue', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  // Enforce 10-match limit / 10-minute break
   getGameCooldown(userId, (cdErr, cdInfo) => {
     if (cdInfo && cdInfo.isBlocked) {
       const mins = Math.floor(cdInfo.remainingSeconds / 60);
@@ -466,7 +472,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 4. GET /api/tictactoe/check-queue-status (Bot Matchmaker fallback)
+// 4. GET /api/tictactoe/check-queue-status
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
@@ -591,7 +597,11 @@ function sendMatchResponse(res, match, userId, secondsRemaining, timedOut) {
   let board = [];
   let winningLine = null;
   try { board = JSON.parse(match.board); } catch (_) { board = Array(9).fill(''); }
-  try { if (match.winning_line) winningLine = JSON.parse(match.winning_line); } catch (_) {}
+  try {
+    if (match.winning_line && match.winning_line !== 'DRAW_RESET') {
+      winningLine = JSON.parse(match.winning_line);
+    }
+  } catch (_) {}
 
   const isPlayerX = String(match.player_x_id) === String(userId);
 
@@ -607,6 +617,7 @@ function sendMatchResponse(res, match, userId, secondsRemaining, timedOut) {
     status: match.status,
     winnerId: match.winner_id,
     winningLine: winningLine,
+    isDrawReset: match.winning_line === 'DRAW_RESET', // Signals continuous rematch on draw
     potAmount: match.pot_amount,
     secondsRemaining: secondsRemaining,
     turnTimeoutSeconds: TURN_TIMEOUT_SECONDS,
@@ -616,7 +627,7 @@ function sendMatchResponse(res, match, userId, secondsRemaining, timedOut) {
 }
 
 // -----------------------------------------------------------------------------
-// 6. POST /api/tictactoe/move
+// 6. POST /api/tictactoe/move (Handles Instant Continuous Rematch on Draw)
 // -----------------------------------------------------------------------------
 router.post('/move', authenticateToken, (req, res) => {
   const { matchId, cellIndex } = req.body;
@@ -648,6 +659,7 @@ router.post('/move', authenticateToken, (req, res) => {
     const outcome = checkWinner(board);
 
     if (outcome.winnerSymbol) {
+      // Decisive win: Mark match COMPLETED and payout winner
       handleMatchFinish(match.id, userId, outcome.winningLine, false, (finishErr) => {
         if (finishErr) return res.status(500).json({ error: 'Failed to record win' });
         return res.json({
@@ -659,19 +671,38 @@ router.post('/move', authenticateToken, (req, res) => {
         });
       });
     } else if (outcome.isDraw) {
-      handleMatchFinish(match.id, null, null, true, (finishErr) => {
-        if (finishErr) return res.status(500).json({ error: 'Failed to record draw' });
-        return res.json({
-          success: true,
-          status: 'DRAW',
-          board: board
-        });
-      });
+      // DRAW DETECTED: Immediately reset board for the same players without ending match or refunding coins!
+      const nextTurn = String(match.player_x_id) === String(userId) ? match.player_o_id : match.player_x_id;
+      const freshBoard = JSON.stringify(['', '', '', '', '', '', '', '', '']);
+
+      db.run(
+        `UPDATE tictactoe_matches 
+         SET board = ?, current_turn = ?, winning_line = 'DRAW_RESET', last_move_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`,
+        [freshBoard, nextTurn, match.id],
+        (updateErr) => {
+          if (updateErr) return res.status(500).json({ error: 'Failed to reset draw match' });
+
+          if (String(nextTurn) === String(BOT_USER_ID)) {
+            triggerBotMoveIfTurn(match.id);
+          }
+
+          return res.json({
+            success: true,
+            status: 'IN_PROGRESS',
+            isDrawReset: true,
+            board: ['', '', '', '', '', '', '', '', ''],
+            nextTurn: nextTurn,
+            secondsRemaining: TURN_TIMEOUT_SECONDS
+          });
+        }
+      );
     } else {
+      // Normal move
       const nextTurn = String(match.player_x_id) === String(userId) ? match.player_o_id : match.player_x_id;
       db.run(
         `UPDATE tictactoe_matches 
-         SET board = ?, current_turn = ?, last_move_at = CURRENT_TIMESTAMP 
+         SET board = ?, current_turn = ?, winning_line = NULL, last_move_at = CURRENT_TIMESTAMP 
          WHERE id = ?`,
         [JSON.stringify(board), nextTurn, match.id],
         (updateErr) => {
@@ -720,11 +751,11 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
     if (err || !match) return callback(new Error('Match not found'));
     if (match.status !== 'IN_PROGRESS') return callback(null);
 
-    // Record game completion for 10-match cycle
+    // Record game completion toward the 10-match cycle
     recordMatchCompleted(match.player_x_id);
     recordMatchCompleted(match.player_o_id);
 
-    // Case 1: DRAW
+    // Case 1: DRAW (Internal fallback)
     if (isDraw) {
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
