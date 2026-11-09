@@ -34,9 +34,72 @@ const SUPPORTED_PAYMENT_METHODS = [
   }
 ];
 
-// Ensure schema columns exist
-db.run("ALTER TABLE users ADD COLUMN last_withdrawal_at TEXT", () => {});
-db.run("ALTER TABLE withdrawals ADD COLUMN npr_amount REAL", () => {});
+// ---------------------------------------------------------------------------
+// 0. Auto-Migrate Database Schema Safely
+// ---------------------------------------------------------------------------
+db.serialize(() => {
+  // Ensure withdrawals table exists with all required columns
+  db.run(`
+    CREATE TABLE IF NOT EXISTS withdrawals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      payment_method TEXT NOT NULL,
+      account_info TEXT NOT NULL,
+      coin_amount INTEGER NOT NULL,
+      npr_amount REAL,
+      usd_amount REAL,
+      status TEXT DEFAULT 'PENDING',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      processed_at DATETIME
+    )
+  `);
+
+  // Auto-add columns if migrating from an older database schema
+  db.run("ALTER TABLE withdrawals ADD COLUMN npr_amount REAL", () => {});
+  db.run("ALTER TABLE withdrawals ADD COLUMN usd_amount REAL", () => {});
+  db.run("ALTER TABLE withdrawals ADD COLUMN processed_at DATETIME", () => {});
+  db.run("ALTER TABLE users ADD COLUMN last_withdrawal_at TEXT", () => {});
+});
+
+// Helper: Safely insert withdrawal record regardless of older SQLite schema constraints
+function insertWithdrawalRecord(userId, paymentMethod, accountInfo, coinAmount, nprAmount, usdAmount, callback) {
+  db.all("PRAGMA table_info(withdrawals)", (err, columns) => {
+    const colNames = (columns || []).map(c => c.name);
+    const hasNpr = colNames.includes('npr_amount');
+    const hasUsd = colNames.includes('usd_amount');
+
+    // Build query matching existing database columns to avoid SQLITE_ERROR
+    if (hasNpr && hasUsd) {
+      db.run(
+        `INSERT INTO withdrawals (user_id, payment_method, account_info, coin_amount, npr_amount, usd_amount, status) 
+         VALUES (?, ?, ?, ?, ?, ?, 'PENDING')`,
+        [userId, paymentMethod, accountInfo, coinAmount, nprAmount, usdAmount],
+        callback
+      );
+    } else if (hasNpr) {
+      db.run(
+        `INSERT INTO withdrawals (user_id, payment_method, account_info, coin_amount, npr_amount, status) 
+         VALUES (?, ?, ?, ?, ?, 'PENDING')`,
+        [userId, paymentMethod, accountInfo, coinAmount, nprAmount],
+        callback
+      );
+    } else if (hasUsd) {
+      db.run(
+        `INSERT INTO withdrawals (user_id, payment_method, account_info, coin_amount, usd_amount, status) 
+         VALUES (?, ?, ?, ?, ?, 'PENDING')`,
+        [userId, paymentMethod, accountInfo, coinAmount, usdAmount],
+        callback
+      );
+    } else {
+      db.run(
+        `INSERT INTO withdrawals (user_id, payment_method, account_info, coin_amount, status) 
+         VALUES (?, ?, ?, ?, 'PENDING')`,
+        [userId, paymentMethod, accountInfo, coinAmount],
+        callback
+      );
+    }
+  });
+}
 
 // 7-Level Stone Badge Tier Definitions
 const STONE_TIERS = [
@@ -89,7 +152,7 @@ router.get('/', authenticateToken, (req, res) => {
 
       // Check if user has an ongoing pending withdrawal
       db.get(
-        "SELECT id, coin_amount, npr_amount, payment_method, account_info, created_at FROM withdrawals WHERE user_id = ? AND status = 'PENDING' ORDER BY id DESC LIMIT 1",
+        "SELECT * FROM withdrawals WHERE user_id = ? AND status = 'PENDING' ORDER BY id DESC LIMIT 1",
         [req.user.id],
         (wErr, pendingWithdrawal) => {
           const now = Date.now();
@@ -160,7 +223,7 @@ router.get('/transactions', authenticateToken, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Offerwall Credit & Streak Counter (Unchanged)
+// 4. Offerwall Credit & Streak Counter
 // ---------------------------------------------------------------------------
 function handleOfferwallCredit(req, res) {
   const userId = (req.user && req.user.id) ? req.user.id : (req.body.userId || req.query.userId || req.query.user_id);
@@ -364,24 +427,33 @@ router.post('/redeem', authenticateToken, (req, res) => {
           });
         }
 
-        // NOTE: As per instructions, DO NOT deduct user balance immediately when request is PENDING.
-        // Balance will be deducted by admin approval process.
-        db.run(
-          `INSERT INTO withdrawals (user_id, payment_method, account_info, coin_amount, npr_amount, status) 
-           VALUES (?, ?, ?, ?, ?, 'PENDING')`,
-          [userId, selectedMethod, cleanMobile, parsedCoins, matchedTier.npr],
+        // Backward compatibility: calculate approximate USD equivalent so legacy NOT NULL columns are satisfied
+        const usdVal = parseFloat((parsedCoins / 5000.0).toFixed(2));
+
+        // Insert using safe multi-column adapter
+        insertWithdrawalRecord(
+          userId,
+          selectedMethod,
+          cleanMobile,
+          parsedCoins,
+          matchedTier.npr,
+          usdVal,
           function (insertErr) {
             if (insertErr) {
-              return res.status(500).json({ error: 'Failed to record redemption request.' });
+              console.error('[Withdrawal DB Insert Error]:', insertErr);
+              return res.status(500).json({ error: 'Failed to record redemption request: ' + insertErr.message });
             }
 
             const withdrawalId = this.lastID;
 
-            // Record transaction audit trail (amount = 0 while pending to preserve balance)
+            // Audit transaction record (amount = 0 while pending to preserve balance)
             db.run(
               `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_REQUEST', 0, ?)`,
               [userId, withdrawalId.toString()],
-              () => {
+              (tErr) => {
+                if (tErr) {
+                  console.error('[Transaction Audit Error]:', tErr);
+                }
                 res.json({
                   success: true,
                   message: `Redemption request of ${parsedCoins.toLocaleString()} coins for NPR ${matchedTier.npr} submitted successfully! Your coins will be deducted once verified and approved.`,
