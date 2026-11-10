@@ -8,10 +8,6 @@ const db = require('../database');
 
 const JWT_SECRET = 'ARENA_GAMES_SUPER_SECRET_KEY';
 
-// Automatically ensure device_id column and index exist in the SQLite database
-db.run("ALTER TABLE users ADD COLUMN device_id TEXT", () => {});
-db.run("CREATE INDEX IF NOT EXISTS idx_users_device_id ON users(device_id)", () => {});
-
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -33,31 +29,25 @@ function generateReferralCode() {
 
 // User Registration
 router.post('/register', async (req, res) => {
-  const { fullName, username, email, password, referralCode, deviceId, device_id } = req.body;
-  const cleanDeviceId = (deviceId || device_id || '').toString().trim();
+  const { fullName, username, email, password, referralCode } = req.body;
 
   if (!fullName || !username || !email || !password) {
     return res.status(400).json({ error: 'All primary fields are required' });
   }
 
-  // 1. Strict check: Prevent registering multiple accounts from the same physical device
-  if (cleanDeviceId) {
-    db.get('SELECT id FROM users WHERE device_id = ?', [cleanDeviceId], async (devErr, existingDevice) => {
-      if (existingDevice) {
-        return res.status(400).json({
-          error: 'This device is already register with another account contact to customer care for more information..'
-        });
-      }
+  // Extract the user's real client IP address
+  const clientIp =
+    req.headers['cf-connecting-ip'] ||
+    (req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(',')[0].trim() : null) ||
+    req.headers['x-real-ip'] ||
+    req.ip ||
+    req.socket.remoteAddress ||
+    'unknown';
 
-      // Proceed with registration check if device is clean
-      handleUserRegistration(fullName, username, email, password, referralCode, cleanDeviceId, res);
-    });
-  } else {
-    handleUserRegistration(fullName, username, email, password, referralCode, null, res);
-  }
+  handleUserRegistration(fullName, username, email, password, referralCode, clientIp, res);
 });
 
-async function handleUserRegistration(fullName, username, email, password, referralCode, cleanDeviceId, res) {
+async function handleUserRegistration(fullName, username, email, password, referralCode, clientIp, res) {
   try {
     const passwordHash = await bcrypt.hash(password, 10);
     const generatedCode = generateReferralCode();
@@ -84,7 +74,7 @@ async function handleUserRegistration(fullName, username, email, password, refer
               passwordHash,
               generatedCode,
               referrer.id,
-              cleanDeviceId,
+              clientIp,
               res
             );
           }
@@ -97,7 +87,7 @@ async function handleUserRegistration(fullName, username, email, password, refer
           passwordHash,
           generatedCode,
           null,
-          cleanDeviceId,
+          clientIp,
           res
         );
       }
@@ -107,15 +97,18 @@ async function handleUserRegistration(fullName, username, email, password, refer
   }
 }
 
-function executeUserCreation(fullName, username, email, passwordHash, code, referrerId, deviceId, res) {
+function executeUserCreation(fullName, username, email, passwordHash, code, referrerId, clientIp, res) {
   const signupBonus = 100;
 
   db.run(
-    `INSERT INTO users (full_name, username, email, password_hash, referral_code, referred_by_id, balance, device_id) 
+    `INSERT INTO users (full_name, username, email, password_hash, referral_code, referred_by_id, balance, registration_ip) 
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [fullName, username, email, passwordHash, code, referrerId, signupBonus, deviceId],
+    [fullName, username, email, passwordHash, code, referrerId, signupBonus, clientIp],
     function (insertErr) {
-      if (insertErr) return res.status(500).json({ error: 'Failed to create user record' });
+      if (insertErr) {
+        console.error('Error inserting user record:', insertErr.message);
+        return res.status(500).json({ error: 'Failed to create user record' });
+      }
 
       const newUserId = this.lastID;
 
