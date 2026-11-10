@@ -11,19 +11,10 @@ const GAME_ID = 'tictactoe_1v1';
 const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
 const TURN_TIMEOUT_SECONDS = 30;
-const BOT_WAIT_TIMEOUT_MS = 3500;
-const BOT_USER_ID = 999999;
 const MAX_MATCHES = 10;
 const BREAK_DURATION_SEC = 10 * 60; // 10 Minutes Break
 
-const BOT_NAMES = [
-  'ShadowNinja', 'ViperQueen', 'Alex_Pro99', 'CyberSamurai', 'NovaStrike',
-  'Elena_92', 'ApexHunter', 'GhostRider_X', 'BlazeFury', 'ZenithPulse',
-  'AeroKnight', 'PixelWarrior', 'ThunderHawk', 'EchoGamer', 'TitanX',
-  'Vortex_77', 'Krypton', 'CrimsonBlade', 'NeonRider', 'Spectre_01'
-];
-
-// Self-healing: Table for tracking 10-match game cycles & 10-minute cooldown
+// Table for tracking 10-match game cycles & 10-minute cooldown
 db.run(`
   CREATE TABLE IF NOT EXISTS user_game_cooldowns (
     user_id INTEGER NOT NULL,
@@ -33,12 +24,6 @@ db.run(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, game_id)
   )
-`);
-
-// Self-healing bot account in users table
-db.run(`
-  INSERT OR IGNORE INTO users (id, full_name, username, email, password_hash, referral_code, balance) 
-  VALUES (999999, 'Arena Challenger', 'arena_bot_system', 'bot@arenagames.internal', 'DISABLED_BOT_ACCOUNT', 'BOT9999', 1000000)
 `);
 
 // 7-Level Stone Badge definitions
@@ -120,7 +105,6 @@ function getGameCooldown(userId, callback) {
 
 // Record match completion (+1 count, triggers 10m cooldown when reaching 10)
 function recordMatchCompleted(userId) {
-  if (String(userId) === String(BOT_USER_ID)) return;
   const now = Date.now();
   const cooldownEndIso = new Date(now + BREAK_DURATION_SEC * 1000).toISOString();
 
@@ -151,6 +135,7 @@ function recordMatchCompleted(userId) {
   );
 }
 
+// Real Human Matchmaking Queue: [{ userId, username, joinedAt }]
 let matchmakingQueue = [];
 
 function checkWinner(board) {
@@ -163,153 +148,32 @@ function checkWinner(board) {
   return { winnerSymbol: null, winningLine: null, isDraw: board.every(cell => cell !== '') };
 }
 
-// Challenging & Unpredictable Bot AI
-function calculateAdvancedBotMove(board, botSymbol, humanSymbol) {
-  const emptyCells = [];
-  for (let i = 0; i < 9; i++) {
-    if (board[i] === '') emptyCells.push(i);
-  }
-  if (emptyCells.length === 0) return -1;
-
-  // 1. Instant Win Check: Take win 95% of the time
-  if (Math.random() < 0.95) {
-    for (const combo of WINNING_COMBOS) {
-      const [a, b, c] = combo;
-      const line = [board[a], board[b], board[c]];
-      if (line.filter(s => s === botSymbol).length === 2 && line.includes('')) {
-        if (board[a] === '') return a;
-        if (board[b] === '') return b;
-        if (board[c] === '') return c;
-      }
-    }
-  }
-
-  // 2. Direct Threat Block: Block player's 2-in-a-row 90% of the time
-  if (Math.random() < 0.90) {
-    for (const combo of WINNING_COMBOS) {
-      const [a, b, c] = combo;
-      const line = [board[a], board[b], board[c]];
-      if (line.filter(s => s === humanSymbol).length === 2 && line.includes('')) {
-        if (board[a] === '') return a;
-        if (board[b] === '') return b;
-        if (board[c] === '') return c;
-      }
-    }
-  }
-
-  // 3. Counter Corner-Fork Traps
-  const humanCorners = [0, 2, 6, 8].filter(idx => board[idx] === humanSymbol);
-  if (humanCorners.length === 2 && board[4] === botSymbol) {
-    const emptyEdges = [1, 3, 5, 7].filter(idx => board[idx] === '');
-    if (emptyEdges.length > 0 && Math.random() < 0.85) {
-      return emptyEdges[Math.floor(Math.random() * emptyEdges.length)];
-    }
-  }
-
-  // 4. Center vs Corner Strategy
-  if (board[4] === '' && Math.random() < 0.60) {
-    return 4;
-  }
-
-  const corners = [0, 2, 6, 8].filter(idx => board[idx] === '');
-  if (corners.length > 0) {
-    return corners[Math.floor(Math.random() * corners.length)];
-  }
-
-  return emptyCells[Math.floor(Math.random() * emptyCells.length)];
-}
-
-function triggerBotMoveIfTurn(matchId) {
-  db.get('SELECT * FROM tictactoe_matches WHERE id = ?', [matchId], (err, match) => {
-    if (err || !match || match.status !== 'IN_PROGRESS') return;
-    if (String(match.current_turn) !== String(BOT_USER_ID)) return;
-
-    let board = [];
-    try { board = JSON.parse(match.board); } catch (_) { board = Array(9).fill(''); }
-
-    const isBotPlayerX = String(match.player_x_id) === String(BOT_USER_ID);
-    const botSymbol = isBotPlayerX ? 'X' : 'O';
-    const humanSymbol = isBotPlayerX ? 'O' : 'X';
-
-    const chosenCell = calculateAdvancedBotMove(board, botSymbol, humanSymbol);
-    if (chosenCell === -1) return;
-
-    const delay = Math.floor(Math.random() * 1300) + 1200;
-
-    setTimeout(() => {
-      db.get('SELECT * FROM tictactoe_matches WHERE id = ?', [matchId], (currErr, currentMatch) => {
-        if (currErr || !currentMatch || currentMatch.status !== 'IN_PROGRESS') return;
-        if (String(currentMatch.current_turn) !== String(BOT_USER_ID)) return;
-
-        let curBoard = [];
-        try { curBoard = JSON.parse(currentMatch.board); } catch (_) { curBoard = Array(9).fill(''); }
-        if (curBoard[chosenCell] !== '') return;
-
-        curBoard[chosenCell] = botSymbol;
-        const outcome = checkWinner(curBoard);
-
-        if (outcome.winnerSymbol) {
-          handleMatchFinish(matchId, BOT_USER_ID, outcome.winningLine, false, () => {});
-        } else if (outcome.isDraw) {
-          // Bot made 9th move causing a draw -> automatically reset board for continuous rematch!
-          const nextTurn = isBotPlayerX ? currentMatch.player_o_id : currentMatch.player_x_id;
-          const freshBoard = JSON.stringify(['', '', '', '', '', '', '', '', '']);
-
-          db.run(
-            `UPDATE tictactoe_matches 
-             SET board = ?, current_turn = ?, winning_line = 'DRAW_RESET', last_move_at = CURRENT_TIMESTAMP 
-             WHERE id = ?`,
-            [freshBoard, nextTurn, matchId]
-          );
-        } else {
-          const nextTurn = isBotPlayerX ? currentMatch.player_o_id : currentMatch.player_x_id;
-          db.run(
-            `UPDATE tictactoe_matches 
-             SET board = ?, current_turn = ?, winning_line = NULL, last_move_at = CURRENT_TIMESTAMP 
-             WHERE id = ?`,
-            [JSON.stringify(curBoard), nextTurn, matchId]
-          );
-        }
-      });
-    }, delay);
-  });
-}
-
 // -----------------------------------------------------------------------------
-// 1. GET /api/tictactoe/waiting-players
+// 1. GET /api/tictactoe/waiting-players (Actual Real Players in Queue)
 // -----------------------------------------------------------------------------
 router.get('/waiting-players', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
   const now = Date.now();
+
+  // Clean stale tickets older than 90s
   matchmakingQueue = matchmakingQueue.filter(p => (now - p.joinedAt) < 90000);
-
-  const fakeWaitingCount = 100 + Math.floor((now / 15000) % 9);
-  const totalCount = Math.max(matchmakingQueue.length, fakeWaitingCount);
-
-  const sampleList = BOT_NAMES.slice(0, 10).map((name, i) => ({
-    userId: 900000 + i,
-    username: name,
-    waitingSeconds: (i * 2) + 1
-  }));
 
   getGameCooldown(userId, (cdErr, cdInfo) => {
     res.json({
       success: true,
-      count: totalCount,
-      players: matchmakingQueue.length > 0
-        ? matchmakingQueue.map(p => ({
-            userId: p.userId,
-            username: p.username,
-            waitingSeconds: Math.floor((now - p.joinedAt) / 1000)
-          })).concat(sampleList)
-        : sampleList,
+      count: matchmakingQueue.length,
+      players: matchmakingQueue.map(p => ({
+        userId: p.userId,
+        username: p.username,
+        waitingSeconds: Math.floor((now - p.joinedAt) / 1000)
+      })),
       cooldown: cdInfo
     });
   });
 });
 
 // -----------------------------------------------------------------------------
-// 2. POST /api/tictactoe/join-queue
+// 2. POST /api/tictactoe/join-queue (Real PvP Matchmaking)
 // -----------------------------------------------------------------------------
 router.post('/join-queue', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
@@ -326,6 +190,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
       });
     }
 
+    // Check if player has an active match already
     db.get(
       `SELECT id FROM tictactoe_matches 
        WHERE (player_x_id = ? OR player_o_id = ?) AND status = 'IN_PROGRESS'`,
@@ -383,9 +248,11 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                     return res.status(500).json({ error: 'Transaction commit failed' });
                   }
 
+                  // Find an available REAL human opponent in the queue
                   const opponentIndex = matchmakingQueue.findIndex(p => String(p.userId) !== String(user.id));
 
                   if (opponentIndex !== -1) {
+                    // Real player found! Connect both players
                     const opponent = matchmakingQueue.splice(opponentIndex, 1)[0];
                     const matchId = `match_${crypto.randomBytes(8).toString('hex')}`;
                     const initialBoard = JSON.stringify(['', '', '', '', '', '', '', '', '']);
@@ -408,6 +275,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                       }
                     );
                   } else {
+                    // No other human player available -> Wait in queue
                     matchmakingQueue.push({
                       userId: user.id,
                       username: user.username,
@@ -418,7 +286,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                       success: true,
                       matched: false,
                       inQueue: true,
-                      message: 'Searching for opponent...'
+                      message: 'Searching for a real opponent...'
                     });
                   }
                 });
@@ -472,7 +340,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 4. GET /api/tictactoe/check-queue-status
+// 4. GET /api/tictactoe/check-queue-status (Checks if another human paired with you)
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
@@ -495,60 +363,11 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
         });
       }
 
-      const qIndex = matchmakingQueue.findIndex(p => String(p.userId) === String(userId));
-      if (qIndex === -1) {
-        return res.json({ success: true, matched: false, inQueue: false });
-      }
-
-      const playerEntry = matchmakingQueue[qIndex];
-      const waitingMs = Date.now() - playerEntry.joinedAt;
-
-      // 3.5s Bot Fallback
-      if (waitingMs >= BOT_WAIT_TIMEOUT_MS) {
-        const matchId = `match_${crypto.randomBytes(8).toString('hex')}`;
-        const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-        const isUserPlayerX = Math.random() < 0.5;
-
-        const playerXId = isUserPlayerX ? playerEntry.userId : BOT_USER_ID;
-        const playerOId = isUserPlayerX ? BOT_USER_ID : playerEntry.userId;
-        const playerXName = isUserPlayerX ? playerEntry.username : botName;
-        const playerOName = isUserPlayerX ? botName : playerEntry.username;
-        const initialBoard = JSON.stringify(['', '', '', '', '', '', '', '', '']);
-
-        db.run(
-          `INSERT INTO tictactoe_matches (
-            id, player_x_id, player_o_id, player_x_name, player_o_name,
-            current_turn, board, status, pot_amount, last_move_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'IN_PROGRESS', 200, CURRENT_TIMESTAMP)`,
-          [matchId, playerXId, playerOId, playerXName, playerOName, playerXId, initialBoard],
-          (insErr) => {
-            if (insErr) {
-              console.error('[TTT BOT MATCH INSERT ERROR]:', insErr.message);
-              return res.status(500).json({ error: 'Failed to create match' });
-            }
-
-            matchmakingQueue.splice(qIndex, 1);
-
-            if (!isUserPlayerX) {
-              triggerBotMoveIfTurn(matchId);
-            }
-
-            return res.json({
-              success: true,
-              matched: true,
-              matchId: matchId,
-              symbol: isUserPlayerX ? 'X' : 'O',
-              opponentName: botName
-            });
-          }
-        );
-        return;
-      }
-
+      const inQueue = matchmakingQueue.some(p => String(p.userId) === String(userId));
       return res.json({
         success: true,
         matched: false,
-        inQueue: true
+        inQueue: inQueue
       });
     }
   );
@@ -585,10 +404,6 @@ router.get('/match/:matchId', authenticateToken, (req, res) => {
       return;
     }
 
-    if (match.status === 'IN_PROGRESS' && String(match.current_turn) === String(BOT_USER_ID)) {
-      triggerBotMoveIfTurn(match.id);
-    }
-
     sendMatchResponse(res, match, userId, secondsRemaining, false);
   });
 });
@@ -617,7 +432,7 @@ function sendMatchResponse(res, match, userId, secondsRemaining, timedOut) {
     status: match.status,
     winnerId: match.winner_id,
     winningLine: winningLine,
-    isDrawReset: match.winning_line === 'DRAW_RESET', // Signals continuous rematch on draw
+    isDrawReset: match.winning_line === 'DRAW_RESET',
     potAmount: match.pot_amount,
     secondsRemaining: secondsRemaining,
     turnTimeoutSeconds: TURN_TIMEOUT_SECONDS,
@@ -627,7 +442,7 @@ function sendMatchResponse(res, match, userId, secondsRemaining, timedOut) {
 }
 
 // -----------------------------------------------------------------------------
-// 6. POST /api/tictactoe/move (Handles Instant Continuous Rematch on Draw)
+// 6. POST /api/tictactoe/move (Handles Instant Rematch on Draw)
 // -----------------------------------------------------------------------------
 router.post('/move', authenticateToken, (req, res) => {
   const { matchId, cellIndex } = req.body;
@@ -659,7 +474,6 @@ router.post('/move', authenticateToken, (req, res) => {
     const outcome = checkWinner(board);
 
     if (outcome.winnerSymbol) {
-      // Decisive win: Mark match COMPLETED and payout winner
       handleMatchFinish(match.id, userId, outcome.winningLine, false, (finishErr) => {
         if (finishErr) return res.status(500).json({ error: 'Failed to record win' });
         return res.json({
@@ -671,7 +485,7 @@ router.post('/move', authenticateToken, (req, res) => {
         });
       });
     } else if (outcome.isDraw) {
-      // DRAW DETECTED: Immediately reset board for the same players without ending match or refunding coins!
+      // DRAW: Reset the board immediately with the same real human opponent
       const nextTurn = String(match.player_x_id) === String(userId) ? match.player_o_id : match.player_x_id;
       const freshBoard = JSON.stringify(['', '', '', '', '', '', '', '', '']);
 
@@ -682,11 +496,6 @@ router.post('/move', authenticateToken, (req, res) => {
         [freshBoard, nextTurn, match.id],
         (updateErr) => {
           if (updateErr) return res.status(500).json({ error: 'Failed to reset draw match' });
-
-          if (String(nextTurn) === String(BOT_USER_ID)) {
-            triggerBotMoveIfTurn(match.id);
-          }
-
           return res.json({
             success: true,
             status: 'IN_PROGRESS',
@@ -698,7 +507,6 @@ router.post('/move', authenticateToken, (req, res) => {
         }
       );
     } else {
-      // Normal move
       const nextTurn = String(match.player_x_id) === String(userId) ? match.player_o_id : match.player_x_id;
       db.run(
         `UPDATE tictactoe_matches 
@@ -707,11 +515,6 @@ router.post('/move', authenticateToken, (req, res) => {
         [JSON.stringify(board), nextTurn, match.id],
         (updateErr) => {
           if (updateErr) return res.status(500).json({ error: 'Failed to record move' });
-
-          if (String(nextTurn) === String(BOT_USER_ID)) {
-            triggerBotMoveIfTurn(match.id);
-          }
-
           return res.json({
             success: true,
             status: 'IN_PROGRESS',
@@ -755,47 +558,7 @@ function handleMatchFinish(matchId, winnerId, winningLine, isDraw, callback) {
     recordMatchCompleted(match.player_x_id);
     recordMatchCompleted(match.player_o_id);
 
-    // Case 1: DRAW (Internal fallback)
-    if (isDraw) {
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
-
-        if (String(match.player_x_id) !== String(BOT_USER_ID)) {
-          db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, match.player_x_id]);
-          db.run(`INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'TICTACTOE_REFUND', ?, ?)`, [match.player_x_id, ENTRY_FEE, `DRAW_${match.id}`]);
-        }
-
-        if (String(match.player_o_id) !== String(BOT_USER_ID)) {
-          db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, match.player_o_id]);
-          db.run(`INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'TICTACTOE_REFUND', ?, ?)`, [match.player_o_id, ENTRY_FEE, `DRAW_${match.id}`]);
-        }
-
-        db.run(
-          `UPDATE tictactoe_matches SET status = 'DRAW' WHERE id = ?`,
-          [match.id],
-          (uErr) => {
-            if (uErr) { db.run('ROLLBACK'); return callback(uErr); }
-            db.run('COMMIT', callback);
-          }
-        );
-      });
-      return;
-    }
-
-    // Case 2: BOT WINS
-    if (String(winnerId) === String(BOT_USER_ID)) {
-      db.run(
-        `UPDATE tictactoe_matches SET status = 'COMPLETED', winner_id = ?, winning_line = ? WHERE id = ?`,
-        [winnerId, winningLine ? JSON.stringify(winningLine) : null, match.id],
-        (finErr) => {
-          if (finErr) return callback(finErr);
-          callback(null);
-        }
-      );
-      return;
-    }
-
-    // Case 3: REAL HUMAN WINS
+    // Real Human Winner: Award 200 coins and advance Daily Streak
     db.get('SELECT * FROM users WHERE id = ?', [winnerId], (uErr, user) => {
       if (uErr || !user) return callback(new Error('Winner profile missing'));
 
