@@ -30,6 +30,9 @@ const rpsRoutes = require('./routes/rps');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Enable reading client IP from reverse proxies (Nginx / Cloudflare / Load Balancers)
+app.set('trust proxy', true);
+
 // Security Keys
 const ADSWED_SECRET_KEY = 'Av9Bb6Cz2Nh2So3';
 const TIMEWALL_PLACEMENT_ID = '21f38a8af19d2013';
@@ -318,7 +321,7 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: 'An internal server error occurred' });
 });
 
-// Listen on all network interfaces so Nginx / PM2 / Docker can connect
+// Listen on all network interfaces
 const server = app.listen(PORT, () => {
   console.log(`\n======================================================`);
   console.log(`  Arena Games API Server is running on port: ${PORT}  `);
