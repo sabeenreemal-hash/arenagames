@@ -79,6 +79,7 @@ db.serialize(() => {
       creator_badge_id INTEGER DEFAULT NULL,
       last_withdrawal_at DATETIME DEFAULT NULL,
       last_active_at DATETIME DEFAULT NULL,
+      registration_ip TEXT DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(referred_by_id) REFERENCES users(id) ON DELETE SET NULL
     )
@@ -101,8 +102,9 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'creator_badge_enabled', 'INTEGER', 0);
   addColumnIfNotExists('users', 'creator_badge_id', 'INTEGER', 'NULL');
   addColumnIfNotExists('users', 'last_withdrawal_at', 'DATETIME', 'NULL');
+  addColumnIfNotExists('users', 'registration_ip', 'TEXT', 'NULL');
   
-  // Safe migration for last_active_at (SQLite does not allow CURRENT_TIMESTAMP in ALTER TABLE)
+  // Safe migration for last_active_at
   addColumnIfNotExists('users', 'last_active_at', 'DATETIME', 'NULL');
 
   // Badges Table
@@ -356,6 +358,7 @@ db.serialize(() => {
 
   // Performance Indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_users_registration_ip ON users(registration_ip);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(user_id);`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_game_sessions_user ON game_sessions(user_id);`);
