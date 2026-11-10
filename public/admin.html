@@ -315,20 +315,6 @@
       border: 1px solid rgba(0, 230, 118, 0.2);
     }
 
-    .live-users-indicator {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--primary);
-      background: rgba(0, 230, 118, 0.12);
-      padding: 6px 14px;
-      border-radius: 20px;
-      border: 1px solid rgba(0, 230, 118, 0.35);
-      letter-spacing: 0.3px;
-    }
-
     .status-dot {
       width: 8px;
       height: 8px;
@@ -376,11 +362,6 @@
       padding: 20px;
       position: relative;
       overflow: hidden;
-    }
-
-    .metric-card.live-card {
-      border: 1px solid rgba(0, 230, 118, 0.35);
-      background: linear-gradient(145deg, rgba(18, 22, 31, 1) 0%, rgba(0, 230, 118, 0.05) 100%);
     }
 
     .metric-title {
@@ -455,7 +436,7 @@
       padding: 9px 14px;
       border-radius: 8px;
       font-size: 13px;
-      width: 280px;
+      width: 320px;
       outline: none;
     }
 
@@ -901,11 +882,6 @@
           <div class="page-title" id="current-page-title">Dashboard Overview</div>
         </div>
         <div class="topbar-right">
-          <div class="live-users-indicator" title="Active users currently on the app within the last 5 minutes">
-            <div class="status-dot"></div>
-            <span>Live Active Users: <strong id="topbar-live-users" style="color: white; font-size: 13px;">00</strong></span>
-          </div>
-
           <div class="status-indicator">
             <div class="status-dot"></div>
             <span>Server Live</span>
@@ -919,15 +895,6 @@
 
         <!-- OVERVIEW METRIC CARDS -->
         <div class="metrics-grid">
-          <div class="metric-card live-card">
-            <div class="metric-title" style="display: flex; align-items: center; gap: 8px;">
-              <span class="status-dot" style="display: inline-block;"></span>
-              <span style="color: var(--primary);">Realtime Active Users</span>
-            </div>
-            <div class="metric-val" id="stat-active-users" style="color: var(--primary);">00</div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">Active in last 5 mins</div>
-          </div>
-
           <div class="metric-card">
             <div class="metric-title">Registered Players</div>
             <div class="metric-val" id="stat-users" style="color: white;">...</div>
@@ -1115,9 +1082,9 @@
             <div class="card-header-flex">
               <div>
                 <h2>Registered Users Database</h2>
-                <p>Inspect live player activity, registration dates, modify balances, or permanently remove accounts.</p>
+                <p>Inspect player accounts, registered IPs, multi-account alerts, adjust balances, or remove users.</p>
               </div>
-              <input type="text" id="user-search" class="search-bar" placeholder="Filter users by username / email..." onkeyup="filterUsersList()">
+              <input type="text" id="user-search" class="search-bar" placeholder="Filter by username, email, IP..." onkeyup="filterUsersList()">
             </div>
 
             <div class="table-container">
@@ -1130,14 +1097,13 @@
                     <th>Coins</th>
                     <th>Streak / Stone</th>
                     <th>Account Created</th>
-                    <th>Online Activity</th>
-                    <th>Status</th>
+                    <th>Registered IP & Multi-Account</th>
                     <th>Admin Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td colspan="9">Fetching user accounts...</td>
+                    <td colspan="8">Fetching user accounts...</td>
                   </tr>
                 </tbody>
               </table>
@@ -1330,7 +1296,6 @@
     let currentSubmissionsCache = [];
     let activeSubFilter = 'pending';
     let activeWithdrawalFilter = 'PENDING';
-    let livePulseInterval = null;
 
     function getHeaders() {
       const token = localStorage.getItem('admin_token');
@@ -1355,46 +1320,6 @@
     function closeImageModal() {
       document.getElementById('image-modal').style.display = 'none';
       document.getElementById('image-modal-src').src = '';
-    }
-
-    function formatTimeAgo(dateString) {
-      if (!dateString) return "Never";
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return "Never";
-
-      const seconds = Math.floor((new Date() - date) / 1000);
-      if (seconds < 60) return "Just now";
-      const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return `${minutes}m ago`;
-      const hours = Math.floor(minutes / 60);
-      if (hours < 24) return `${hours}h ago`;
-      const days = Math.floor(hours / 24);
-      if (days < 30) return `${days}d ago`;
-      return date.toLocaleDateString();
-    }
-
-    function getUserActivityBadge(lastActiveAt) {
-      if (!lastActiveAt) {
-        return `<span class="badge" style="background:#202534; color:var(--text-muted);">Offline</span><br><span style="font-size:11px; color:var(--text-muted);">Never</span>`;
-      }
-
-      const diffMinutes = Math.floor((new Date() - new Date(lastActiveAt)) / 60000);
-      const readableAgo = formatTimeAgo(lastActiveAt);
-
-      if (diffMinutes < 5) {
-        return `<span class="badge badge-active">Active</span><br><span style="font-size:11px; color:var(--primary); font-weight:600;">Active now</span>`;
-      } else {
-        return `<span class="badge" style="background:#202534; color:var(--text-muted);">Offline</span><br><span style="font-size:11px; color:var(--text-muted);">${readableAgo}</span>`;
-      }
-    }
-
-    function updateLiveActiveCount(count) {
-      const formatted = count < 10 ? `0${count}` : `${count}`;
-      const cardEl = document.getElementById('stat-active-users');
-      const topbarEl = document.getElementById('topbar-live-users');
-
-      if (cardEl) cardEl.innerText = formatted;
-      if (topbarEl) topbarEl.innerText = formatted;
     }
 
     // TAB SWITCHING
@@ -1477,41 +1402,15 @@
         document.getElementById('login-overlay').style.display = 'none';
         document.getElementById('admin-content').style.display = 'flex';
         loadDashboard();
-
-        if (!livePulseInterval) {
-          livePulseInterval = setInterval(() => {
-            fetchLiveActiveCount();
-          }, 15000);
-        }
       } else {
-        if (livePulseInterval) {
-          clearInterval(livePulseInterval);
-          livePulseInterval = null;
-        }
         document.getElementById('login-overlay').style.display = 'flex';
         document.getElementById('admin-content').style.display = 'none';
       }
     }
 
     function logout() {
-      if (livePulseInterval) {
-        clearInterval(livePulseInterval);
-        livePulseInterval = null;
-      }
       localStorage.removeItem('admin_token');
       checkSession();
-    }
-
-    async function fetchLiveActiveCount() {
-      try {
-        const statsRes = await fetch(`${API_BASE}/dashboard`, { headers: getHeaders() });
-        if (statsRes.status === 200) {
-          const stats = await statsRes.json();
-          if (stats.activeUsers !== undefined) {
-            updateLiveActiveCount(stats.activeUsers);
-          }
-        }
-      } catch (e) {}
     }
 
     async function loadDashboard() {
@@ -1529,10 +1428,6 @@
         document.getElementById('nav-redeem-count').innerText = stats.pendingWithdrawals || 0;
         document.getElementById('nav-sub-pending-count').innerText = stats.pendingTasks || 0;
 
-        if (stats.activeUsers !== undefined) {
-          updateLiveActiveCount(stats.activeUsers);
-        }
-
         await loadUsersList();
         loadTasksList();
         loadSubmissionsList();
@@ -1546,7 +1441,7 @@
     }
 
     // ========================================================
-    // USERS REGISTRY
+    // USERS REGISTRY & MULTI-ACCOUNT DETECTION
     // ========================================================
     async function loadUsersList() {
       try {
@@ -1561,30 +1456,54 @@
       const filtered = allUsersCache.filter(u =>
         (u.username && u.username.toLowerCase().includes(q)) ||
         (u.full_name && u.full_name.toLowerCase().includes(q)) ||
-        (u.email && u.email.toLowerCase().includes(q))
+        (u.email && u.email.toLowerCase().includes(q)) ||
+        (u.registration_ip && u.registration_ip.toLowerCase().includes(q))
       );
       renderUsersTable(filtered);
+    }
+
+    function filterByIp(ip) {
+      if (!ip || ip === 'unknown' || ip === 'N/A') return;
+      document.getElementById('user-search').value = ip;
+      filterUsersList();
     }
 
     function renderUsersTable(users) {
       const tbody = document.querySelector("#users-table tbody");
       tbody.innerHTML = "";
 
-      users.forEach(u => {
-        const statusBadge = u.is_banned === 1
-          ? `<span class="badge badge-banned">Banned</span>`
-          : `<span class="badge badge-active">Active</span>`;
+      // 1. Calculate how many accounts share the same IP across all users
+      const ipCounts = {};
+      allUsersCache.forEach(u => {
+        const ip = (u.registration_ip || '').trim();
+        if (ip && ip !== 'unknown' && ip !== 'N/A') {
+          ipCounts[ip] = (ipCounts[ip] || 0) + 1;
+        }
+      });
 
+      users.forEach(u => {
         const streak = u.current_streak || 0;
         const stone = u.current_stone || 'NONE';
         const stoneBadge = `<span class="badge badge-stone">🔥 ${streak}d (${stone})</span>`;
-
-        const banButton = u.is_banned === 1
-          ? `<button class="btn-action btn-act-gray" onclick="toggleUserBan(${u.id}, false)">Unban</button>`
-          : `<button class="btn-action btn-act-danger" onclick="toggleUserBan(${u.id}, true)">Ban</button>`;
-
         const createdDate = u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Initial';
-        const activityStatus = getUserActivityBadge(u.last_active_at);
+
+        // 2. IP & Multi-Account Badge
+        const regIp = (u.registration_ip && u.registration_ip.trim() !== '') ? u.registration_ip.trim() : 'N/A';
+        const countOnSameIp = (regIp !== 'N/A' && regIp !== 'unknown') ? (ipCounts[regIp] || 1) : 1;
+
+        let ipCellContent = `<code>${regIp}</code>`;
+        if (countOnSameIp > 1) {
+          ipCellContent += `
+            <br>
+            <span class="badge" style="background:rgba(255, 71, 87, 0.2); color:var(--danger); border:1px solid rgba(255, 71, 87, 0.4); cursor:pointer; margin-top:4px;" 
+                  onclick="filterByIp('${regIp}')" 
+                  title="Click to view all accounts sharing this IP">
+              ⚠️ ${countOnSameIp} Accounts
+            </span>
+          `;
+        } else if (regIp !== 'N/A') {
+          ipCellContent += `<br><span style="font-size:10px; color:var(--text-muted);">Single Account</span>`;
+        }
 
         tbody.innerHTML += `
           <tr>
@@ -1594,13 +1513,11 @@
             <td><strong style="color:var(--primary);">${(u.balance || 0).toLocaleString()}</strong></td>
             <td>${stoneBadge}</td>
             <td><span style="font-size:12px; font-weight:600;">${createdDate}</span></td>
-            <td>${activityStatus}</td>
-            <td>${statusBadge}</td>
+            <td>${ipCellContent}</td>
             <td>
               <button class="btn-action btn-act-streak" onclick="editUserStreak(${u.id}, '${u.username}', ${streak})">Streak</button>
               <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${u.username}')">Coins</button>
               <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${u.username}')">PW</button>
-              ${banButton}
               <button class="btn-action btn-act-danger" style="background:#B3001E;" onclick="deleteUserPermanently(${u.id}, '${u.username}')">🗑️ Delete</button>
             </td>
           </tr>
@@ -1608,7 +1525,7 @@
       });
 
       if (tbody.innerHTML === "") {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted);">No players found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No players found.</td></tr>`;
       }
     }
 
@@ -1676,19 +1593,6 @@
         });
         const data = await res.json();
         if (data.success) alert("Password changed!");
-      } catch (_) { alert("Connection Error"); }
-    }
-
-    async function toggleUserBan(id, shouldBan) {
-      if (!confirm(`Are you sure you want to ${shouldBan ? "BAN" : "UNBAN"} this user?`)) return;
-      try {
-        const res = await fetch(`${API_BASE}/users/${id}/ban`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ isBanned: shouldBan })
-        });
-        const data = await res.json();
-        if (data.success) loadDashboard();
       } catch (_) { alert("Connection Error"); }
     }
 
@@ -2018,7 +1922,7 @@
     }
 
     // ========================================================
-    // WITHDRAWALS & REDEMPTIONS (SHOWING PAYMENT METHOD & RECIPIENT)
+    // WITHDRAWALS & REDEMPTIONS
     // ========================================================
     async function loadWithdrawals() {
       try {
@@ -2063,7 +1967,6 @@
           if (w.status === 'APPROVED') statusBadge = `<span class="badge badge-active">Approved</span>`;
           if (w.status === 'REJECTED') statusBadge = `<span class="badge badge-rejected">Rejected</span>`;
 
-          // Match icon from payment methods if available
           const pmMatch = paymentMethodsList.find(m => m.id.toLowerCase() === (w.payment_method || '').toLowerCase());
           const pmIcon = pmMatch ? pmMatch.icon : (w.payment_method === 'eSewa' ? '🟢' : (w.payment_method === 'Khalti' ? '🟣' : '🪙'));
 
