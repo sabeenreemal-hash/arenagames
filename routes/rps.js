@@ -11,22 +11,13 @@ const GAME_ID = 'rps_1v1';
 const ENTRY_FEE = 100;
 const WINNER_PRIZE = 200;
 const ROUND_TIME_LIMIT_SEC = 15;
-const WINS_TO_MATCH = 2; // First to win 2 rounds wins
-const BOT_WAIT_TIMEOUT_MS = 3500; // Wait 3.5s for real player before matching bot
-const BOT_USER_ID = 999999;
+const WINS_TO_MATCH = 2;
 const MAX_MATCHES = 10;
 const BREAK_DURATION_SEC = 10 * 60; // 10 Minutes Break
 
-const BOT_NAMES = [
-  'ShadowNinja', 'ViperQueen', 'Alex_Pro99', 'CyberSamurai', 'NovaStrike',
-  'Elena_92', 'ApexHunter', 'GhostRider_X', 'BlazeFury', 'ZenithPulse',
-  'AeroKnight', 'PixelWarrior', 'ThunderHawk', 'EchoGamer', 'TitanX',
-  'Vortex_77', 'Krypton', 'CrimsonBlade', 'NeonRider', 'Spectre_01'
-];
-
 const CHOICES = ['ROCK', 'PAPER', 'SCISSORS'];
 
-// Self-healing: Table for tracking 10-match game cycles & 10-minute cooldown
+// Table for tracking 10-match game cycles & 10-minute cooldown
 db.run(`
   CREATE TABLE IF NOT EXISTS user_game_cooldowns (
     user_id INTEGER NOT NULL,
@@ -38,13 +29,6 @@ db.run(`
   )
 `);
 
-// Self-healing bot account in users table
-db.run(`
-  INSERT OR IGNORE INTO users (id, full_name, username, email, password_hash, referral_code, balance) 
-  VALUES (999999, 'Arena Challenger', 'arena_bot_system', 'bot@arenagames.internal', 'DISABLED_BOT_ACCOUNT', 'BOT9999', 1000000)
-`);
-
-// 7-Level Stone Badge definitions
 const STONE_TIERS = [
   { rank: 7, name: 'RUBY', days: 100 },
   { rank: 6, name: 'DIAMOND', days: 75 },
@@ -101,7 +85,6 @@ function getGameCooldown(userId, callback) {
             remainingSeconds: remainingSeconds
           });
         } else {
-          // Cooldown finished -> Reset to 0
           db.run(
             'UPDATE user_game_cooldowns SET games_played = 0, cooldown_until = NULL, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND game_id = ?',
             [userId, GAME_ID]
@@ -118,7 +101,6 @@ function getGameCooldown(userId, callback) {
 
 // Record match completion (+1 count, triggers 10m cooldown when reaching 10)
 function recordMatchCompleted(userId) {
-  if (String(userId) === String(BOT_USER_ID)) return;
   const now = Date.now();
   const cooldownEndIso = new Date(now + BREAK_DURATION_SEC * 1000).toISOString();
 
@@ -149,6 +131,7 @@ function recordMatchCompleted(userId) {
   );
 }
 
+// Real Human Matchmaking Queue: [{ userId, username, joinedAt }]
 let rpsQueue = [];
 
 function evaluateRound(choiceA, choiceB) {
@@ -167,138 +150,37 @@ function evaluateRound(choiceA, choiceB) {
   return { winner: 'B', reason: 'WIN' };
 }
 
-// Unpredictable & Adaptive Psychological AI for RPS
-function predictAdvancedRpsMove(lastResult, isBotPlayerA) {
-  if (!lastResult) {
-    const openingDistribution = ['ROCK', 'PAPER', 'SCISSORS', 'PAPER'];
-    return openingDistribution[Math.floor(Math.random() * openingDistribution.length)];
-  }
-
-  const humanChoice = isBotPlayerA ? lastResult.playerBChoice : lastResult.playerAChoice;
-  const botChoice = isBotPlayerA ? lastResult.playerAChoice : lastResult.playerBChoice;
-  const humanWon = (isBotPlayerA && lastResult.winner === 'B') || (!isBotPlayerA && lastResult.winner === 'A');
-  const wasDraw = lastResult.winner === 'DRAW';
-
-  function getBeatingMove(move) {
-    if (move === 'ROCK') return 'PAPER';
-    if (move === 'PAPER') return 'SCISSORS';
-    return 'ROCK';
-  }
-
-  function getLosingMove(move) {
-    if (move === 'ROCK') return 'SCISSORS';
-    if (move === 'PAPER') return 'ROCK';
-    return 'PAPER';
-  }
-
-  const roll = Math.random();
-
-  // 1. Post-Draw: Players rarely replay the tie move
-  if (wasDraw) {
-    if (roll < 0.65) {
-      return getBeatingMove(getBeatingMove(humanChoice));
-    } else {
-      return CHOICES[Math.floor(Math.random() * CHOICES.length)];
-    }
-  }
-
-  // 2. Win-Stay vs Double-Bluff countering
-  if (humanWon) {
-    if (roll < 0.50) {
-      return getBeatingMove(humanChoice);
-    } else if (roll < 0.80) {
-      return getBeatingMove(getBeatingMove(humanChoice));
-    } else {
-      return CHOICES[Math.floor(Math.random() * CHOICES.length)];
-    }
-  } else {
-    // 3. Lose-Shift countering
-    if (roll < 0.55) {
-      return getBeatingMove(botChoice);
-    } else if (roll < 0.85) {
-      return getLosingMove(humanChoice);
-    } else {
-      return CHOICES[Math.floor(Math.random() * CHOICES.length)];
-    }
-  }
-}
-
-// Submits bot move with realistic human delay
-function triggerBotRpsChoice(matchId) {
-  db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (err, match) => {
-    if (err || !match || match.status !== 'IN_PROGRESS') return;
-
-    const isBotPlayerA = String(match.player_a_id) === String(BOT_USER_ID);
-    const isBotPlayerB = String(match.player_b_id) === String(BOT_USER_ID);
-    if (!isBotPlayerA && !isBotPlayerB) return;
-
-    const botAlreadySubmitted = isBotPlayerA ? (match.player_a_choice !== null) : (match.player_b_choice !== null);
-    if (botAlreadySubmitted) return;
-
-    let lastResult = null;
-    try { if (match.last_round_result) lastResult = JSON.parse(match.last_round_result); } catch (_) {}
-
-    const botChoice = predictAdvancedRpsMove(lastResult, isBotPlayerA);
-    const delay = Math.floor(Math.random() * 1500) + 1400; // 1.4s - 2.9s human delay
-
-    setTimeout(() => {
-      db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (reErr, currMatch) => {
-        if (reErr || !currMatch || currMatch.status !== 'IN_PROGRESS') return;
-
-        const col = isBotPlayerA ? 'player_a_choice' : 'player_b_choice';
-        db.run(`UPDATE rps_matches SET ${col} = ? WHERE id = ?`, [botChoice, matchId], () => {
-          db.get('SELECT * FROM rps_matches WHERE id = ?', [matchId], (finalErr, refreshedMatch) => {
-            if (refreshedMatch && refreshedMatch.player_a_choice && refreshedMatch.player_b_choice) {
-              resolveRound(refreshedMatch, () => {});
-            }
-          });
-        });
-      });
-    }, delay);
-  });
-}
-
 // -----------------------------------------------------------------------------
-// 1. GET /api/rps/waiting-players
+// 1. GET /api/rps/waiting-players (Actual Real Players in Queue)
 // -----------------------------------------------------------------------------
 router.get('/waiting-players', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
   const now = Date.now();
+
+  // Clean stale tickets older than 90s
   rpsQueue = rpsQueue.filter(p => (now - p.joinedAt) < 90000);
-
-  const fakeWaitingCount = 100 + Math.floor((now / 15000) % 9);
-  const totalCount = Math.max(rpsQueue.length, fakeWaitingCount);
-
-  const sampleList = BOT_NAMES.slice(0, 10).map((name, i) => ({
-    userId: 900000 + i,
-    username: name,
-    waitingSeconds: (i * 2) + 1
-  }));
 
   getGameCooldown(userId, (cdErr, cdInfo) => {
     res.json({
       success: true,
-      count: totalCount,
-      players: rpsQueue.length > 0
-        ? rpsQueue.map(p => ({
-            userId: p.userId,
-            username: p.username,
-            waitingSeconds: Math.floor((now - p.joinedAt) / 1000)
-          })).concat(sampleList)
-        : sampleList,
+      count: rpsQueue.length,
+      players: rpsQueue.map(p => ({
+        userId: p.userId,
+        username: p.username,
+        waitingSeconds: Math.floor((now - p.joinedAt) / 1000)
+      })),
       cooldown: cdInfo
     });
   });
 });
 
 // -----------------------------------------------------------------------------
-// 2. POST /api/rps/join-queue
+// 2. POST /api/rps/join-queue (Real PvP Matchmaking)
 // -----------------------------------------------------------------------------
 router.post('/join-queue', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  // Enforce 10-match limit / 10-minute break
   getGameCooldown(userId, (cdErr, cdInfo) => {
     if (cdInfo && cdInfo.isBlocked) {
       const mins = Math.floor(cdInfo.remainingSeconds / 60);
@@ -368,9 +250,11 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                     return res.status(500).json({ error: 'Transaction commit failed' });
                   }
 
+                  // Find an available REAL human opponent in the queue
                   const oppIndex = rpsQueue.findIndex(p => String(p.userId) !== String(user.id));
 
                   if (oppIndex !== -1) {
+                    // Real player found! Connect both players
                     const opponent = rpsQueue.splice(oppIndex, 1)[0];
                     const matchId = `rps_${crypto.randomBytes(8).toString('hex')}`;
 
@@ -391,6 +275,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                       }
                     );
                   } else {
+                    // No other human player available -> Wait in queue
                     rpsQueue.push({
                       userId: user.id,
                       username: user.username,
@@ -401,7 +286,7 @@ router.post('/join-queue', authenticateToken, (req, res) => {
                       success: true,
                       matched: false,
                       inQueue: true,
-                      message: 'Searching for opponent...'
+                      message: 'Searching for a real opponent...'
                     });
                   }
                 });
@@ -456,7 +341,7 @@ router.post('/cancel-queue', authenticateToken, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// 4. GET /api/rps/check-queue-status (Bot Matchmaker fallback)
+// 4. GET /api/rps/check-queue-status (Checks if another human paired with you)
 // -----------------------------------------------------------------------------
 router.get('/check-queue-status', authenticateToken, (req, res) => {
   const userId = getAuthUserId(req);
@@ -480,46 +365,12 @@ router.get('/check-queue-status', authenticateToken, (req, res) => {
         });
       }
 
-      const qIndex = rpsQueue.findIndex(p => String(p.userId) === String(userId));
-      if (qIndex === -1) {
-        return res.json({ success: true, matched: false, inQueue: false });
-      }
-
-      const playerEntry = rpsQueue[qIndex];
-      const waitingMs = Date.now() - playerEntry.joinedAt;
-
-      // 3.5s Bot Fallback
-      if (waitingMs >= BOT_WAIT_TIMEOUT_MS) {
-        const matchId = `rps_${crypto.randomBytes(8).toString('hex')}`;
-        const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-
-        db.run(
-          `INSERT INTO rps_matches (
-            id, player_a_id, player_b_id, player_a_name, player_b_name,
-            player_a_score, player_b_score, current_round, status, pot_amount, round_start_time
-          ) VALUES (?, ?, ?, ?, ?, 0, 0, 1, 'IN_PROGRESS', 200, CURRENT_TIMESTAMP)`,
-          [matchId, playerEntry.userId, BOT_USER_ID, playerEntry.username, botName],
-          (insErr) => {
-            if (insErr) {
-              console.error('[RPS BOT MATCH INSERT ERROR]:', insErr.message);
-              return res.status(500).json({ error: 'Failed to create match' });
-            }
-
-            rpsQueue.splice(qIndex, 1);
-            triggerBotRpsChoice(matchId);
-
-            return res.json({
-              success: true,
-              matched: true,
-              matchId: matchId,
-              opponentName: botName
-            });
-          }
-        );
-        return;
-      }
-
-      return res.json({ success: true, matched: false, inQueue: true });
+      const inQueue = rpsQueue.some(p => String(p.userId) === String(userId));
+      return res.json({
+        success: true,
+        matched: false,
+        inQueue: inQueue
+      });
     }
   );
 });
@@ -545,13 +396,6 @@ router.get('/match/:matchId', authenticateToken, (req, res) => {
       return resolveRound(match, (rErr, updatedMatch) => {
         sendMatchPayload(res, updatedMatch || match, userId, 0);
       });
-    }
-
-    if (match.status === 'IN_PROGRESS') {
-      const isBotInvolved = String(match.player_a_id) === String(BOT_USER_ID) || String(match.player_b_id) === String(BOT_USER_ID);
-      if (isBotInvolved) {
-        triggerBotRpsChoice(match.id);
-      }
     }
 
     sendMatchPayload(res, match, userId, secondsRemaining);
@@ -640,8 +484,6 @@ router.post('/submit-choice', authenticateToken, (req, res) => {
             });
           }
 
-          triggerBotRpsChoice(matchId);
-
           return res.json({
             success: true,
             status: 'IN_PROGRESS',
@@ -677,9 +519,6 @@ router.post('/next-round', authenticateToken, (req, res) => {
       [matchId],
       (advanceErr) => {
         if (advanceErr) return res.status(500).json({ error: 'Failed to start next round' });
-
-        triggerBotRpsChoice(matchId);
-
         return res.json({ success: true, status: 'IN_PROGRESS' });
       }
     );
@@ -765,61 +604,11 @@ function settleMatchPayout(matchId, winnerId, isDraw, finalScoreA, finalScoreB, 
     if (err || !match) return callback(new Error('Match not found'));
     if (match.status === 'COMPLETED' || match.status === 'DRAW') return callback(null);
 
-    // Record game completion for 10-match cycle
+    // Record game completion toward the 10-match cycle
     recordMatchCompleted(match.player_a_id);
     recordMatchCompleted(match.player_b_id);
 
-    // Case 1: DRAW
-    if (isDraw) {
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
-
-        if (String(match.player_a_id) !== String(BOT_USER_ID)) {
-          db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, match.player_a_id]);
-          db.run(`INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'RPS_REFUND', ?, ?)`, [match.player_a_id, ENTRY_FEE, `RPS_DRAW_${match.id}`]);
-        }
-        if (String(match.player_b_id) !== String(BOT_USER_ID)) {
-          db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [ENTRY_FEE, match.player_b_id]);
-          db.run(`INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'RPS_REFUND', ?, ?)`, [match.player_b_id, ENTRY_FEE, `RPS_DRAW_${match.id}`]);
-        }
-
-        db.run(
-          `UPDATE rps_matches 
-           SET status = 'DRAW', 
-               player_a_score = ?, 
-               player_b_score = ?, 
-               last_round_result = ? 
-           WHERE id = ?`,
-          [finalScoreA, finalScoreB, finalRoundResult, matchId],
-          (uErr) => {
-            if (uErr) { db.run('ROLLBACK'); return callback(uErr); }
-            db.run('COMMIT', callback);
-          }
-        );
-      });
-      return;
-    }
-
-    // Case 2: BOT WINS
-    if (String(winnerId) === String(BOT_USER_ID)) {
-      db.run(
-        `UPDATE rps_matches 
-         SET status = 'COMPLETED', 
-             winner_id = ?, 
-             player_a_score = ?, 
-             player_b_score = ?, 
-             last_round_result = ? 
-         WHERE id = ?`,
-        [winnerId, finalScoreA, finalScoreB, finalRoundResult, matchId],
-        (finErr) => {
-          if (finErr) return callback(finErr);
-          callback(null);
-        }
-      );
-      return;
-    }
-
-    // Case 3: REAL USER WINS
+    // Real Human Winner: Award 200 coins and advance Daily Streak
     db.get('SELECT * FROM users WHERE id = ?', [winnerId], (uErr, user) => {
       if (uErr || !user) return callback(new Error('Winner profile missing'));
 
