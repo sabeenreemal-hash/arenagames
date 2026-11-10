@@ -7,6 +7,11 @@ const bcrypt = require('bcryptjs');
 const dbPath = path.join(__dirname, 'arena_games.db');
 const db = new sqlite3.Database(dbPath);
 
+// Prevent any unhandled database error from killing the server
+db.on('error', (err) => {
+  console.error('[Database Handled Error]:', err.message);
+});
+
 // Safe helper to add new columns to existing tables without breaking
 function addColumnIfNotExists(table, column, type, defaultValue) {
   db.all(`PRAGMA table_info(${table})`, (err, columns) => {
@@ -102,10 +107,12 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'creator_badge_enabled', 'INTEGER', 0);
   addColumnIfNotExists('users', 'creator_badge_id', 'INTEGER', 'NULL');
   addColumnIfNotExists('users', 'last_withdrawal_at', 'DATETIME', 'NULL');
-  addColumnIfNotExists('users', 'registration_ip', 'TEXT', 'NULL');
-  
-  // Safe migration for last_active_at
   addColumnIfNotExists('users', 'last_active_at', 'DATETIME', 'NULL');
+
+  // Safe migration for registration_ip and its index
+  db.run("ALTER TABLE users ADD COLUMN registration_ip TEXT", () => {
+    db.run("CREATE INDEX IF NOT EXISTS idx_users_registration_ip ON users(registration_ip)", () => {});
+  });
 
   // Badges Table
   db.run(`
@@ -356,19 +363,18 @@ db.serialize(() => {
   db.run("DROP TABLE IF EXISTS word_puzzle;");
   db.run("DROP TABLE IF EXISTS word_puzzles;");
 
-  // Performance Indexes
-  db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_users_registration_ip ON users(registration_ip);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(user_id);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_game_sessions_user ON game_sessions(user_id);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_creator_rewards_user ON creator_rewards(user_id);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_user_spin_state_user ON user_spin_state(user_id);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_spin_transactions_user ON spin_transactions(user_id);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(is_active);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`);
+  // Performance Indexes with safe error-catching callbacks
+  db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_game_sessions_user ON game_sessions(user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_creator_rewards_user ON creator_rewards(user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_user_spin_state_user ON user_spin_state(user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_spin_transactions_user ON spin_transactions(user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(is_active);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`, () => {});
 
   // Backfill last_active_at for existing accounts safely
   db.run(`UPDATE users SET last_active_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE last_active_at IS NULL;`, () => {});
