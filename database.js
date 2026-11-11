@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const dbPath = path.join(__dirname, 'arena_games.db');
 const db = new sqlite3.Database(dbPath);
 
-// Prevent any unhandled database error from killing the server
+// Global safety net: Catches any database error without crashing the server
 db.on('error', (err) => {
   console.error('[Database Handled Error]:', err.message);
 });
@@ -22,11 +22,7 @@ function addColumnIfNotExists(table, column, type, defaultValue) {
         if (defaultValue !== undefined && defaultValue !== null) {
           sql += ` DEFAULT ${defaultValue}`;
         }
-        db.run(sql, (alterErr) => {
-          if (alterErr) {
-            console.error(`Error adding ${column} to ${table}:`, alterErr.message);
-          }
-        });
+        db.run(sql, () => {});
       }
     }
   });
@@ -36,11 +32,11 @@ db.serialize(() => {
   // ==========================================
   // 1. VPS & SQLite Concurrency Optimizations
   // ==========================================
-  db.run('PRAGMA journal_mode = WAL;');
-  db.run('PRAGMA synchronous = NORMAL;');
-  db.run('PRAGMA busy_timeout = 5000;');
-  db.run('PRAGMA foreign_keys = ON;');
-  db.run('PRAGMA cache_size = -16000;');
+  db.run('PRAGMA journal_mode = WAL;', () => {});
+  db.run('PRAGMA synchronous = NORMAL;', () => {});
+  db.run('PRAGMA busy_timeout = 5000;', () => {});
+  db.run('PRAGMA foreign_keys = ON;', () => {});
+  db.run('PRAGMA cache_size = -16000;', () => {});
 
   // ==========================================
   // 2. Schema Definitions (Tables Created First)
@@ -53,7 +49,7 @@ db.serialize(() => {
       reward_multiplier REAL DEFAULT 1.0,
       is_enabled INTEGER DEFAULT 1
     )
-  `);
+  `, () => {});
 
   // Users Table
   db.run(`
@@ -88,7 +84,7 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(referred_by_id) REFERENCES users(id) ON DELETE SET NULL
     )
-  `);
+  `, () => {});
 
   // Column safety migrations for Users
   addColumnIfNotExists('users', 'total_coins_earned', 'INTEGER', 100);
@@ -108,11 +104,7 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'creator_badge_id', 'INTEGER', 'NULL');
   addColumnIfNotExists('users', 'last_withdrawal_at', 'DATETIME', 'NULL');
   addColumnIfNotExists('users', 'last_active_at', 'DATETIME', 'NULL');
-
-  // Safe migration for registration_ip and its index
-  db.run("ALTER TABLE users ADD COLUMN registration_ip TEXT", () => {
-    db.run("CREATE INDEX IF NOT EXISTS idx_users_registration_ip ON users(registration_ip)", () => {});
-  });
+  addColumnIfNotExists('users', 'registration_ip', 'TEXT', 'NULL');
 
   // Badges Table
   db.run(`
@@ -123,12 +115,12 @@ db.serialize(() => {
       is_enabled INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
-  `);
+  `, () => {});
 
   db.run(`
     INSERT OR IGNORE INTO badges (id, name, icon_url, is_enabled) 
     VALUES (1, 'Official Creator', 'https://cdn-icons-png.flaticon.com/512/7653/7653930.png', 1)
-  `);
+  `, () => {});
 
   // Creator Rewards Table
   db.run(`
@@ -141,7 +133,7 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
-  `);
+  `, () => {});
 
   // Active Game Sessions Table
   db.run(`
@@ -155,7 +147,7 @@ db.serialize(() => {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(game_id) REFERENCES games(id)
     )
-  `);
+  `, () => {});
 
   // Transactions Table
   db.run(`
@@ -168,7 +160,7 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
-  `);
+  `, () => {});
 
   // Withdrawals Table
   db.run(`
@@ -185,7 +177,7 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
-  `);
+  `, () => {});
 
   addColumnIfNotExists('withdrawals', 'npr_amount', 'REAL', 0.0);
   addColumnIfNotExists('withdrawals', 'inr_amount', 'REAL', 0.0);
@@ -196,12 +188,12 @@ db.serialize(() => {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     )
-  `);
+  `, () => {});
 
-  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('latest_version', '1.0.0')`);
-  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('min_version', '1.0.0')`);
-  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('update_url', 'https://play.google.com/store')`);
-  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('force_update', 'false')`);
+  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('latest_version', '1.0.0')`, () => {});
+  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('min_version', '1.0.0')`, () => {});
+  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('update_url', 'https://play.google.com/store')`, () => {});
+  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('force_update', 'false')`, () => {});
 
   const defaultGateways = JSON.stringify([
     { id: "eSewa", name: "eSewa (NPR)", icon: "🟢", min: 5000, currency: "NPR", label: "eSewa Mobile Number", hint: "98XXXXXXXX" },
@@ -210,7 +202,7 @@ db.serialize(() => {
     { id: "PayPal", name: "PayPal (USD)", icon: "🅿️", min: 5000, currency: "USD", label: "PayPal Email Address", hint: "user@example.com" },
     { id: "USDT", name: "USDT (TRC20)", icon: "💲", min: 10000, currency: "USD", label: "TRC20 Wallet Address", hint: "T..." }
   ]);
-  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('payment_methods', ?)`, [defaultGateways]);
+  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('payment_methods', ?)`, [defaultGateways], () => {});
 
   // Admins Table
   db.run(`
@@ -229,10 +221,8 @@ db.serialize(() => {
         db.run(
           'INSERT INTO admins (username, password_hash) VALUES (?, ?)',
           [defaultUser, hash],
-          (err) => {
-            if (!err) {
-              console.log('Default Admin Account Initialized (admin / admin123)');
-            }
+          () => {
+            console.log('Default Admin Account Initialized (admin / admin123)');
           }
         );
       }
@@ -251,7 +241,7 @@ db.serialize(() => {
       PRIMARY KEY (user_id, spin_type),
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
-  `);
+  `, () => {});
 
   db.run(`
     CREATE TABLE IF NOT EXISTS spin_transactions (
@@ -269,7 +259,7 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
-  `);
+  `, () => {});
 
   // Tasks Schema
   db.run(`
@@ -283,7 +273,7 @@ db.serialize(() => {
       is_active INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
-  `);
+  `, () => {});
 
   db.run(`
     CREATE TABLE IF NOT EXISTS task_submissions (
@@ -299,7 +289,7 @@ db.serialize(() => {
       FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
-  `);
+  `, () => {});
 
   addColumnIfNotExists('tasks', 'action_url', 'TEXT', "''");
   addColumnIfNotExists('tasks', 'is_active', 'INTEGER', 1);
@@ -325,7 +315,7 @@ db.serialize(() => {
       FOREIGN KEY(player_x_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(player_o_id) REFERENCES users(id) ON DELETE CASCADE
     )
-  `);
+  `, () => {});
 
   // Rock Paper Scissors Schema
   db.run(`
@@ -349,7 +339,7 @@ db.serialize(() => {
       FOREIGN KEY(player_a_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(player_b_id) REFERENCES users(id) ON DELETE CASCADE
     )
-  `);
+  `, () => {});
 
   // ==========================================
   // Universal Cloud Game Progress Table
@@ -366,33 +356,27 @@ db.serialize(() => {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(game_id) REFERENCES games(id)
     )
-  `);
+  `, () => {});
 
   // ==========================================
   // Register Allowed Games in Database
   // ==========================================
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`);
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)`);
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)`);
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('rps_1v1', '1v1 Rock Paper Scissors', 50000, 1.0, 1)`);
-
-  // Mines Puzzle
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('mines', 'Mines Puzzle', 1000, 1.0, 1)`);
-
-  // Color Tap Challenge
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('color_tap', 'Color Tap Challenge', 1000, 1.0, 1)`);
-
-  // Memory Match (registers both formats to prevent mismatch)
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memory_match', 'Memory Match', 1000, 1.0, 1)`);
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memoryMatch', 'Memory Match', 1000, 1.0, 1)`);
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('rps_1v1', '1v1 Rock Paper Scissors', 50000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('mines', 'Mines Puzzle', 1000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('color_tap', 'Color Tap Challenge', 1000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memory_match', 'Memory Match', 1000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memoryMatch', 'Memory Match', 1000, 1.0, 1)`, () => {});
 
   // Cleanup Unused Legacy Games
-  db.run("DELETE FROM game_sessions WHERE game_id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
-  db.run("DELETE FROM games WHERE id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
-  db.run("DROP TABLE IF EXISTS word_puzzle;");
-  db.run("DROP TABLE IF EXISTS word_puzzles;");
+  db.run("DELETE FROM game_sessions WHERE game_id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');", () => {});
+  db.run("DELETE FROM games WHERE id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');", () => {});
+  db.run("DROP TABLE IF EXISTS word_puzzle;", () => {});
+  db.run("DROP TABLE IF EXISTS word_puzzles;", () => {});
 
-  // Performance Indexes with safe error-catching callbacks
+  // Safe Performance Indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(user_id);`, () => {});
@@ -404,11 +388,9 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`, () => {});
-
-  // Cloud Progress Index
   db.run(`CREATE INDEX IF NOT EXISTS idx_user_game_data ON user_game_data(user_id, game_id);`, () => {});
 
-  // Backfill last_active_at for existing accounts safely
+  // Backfill last_active_at safely
   db.run(`UPDATE users SET last_active_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE last_active_at IS NULL;`, () => {});
 });
 
