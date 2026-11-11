@@ -351,11 +351,27 @@ db.serialize(() => {
     )
   `);
 
-  // Ensure Allowed Games Exist
+  // ==========================================
+  // Mines Puzzle Game Schema & Progress Table
+  // ==========================================
+  db.run(`
+    CREATE TABLE IF NOT EXISTS mines_user_progress (
+      user_id INTEGER PRIMARY KEY,
+      unlocked_level INTEGER DEFAULT 1,
+      completed_levels TEXT DEFAULT '[]',
+      daily_cooldown_until INTEGER DEFAULT 0,
+      daily_locked_level INTEGER DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Ensure Allowed Games Exist (Includes 'mines' so sessions & wallet rewards are authorized)
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`);
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)`);
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)`);
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('rps_1v1', '1v1 Rock Paper Scissors', 50000, 1.0, 1)`);
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('mines', 'Mines Puzzle', 1000, 1.0, 1)`);
 
   // Cleanup Unused Legacy Games
   db.run("DELETE FROM game_sessions WHERE game_id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
@@ -375,6 +391,7 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mines_user ON mines_user_progress(user_id);`, () => {});
 
   // Backfill last_active_at for existing accounts safely
   db.run(`UPDATE users SET last_active_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE last_active_at IS NULL;`, () => {});
