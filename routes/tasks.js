@@ -14,10 +14,14 @@ try {
   jwt = null;
 }
 
+// 1. Ensure directory exists
 const uploadDir = path.join(__dirname, '../uploads/task_proofs');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
+
+// 2. Allow direct access to screenshots through /uploads/task_proofs/<filename>
+router.use('/uploads/task_proofs', express.static(uploadDir));
 
 function extractUserId(req) {
   if (req.query.userId || req.query.user_id) {
@@ -54,6 +58,13 @@ function extractUserId(req) {
   return null;
 }
 
+// Helper: converts any file path (including old OS disk paths) into a public web URL
+function toPublicUrl(savedPath) {
+  if (!savedPath) return null;
+  const fileName = path.basename(savedPath);
+  return `/uploads/task_proofs/${fileName}`;
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
@@ -69,22 +80,22 @@ const upload = multer({
 });
 
 function deleteScreenshot(filePath) {
-  if (filePath && fs.existsSync(filePath)) {
-    fs.unlink(filePath, (err) => {
-      if (err) console.error(`[Clean Error] ${filePath}:`, err.message);
+  if (!filePath) return;
+  const fileName = path.basename(filePath);
+  const diskPath = path.join(uploadDir, fileName);
+  if (fs.existsSync(diskPath)) {
+    fs.unlink(diskPath, (err) => {
+      if (err) console.error(`[Clean Error] ${diskPath}:`, err.message);
     });
   }
 }
 
 // ==========================================
 // 1. GET Available Tasks
-// Supports both GET /api/tasks and GET /api/tasks/tasks
 // ==========================================
 router.get(['/', '/tasks'], (req, res) => {
   const userId = extractUserId(req) || 0;
 
-  // Uses NOT EXISTS instead of NOT IN to avoid NULL traps,
-  // and accepts all common boolean/active representations.
   const sql = `
     SELECT t.* FROM tasks t
     WHERE (
@@ -110,14 +121,12 @@ router.get(['/', '/tasks'], (req, res) => {
     }
 
     const taskList = rows || [];
-    console.log(`[TASKS API] User #${userId} requested tasks. Found ${taskList.length} available.`);
     res.json({ success: true, tasks: taskList });
   });
 });
 
 // ==========================================
-// 2. GET My Submissions
-// Supports both /my-submissions and /tasks/my-submissions
+// 2. GET My Submissions (Normalizes URLs)
 // ==========================================
 router.get(['/my-submissions', '/tasks/my-submissions'], (req, res) => {
   const userId = extractUserId(req);
@@ -153,13 +162,17 @@ router.get(['/my-submissions', '/tasks/my-submissions'], (req, res) => {
       return res.status(500).json({ success: false, error: err.message, submissions: [] });
     }
 
-    res.json({ success: true, submissions: rows || [] });
+    const submissions = (rows || []).map((row) => ({
+      ...row,
+      screenshot_path: toPublicUrl(row.screenshot_path)
+    }));
+
+    res.json({ success: true, submissions });
   });
 });
 
 // ==========================================
-// 3. POST Submit Task Proof
-// Supports both /:id/submit and /tasks/:id/submit
+// 3. POST Submit Task Proof (Saves Web URL)
 // ==========================================
 router.post(['/:id/submit', '/tasks/:id/submit'], upload.single('screenshot'), (req, res) => {
   const rawTaskId = req.params.id;
@@ -167,17 +180,19 @@ router.post(['/:id/submit', '/tasks/:id/submit'], upload.single('screenshot'), (
   const rawUserId = extractUserId(req);
   const userId = parseInt(rawUserId, 10);
   const { proof_text } = req.body;
-  const screenshotPath = req.file ? req.file.path : null;
+
+  // FIX: Save as public web URL path instead of OS filesystem path
+  const screenshotUrl = req.file ? `/uploads/task_proofs/${req.file.filename}` : null;
 
   if (isNaN(userId)) {
-    if (screenshotPath) deleteScreenshot(screenshotPath);
+    if (screenshotUrl) deleteScreenshot(screenshotUrl);
     return res.status(401).json({ success: false, message: 'Unauthorized. Please login again.' });
   }
 
   // 1. Verify task exists
   db.get('SELECT id FROM tasks WHERE id = ?', [taskId], (taskErr, taskRow) => {
     if (taskErr || !taskRow) {
-      if (screenshotPath) deleteScreenshot(screenshotPath);
+      if (screenshotUrl) deleteScreenshot(screenshotUrl);
       return res.status(404).json({ success: false, message: 'Task does not exist or has been removed.' });
     }
 
@@ -187,30 +202,30 @@ router.post(['/:id/submit', '/tasks/:id/submit'], upload.single('screenshot'), (
       [taskId, userId],
       (err, existingPending) => {
         if (err) {
-          if (screenshotPath) deleteScreenshot(screenshotPath);
+          if (screenshotUrl) deleteScreenshot(screenshotUrl);
           return res.status(500).json({ success: false, message: err.message });
         }
 
         if (existingPending) {
-          if (screenshotPath) deleteScreenshot(screenshotPath);
+          if (screenshotUrl) deleteScreenshot(screenshotUrl);
           return res.status(400).json({ success: false, message: 'You already have a pending submission for this task.' });
         }
 
-        // 3. Remove previous rejected submission if re-applying
+        // 3. Remove old rejected submission if re-applying
         db.run(
           `DELETE FROM task_submissions WHERE task_id = ? AND user_id = ? AND status = 'rejected'`,
           [taskId, userId],
           (delErr) => {
             if (delErr) console.error('[REAPPLY CLEANUP ERROR]:', delErr.message);
 
-            // 4. Insert new pending submission
+            // 4. Insert new pending submission with public web URL
             db.run(
               `INSERT INTO task_submissions (task_id, user_id, proof_text, screenshot_path, status)
                VALUES (?, ?, ?, ?, 'pending')`,
-              [taskId, userId, proof_text || '', screenshotPath],
+              [taskId, userId, proof_text || '', screenshotUrl],
               function (insErr) {
                 if (insErr) {
-                  if (screenshotPath) deleteScreenshot(screenshotPath);
+                  if (screenshotUrl) deleteScreenshot(screenshotUrl);
                   console.error('[TASK SUBMISSION INSERT ERROR]:', insErr.message);
                   return res.status(500).json({ success: false, message: insErr.message });
                 }
