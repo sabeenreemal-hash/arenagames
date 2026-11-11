@@ -35,7 +35,7 @@ function getYesterdayStr() {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Start a verified game session (tictactoe_1v1 or rps_1v1)
+// 1. Start a verified game session (color_tap, tictactoe_1v1, rps_1v1, mines)
 // ---------------------------------------------------------------------------
 router.post('/session/start', authenticateToken, (req, res) => {
   const userId = req.user.id;
@@ -46,7 +46,9 @@ router.post('/session/start', authenticateToken, (req, res) => {
   }
 
   db.get('SELECT * FROM games WHERE id = ? AND is_enabled = 1', [gameId], (err, game) => {
-    if (err || !game) return res.status(404).json({ error: 'Game not registered or offline' });
+    if (err || !game) {
+      return res.status(404).json({ error: `Game ${gameId} not registered or offline` });
+    }
 
     const sessionId = crypto.randomUUID();
     db.run(
@@ -54,6 +56,7 @@ router.post('/session/start', authenticateToken, (req, res) => {
       [sessionId, userId, gameId],
       (err) => {
         if (err) return res.status(500).json({ error: 'Failed to establish session' });
+        console.log(`[SESSION STARTED] User: ${userId}, Game: ${gameId}, Session: ${sessionId}`);
         res.json({ sessionId });
       }
     );
@@ -71,8 +74,8 @@ router.post('/session/end', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Invalid match completion payload' });
   }
 
-  // Validate allowed game titles
-  const allowedGames = ['tictactoe_1v1', 'rps_1v1'];
+  // ✅ Authorized game titles (includes color_tap and mines)
+  const allowedGames = ['color_tap', 'mines', 'tictactoe_1v1', 'rps_1v1', 'dot_connect'];
   if (!allowedGames.includes(gameId)) {
     return res.status(400).json({ error: 'Unauthorized game title' });
   }
@@ -91,16 +94,17 @@ router.post('/session/end', authenticateToken, (req, res) => {
       // Check user daily reward cap for this specific game
       db.get(
         `SELECT SUM(amount) as total_today FROM transactions 
-         WHERE user_id = ? AND type = 'GAME_REWARD' AND created_at >= date('now')`,
-        [userId],
+         WHERE user_id = ? AND type = 'GAME_REWARD' AND reference_id LIKE 'GAME_' || ? || '_%' AND created_at >= date('now')`,
+        [userId, gameId],
         (err, result) => {
-          const todayRewards = result.total_today || 0;
+          const todayRewards = (result && result.total_today) || 0;
           if (todayRewards >= session.max_daily_reward) {
             return res.status(400).json({ error: 'Daily reward cap reached for this title' });
           }
 
+          const multiplier = session.reward_multiplier || 1.0;
           const pointsEarned = Math.min(
-            Math.floor(score * session.reward_multiplier),
+            Math.floor(score * multiplier),
             session.max_daily_reward - todayRewards
           );
 
@@ -146,7 +150,7 @@ router.post('/session/end', authenticateToken, (req, res) => {
             // 4. Recalculate Active Stone Badge
             const currentStone = calculateStoneBadge(currentStreak);
 
-            // 5. Database transaction write
+            // 5. Database transaction write: credits wallet and logs history
             db.serialize(() => {
               db.run('BEGIN TRANSACTION');
 
@@ -179,9 +183,10 @@ router.post('/session/end', authenticateToken, (req, res) => {
                 ]
               );
 
+              const refId = `GAME_${gameId}_${sessionId}`;
               db.run(
                 `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'GAME_REWARD', ?, ?)`,
-                [userId, pointsEarned, sessionId]
+                [userId, pointsEarned, refId]
               );
 
               db.run('COMMIT', (commitErr) => {
@@ -190,7 +195,7 @@ router.post('/session/end', authenticateToken, (req, res) => {
                   return res.status(500).json({ error: 'Failed to record match reward' });
                 }
 
-                console.log(`[MATCH WIN] User ${userId} won +${pointsEarned} coins in ${gameId}. Streak progress: ${newEligible}/100. Current Streak: ${currentStreak}d`);
+                console.log(`🎉 [MATCH WIN] User ${userId} won +${pointsEarned} coins in ${gameId}. Streak: ${currentStreak}d`);
 
                 res.json({
                   success: true,
@@ -208,6 +213,70 @@ router.post('/session/end', authenticateToken, (req, res) => {
           });
         }
       );
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 3. Universal Cloud Progress API (Used by ApiService.fetchGameProgress)
+// ---------------------------------------------------------------------------
+router.get('/:gameId/progress', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const gameId = req.params.gameId;
+
+  db.get(
+    'SELECT level, data FROM user_game_data WHERE user_id = ? AND game_id = ?',
+    [userId, gameId],
+    (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: 'Failed to fetch game progress' });
+      }
+
+      if (!row) {
+        return res.json({ success: true, level: 1, data: null });
+      }
+
+      let parsedData = {};
+      try {
+        parsedData = JSON.parse(row.data || '{}');
+      } catch (_) {}
+
+      res.json({
+        success: true,
+        level: row.level || 1,
+        data: parsedData,
+      });
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 4. Universal Cloud Progress Sync (Used by ApiService.syncGameProgress)
+// ---------------------------------------------------------------------------
+router.post('/:gameId/progress', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const gameId = req.params.gameId;
+  const payload = req.body.data || {};
+
+  const level = parseInt(payload.level || payload.unlockedLevel || 1, 10);
+  const dataJson = JSON.stringify(payload);
+
+  db.run(
+    `INSERT INTO user_game_data (user_id, game_id, level, data, updated_at) 
+     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(user_id, game_id) DO UPDATE SET 
+       level = excluded.level, 
+       data = excluded.data, 
+       updated_at = CURRENT_TIMESTAMP`,
+    [userId, gameId, level, dataJson],
+    (err) => {
+      if (err) {
+        console.error('[Sync Progress Error]:', err.message);
+        return res.status(500).json({ error: 'Failed to sync progress' });
+      }
+
+      console.log(`💾 [PROGRESS SAVED] User: ${userId}, Game: ${gameId}, Level: ${level}`);
+      res.json({ success: true, level });
     }
   );
 });
