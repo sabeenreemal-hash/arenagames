@@ -6,6 +6,24 @@ const db = require('../database');
 const crypto = require('crypto');
 const authenticateToken = require('../middleware/auth');
 
+// Auto-ensure user_game_data table exists with proper constraints
+db.run(`
+  CREATE TABLE IF NOT EXISTS user_game_data (
+    user_id INTEGER NOT NULL,
+    game_id TEXT NOT NULL,
+    level INTEGER DEFAULT 1,
+    data TEXT DEFAULT '{}',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, game_id),
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(game_id) REFERENCES games(id) ON DELETE CASCADE
+  )
+`, (err) => {
+  if (!err) {
+    db.run(`CREATE INDEX IF NOT EXISTS idx_user_game_data ON user_game_data(user_id, game_id);`, () => {});
+  }
+});
+
 // 7-Level Stone Badge Tier Definitions
 const STONE_TIERS = [
   { rank: 7, name: 'RUBY', days: 100 },
@@ -35,7 +53,7 @@ function getYesterdayStr() {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Start a verified game session (color_tap, tictactoe_1v1, rps_1v1, mines, memory_match)
+// 1. Start a verified game session
 // ---------------------------------------------------------------------------
 router.post('/session/start', authenticateToken, (req, res) => {
   const userId = req.user.id;
@@ -47,7 +65,7 @@ router.post('/session/start', authenticateToken, (req, res) => {
 
   db.get('SELECT * FROM games WHERE id = ? AND is_enabled = 1', [gameId], (err, game) => {
     if (err || !game) {
-      console.error(`[SESSION START REJECTED] Game '${gameId}' is not registered in the games table or is disabled.`);
+      console.error(`[SESSION START REJECTED] Game '${gameId}' is not registered in games table or is disabled.`);
       return res.status(404).json({ error: `Game ${gameId} not registered or offline` });
     }
 
@@ -65,18 +83,27 @@ router.post('/session/start', authenticateToken, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Settle match rewards & automatically advance daily streak
+// 2. Settle match rewards & automatically advance daily streak + progress
 // ---------------------------------------------------------------------------
 router.post('/session/end', authenticateToken, (req, res) => {
   const userId = req.user.id;
-  const { sessionId, gameId, score, moves } = req.body;
+  const { sessionId, gameId, score, moves, level } = req.body;
 
   if (!sessionId || !gameId || score === undefined) {
     return res.status(400).json({ error: 'Invalid match completion payload' });
   }
 
-  // ✅ Authorized game titles (Added 'memory_match')
-  const allowedGames = ['color_tap', 'mines', 'tictactoe_1v1', 'rps_1v1', 'dot_connect', 'memory_match'];
+  // Authorized game titles
+  const allowedGames = [
+    'color_tap',
+    'mines',
+    'tictactoe_1v1',
+    'rps_1v1',
+    'dot_connect',
+    'memory_match',
+    'memoryMatch',
+  ];
+
   if (!allowedGames.includes(gameId)) {
     console.error(`[REWARD REJECTED] Unauthorized game title: ${gameId}`);
     return res.status(400).json({ error: 'Unauthorized game title' });
@@ -111,8 +138,16 @@ router.post('/session/end', authenticateToken, (req, res) => {
             session.max_daily_reward - todayRewards
           );
 
-          if (pointsEarned <= 0) {
-            return res.json({ success: true, earned: 0, message: 'No coins awarded or cap met' });
+          // Extract completed level from body or action audit moves
+          let wonLevel = parseInt(level, 10);
+          if (isNaN(wonLevel) && Array.isArray(moves)) {
+            for (const move of moves) {
+              const match = String(move).match(/LEVEL_WON:(?:lvl_)?(\d+)/i);
+              if (match) {
+                wonLevel = parseInt(match[1], 10);
+                break;
+              }
+            }
           }
 
           // Fetch user profile to calculate streak progress
@@ -136,7 +171,7 @@ router.post('/session/end', authenticateToken, (req, res) => {
 
             // 2. Check if streak broke yesterday
             if (user.last_eligible_date !== today && lastStreakDate !== yesterday && lastStreakDate !== today && currentStreak > 0) {
-              currentStreak = 0; // Streak broken
+              currentStreak = 0;
             }
 
             // 3. Milestone check: Crossing >= 100 coins activates streak
@@ -153,7 +188,7 @@ router.post('/session/end', authenticateToken, (req, res) => {
             // 4. Recalculate Active Stone Badge
             const currentStone = calculateStoneBadge(currentStreak);
 
-            // 5. Database transaction write: credits wallet and logs history
+            // 5. Database transaction write
             db.serialize(() => {
               db.run('BEGIN TRANSACTION');
 
@@ -162,35 +197,48 @@ router.post('/session/end', authenticateToken, (req, res) => {
                 [sessionId]
               );
 
-              db.run(
-                `UPDATE users SET 
-                  balance = balance + ?, 
-                  total_coins_earned = COALESCE(total_coins_earned, 0) + ?, 
-                  eligible_daily_coins = ?, 
-                  last_eligible_date = ?, 
-                  current_streak = ?, 
-                  highest_streak = ?, 
-                  last_streak_date = ?, 
-                  current_stone = ? 
-                 WHERE id = ?`,
-                [
-                  pointsEarned,
-                  pointsEarned,
-                  newEligible,
-                  today,
-                  currentStreak,
-                  highestStreak,
-                  lastStreakDate,
-                  currentStone,
-                  userId,
-                ]
-              );
+              if (pointsEarned > 0) {
+                db.run(
+                  `UPDATE users SET 
+                    balance = balance + ?, 
+                    total_coins_earned = COALESCE(total_coins_earned, 0) + ?, 
+                    eligible_daily_coins = ?, 
+                    last_eligible_date = ?, 
+                    current_streak = ?, 
+                    highest_streak = ?, 
+                    last_streak_date = ?, 
+                    current_stone = ? 
+                   WHERE id = ?`,
+                  [
+                    pointsEarned,
+                    pointsEarned,
+                    newEligible,
+                    today,
+                    currentStreak,
+                    highestStreak,
+                    lastStreakDate,
+                    currentStone,
+                    userId,
+                  ]
+                );
 
-              const refId = `GAME_${gameId}_${sessionId}`;
-              db.run(
-                `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'GAME_REWARD', ?, ?)`,
-                [userId, pointsEarned, refId]
-              );
+                const refId = `GAME_${gameId}_${sessionId}`;
+                db.run(
+                  `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'GAME_REWARD', ?, ?)`,
+                  [userId, pointsEarned, refId]
+                );
+              }
+
+              // Auto-advance level in user_game_data if wonLevel is verified
+              if (!isNaN(wonLevel) && wonLevel >= 1) {
+                const nextUnlocked = wonLevel + 1;
+                db.run(
+                  `UPDATE user_game_data 
+                   SET level = MAX(level, ?), updated_at = CURRENT_TIMESTAMP 
+                   WHERE user_id = ? AND game_id = ?`,
+                  [nextUnlocked, userId, gameId]
+                );
+              }
 
               db.run('COMMIT', (commitErr) => {
                 if (commitErr) {
@@ -221,7 +269,7 @@ router.post('/session/end', authenticateToken, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Universal Cloud Progress API (Used by ApiService.fetchGameProgress)
+// 3. Universal Cloud Progress API (GET /api/games/:gameId/progress)
 // ---------------------------------------------------------------------------
 router.get('/:gameId/progress', authenticateToken, (req, res) => {
   const userId = req.user.id;
@@ -232,10 +280,12 @@ router.get('/:gameId/progress', authenticateToken, (req, res) => {
     [userId, gameId],
     (err, row) => {
       if (err) {
+        console.error(`[PROGRESS GET ERROR] User: ${userId}, Game: ${gameId}:`, err.message);
         return res.status(500).json({ error: 'Failed to fetch game progress' });
       }
 
       if (!row) {
+        console.log(`[PROGRESS GET] User: ${userId}, Game: ${gameId} -> No progress found. Initializing Level 1.`);
         return res.json({ success: true, level: 1, data: null });
       }
 
@@ -244,9 +294,16 @@ router.get('/:gameId/progress', authenticateToken, (req, res) => {
         parsedData = JSON.parse(row.data || '{}');
       } catch (_) {}
 
+      // Guarantee consistent level fields
+      const currentLevel = Math.max(row.level || 1, parsedData.level || 1, parsedData.unlockedLevel || 1);
+      parsedData.level = currentLevel;
+      parsedData.unlockedLevel = currentLevel;
+
+      console.log(`📖 [PROGRESS GET] User: ${userId}, Game: ${gameId}, Restored Level: ${currentLevel}`);
+
       res.json({
         success: true,
-        level: row.level || 1,
+        level: currentLevel,
         data: parsedData,
       });
     }
@@ -254,32 +311,94 @@ router.get('/:gameId/progress', authenticateToken, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Universal Cloud Progress Sync (Used by ApiService.syncGameProgress)
+// 4. Universal Cloud Progress Sync (POST /api/games/:gameId/progress)
 // ---------------------------------------------------------------------------
 router.post('/:gameId/progress', authenticateToken, (req, res) => {
   const userId = req.user.id;
   const gameId = req.params.gameId;
-  const payload = req.body.data || {};
 
-  const level = parseInt(payload.level || payload.unlockedLevel || 1, 10);
-  const dataJson = JSON.stringify(payload);
+  // Flexible payload parsing
+  const rawPayload = req.body.data || req.body || {};
+  let incomingData = {};
+  if (typeof rawPayload === 'string') {
+    try {
+      incomingData = JSON.parse(rawPayload);
+    } catch (_) {
+      incomingData = {};
+    }
+  } else {
+    incomingData = { ...rawPayload };
+  }
 
-  db.run(
-    `INSERT INTO user_game_data (user_id, game_id, level, data, updated_at) 
-     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-     ON CONFLICT(user_id, game_id) DO UPDATE SET 
-       level = excluded.level, 
-       data = excluded.data, 
-       updated_at = CURRENT_TIMESTAMP`,
-    [userId, gameId, level, dataJson],
-    (err) => {
+  const rawLevel =
+    incomingData.level ??
+    incomingData.unlockedLevel ??
+    incomingData.unlocked_level ??
+    req.body.level ??
+    1;
+
+  const targetLevel = Math.max(1, parseInt(rawLevel, 10) || 1);
+
+  // Fetch existing data first to merge seamlessly without overwriting
+  db.get(
+    'SELECT level, data FROM user_game_data WHERE user_id = ? AND game_id = ?',
+    [userId, gameId],
+    (err, existing) => {
       if (err) {
-        console.error('[Sync Progress Error]:', err.message);
-        return res.status(500).json({ error: 'Failed to sync progress' });
+        console.error('[Progress Fetch Error]:', err.message);
+        return res.status(500).json({ error: 'Database check failed' });
       }
 
-      console.log(`💾 [PROGRESS SAVED] User: ${userId}, Game: ${gameId}, Level: ${level}`);
-      res.json({ success: true, level });
+      let existingData = {};
+      let highestLevel = targetLevel;
+
+      if (existing) {
+        try {
+          existingData = JSON.parse(existing.data || '{}');
+        } catch (_) {}
+        highestLevel = Math.max(existing.level || 1, targetLevel);
+      }
+
+      // Merge existing data with incoming data so inventory & stars are preserved
+      const mergedData = {
+        ...existingData,
+        ...incomingData,
+        level: highestLevel,
+        unlockedLevel: highestLevel,
+      };
+
+      const dataJson = JSON.stringify(mergedData);
+
+      if (existing) {
+        db.run(
+          `UPDATE user_game_data 
+           SET level = ?, data = ?, updated_at = CURRENT_TIMESTAMP 
+           WHERE user_id = ? AND game_id = ?`,
+          [highestLevel, dataJson, userId, gameId],
+          (updateErr) => {
+            if (updateErr) {
+              console.error('[Progress Update Error]:', updateErr.message);
+              return res.status(500).json({ error: 'Failed to update progress' });
+            }
+            console.log(`💾 [PROGRESS UPDATED] User: ${userId}, Game: ${gameId}, Level: ${highestLevel}`);
+            res.json({ success: true, level: highestLevel });
+          }
+        );
+      } else {
+        db.run(
+          `INSERT INTO user_game_data (user_id, game_id, level, data, updated_at) 
+           VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+          [userId, gameId, highestLevel, dataJson],
+          (insertErr) => {
+            if (insertErr) {
+              console.error('[Progress Insert Error]:', insertErr.message);
+              return res.status(500).json({ error: 'Failed to insert progress' });
+            }
+            console.log(`💾 [PROGRESS CREATED] User: ${userId}, Game: ${gameId}, Level: ${highestLevel}`);
+            res.json({ success: true, level: highestLevel });
+          }
+        );
+      }
     }
   );
 });
