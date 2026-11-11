@@ -386,13 +386,34 @@ db.serialize(() => {
     )
   `);
 
-  // Ensure Allowed Games Exist (Includes 'color_tap' so sessions & wallet rewards are authorized)
+  // ==========================================
+  // Memory Match Progress Table
+  // ==========================================
+  db.run(`
+    CREATE TABLE IF NOT EXISTS memory_match_user_progress (
+      user_id INTEGER PRIMARY KEY,
+      unlocked_level INTEGER DEFAULT 1,
+      level_stars TEXT DEFAULT '{}',
+      level_coins TEXT DEFAULT '{}',
+      peek_count INTEGER DEFAULT 2,
+      hint_count INTEGER DEFAULT 2,
+      moves_count INTEGER DEFAULT 2,
+      shuffle_count INTEGER DEFAULT 2,
+      daily_cooldown_until INTEGER DEFAULT 0,
+      daily_locked_level INTEGER DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Ensure Allowed Games Exist (Includes 'memory_match' so sessions & wallet rewards are authorized)
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`);
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)`);
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)`);
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('rps_1v1', '1v1 Rock Paper Scissors', 50000, 1.0, 1)`);
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('mines', 'Mines Puzzle', 1000, 1.0, 1)`);
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('color_tap', 'Color Tap Challenge', 5000, 1.0, 1)`);
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memory_match', 'Memory Match', 5000, 1.0, 1)`);
 
   // Cleanup Unused Legacy Games
   db.run("DELETE FROM game_sessions WHERE game_id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');");
@@ -414,6 +435,7 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_mines_user ON mines_user_progress(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_color_tap_user ON color_tap_user_progress(user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_memory_match_user ON memory_match_user_progress(user_id);`, () => {});
 
   // Backfill last_active_at for existing accounts safely
   db.run(`UPDATE users SET last_active_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE last_active_at IS NULL;`, () => {});
