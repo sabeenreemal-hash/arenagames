@@ -27,91 +27,72 @@ function generateReferralCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-// User Registration
+// Normal User Registration (No device checks, No IP checks)
 router.post('/register', async (req, res) => {
-  const { fullName, username, email, password, referralCode } = req.body;
-
-  if (!fullName || !username || !email || !password) {
-    return res.status(400).json({ error: 'All primary fields are required' });
-  }
-
-  // Extract the user's real client IP address
-  const clientIp =
-    req.headers['cf-connecting-ip'] ||
-    (req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(',')[0].trim() : null) ||
-    req.headers['x-real-ip'] ||
-    req.ip ||
-    req.socket.remoteAddress ||
-    'unknown';
-
-  handleUserRegistration(fullName, username, email, password, referralCode, clientIp, res);
-});
-
-async function handleUserRegistration(fullName, username, email, password, referralCode, clientIp, res) {
   try {
-    const passwordHash = await bcrypt.hash(password, 10);
-    const generatedCode = generateReferralCode();
+    const { fullName, username, email, password, referralCode } = req.body;
 
-    db.get('SELECT id FROM users WHERE username = ? OR email = ?', [username.trim(), email.trim()], (err, existing) => {
+    if (!fullName || !username || !email || !password) {
+      return res.status(400).json({ error: 'All primary fields are required' });
+    }
+
+    const cleanUser = username.trim();
+    const cleanEmail = email.trim();
+    const cleanName = fullName.trim();
+    const cleanRef = (referralCode || '').toString().trim().toUpperCase();
+
+    // 1. Check if username or email already exists
+    db.get('SELECT id FROM users WHERE username = ? OR email = ?', [cleanUser, cleanEmail], async (err, existing) => {
+      if (err) {
+        return res.status(500).json({ error: 'Database error checking account' });
+      }
       if (existing) {
         return res.status(400).json({ error: 'Username or Email is already registered' });
       }
 
-      const cleanRef = (referralCode || '').toString().trim().toUpperCase();
+      let passwordHash;
+      try {
+        passwordHash = await bcrypt.hash(password, 10);
+      } catch (hashErr) {
+        return res.status(500).json({ error: 'Password encryption error' });
+      }
 
+      const generatedCode = generateReferralCode();
+
+      // 2. Check referral code if provided
       if (cleanRef !== '') {
-        db.get(
-          'SELECT id, username, balance FROM users WHERE UPPER(TRIM(referral_code)) = ?',
-          [cleanRef],
-          (refErr, referrer) => {
-            if (refErr || !referrer) {
-              return res.status(400).json({ error: 'Invalid referral code. Check spelling or leave empty.' });
-            }
-            executeUserCreation(
-              fullName.trim(),
-              username.trim(),
-              email.trim(),
-              passwordHash,
-              generatedCode,
-              referrer.id,
-              clientIp,
-              res
-            );
+        db.get('SELECT id FROM users WHERE UPPER(TRIM(referral_code)) = ?', [cleanRef], (refErr, referrer) => {
+          if (refErr || !referrer) {
+            return res.status(400).json({ error: 'Invalid referral code. Check spelling or leave empty.' });
           }
-        );
+          createUserRecord(cleanName, cleanUser, cleanEmail, passwordHash, generatedCode, referrer.id, res);
+        });
       } else {
-        executeUserCreation(
-          fullName.trim(),
-          username.trim(),
-          email.trim(),
-          passwordHash,
-          generatedCode,
-          null,
-          clientIp,
-          res
-        );
+        createUserRecord(cleanName, cleanUser, cleanEmail, passwordHash, generatedCode, null, res);
       }
     });
-  } catch (err) {
-    res.status(500).json({ error: 'Server encryption error' });
+  } catch (error) {
+    console.error('[Register Error]:', error);
+    res.status(500).json({ error: 'An unexpected error occurred during registration' });
   }
-}
+});
 
-function executeUserCreation(fullName, username, email, passwordHash, code, referrerId, clientIp, res) {
+function createUserRecord(fullName, username, email, passwordHash, code, referrerId, res) {
   const signupBonus = 100;
 
   db.run(
-    `INSERT INTO users (full_name, username, email, password_hash, referral_code, referred_by_id, balance, registration_ip) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [fullName, username, email, passwordHash, code, referrerId, signupBonus, clientIp],
+    `INSERT INTO users (full_name, username, email, password_hash, referral_code, referred_by_id, balance) 
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [fullName, username, email, passwordHash, code, referrerId, signupBonus],
     function (insertErr) {
       if (insertErr) {
-        console.error('Error inserting user record:', insertErr.message);
+        console.error('[Insert User Error]:', insertErr.message);
         return res.status(500).json({ error: 'Failed to create user record' });
       }
 
       const newUserId = this.lastID;
 
+      // Credit signup bonus
       db.run(
         `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'SIGNUP_BONUS', ?, 'SYSTEM')`,
         [newUserId, signupBonus],
@@ -128,7 +109,7 @@ function executeUserCreation(fullName, username, email, passwordHash, code, refe
   );
 }
 
-// User Login (Unrestricted - any valid account can log in on any device)
+// User Login
 router.post('/login', (req, res) => {
   const { usernameOrEmail, password } = req.body;
 
@@ -152,7 +133,6 @@ router.post('/login', (req, res) => {
     const isValid = await bcrypt.compare(password, user.password_hash);
     if (!isValid) return res.status(401).json({ error: 'Invalid account credentials' });
 
-    // Resilient check (handles 1, '1', true)
     const isCreatorActive = user.creator_badge_enabled == 1 || user.creator_badge_enabled === true;
     const badgeIcon = isCreatorActive
       ? (user.creator_badge_icon || 'https://cdn-icons-png.flaticon.com/512/7653/7653930.png')
@@ -178,7 +158,7 @@ router.post('/login', (req, res) => {
   });
 });
 
-// GET /api/auth/me - Live Profile & Badge Sync
+// GET /api/auth/me - Profile
 router.get('/me', authenticateToken, (req, res) => {
   const query = `
     SELECT 
