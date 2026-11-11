@@ -55,6 +55,9 @@ const minesRoutes = require('./routes/mines');
 // Color Tap Challenge Route
 const colorTapRoutes = require('./routes/colorTap');
 
+// Memory Match Route
+const memoryMatchRoutes = require('./routes/memoryMatch');
+
 // ==========================================
 // 3. Mount Routes
 // ==========================================
@@ -76,6 +79,9 @@ app.use('/api/mines', minesRoutes);
 
 // Mount Color Tap route
 app.use('/api/color-tap', colorTapRoutes);
+
+// Mount Memory Match route
+app.use('/api/memory-match', memoryMatchRoutes);
 
 // ==========================================
 // 4. Base & Health Check Endpoints
@@ -114,5 +120,6 @@ app.listen(PORT, () => {
   console.log(`🚀 Arena Games Server running on port ${PORT}`);
   console.log(`🎮 Mines route mounted at /api/mines`);
   console.log(`🎯 Color Tap route mounted at /api/color-tap`);
+  console.log(`🧠 Memory Match route mounted at /api/memory-match`);
   console.log(`=========================================`);
 });
