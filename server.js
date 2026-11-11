@@ -21,12 +21,15 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Serve static assets from public/ (e.g. admin.html)
 app.use(express.static(path.join(__dirname, 'public')));
 
+// FIX: Serve uploaded screenshots publicly so admin panel can open them
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Request logger for debugging
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    if (req.originalUrl.startsWith('/api')) {
+    if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/uploads')) {
       console.log(`[${req.method}] ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`);
     }
   });
