@@ -358,17 +358,25 @@ db.serialize(() => {
     )
   `, () => {});
 
+  // Safe Column Migrations for user_game_data in case table existed earlier
+  addColumnIfNotExists('user_game_data', 'level', 'INTEGER', 1);
+  addColumnIfNotExists('user_game_data', 'data', 'TEXT', "'{}'");
+  addColumnIfNotExists('user_game_data', 'updated_at', 'DATETIME', 'CURRENT_TIMESTAMP');
+
   // ==========================================
-  // Register Allowed Games in Database
+  // Register & Enable Allowed Games
   // ==========================================
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('rps_1v1', '1v1 Rock Paper Scissors', 50000, 1.0, 1)`, () => {});
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('mines', 'Mines Puzzle', 1000, 1.0, 1)`, () => {});
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('color_tap', 'Color Tap Challenge', 1000, 1.0, 1)`, () => {});
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memory_match', 'Memory Match', 1000, 1.0, 1)`, () => {});
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memoryMatch', 'Memory Match', 1000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('mines', 'Mines Puzzle', 5000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('color_tap', 'Color Tap Challenge', 5000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memory_match', 'Memory Match', 5000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memoryMatch', 'Memory Match', 5000, 1.0, 1)`, () => {});
+
+  // Ensure game titles stay active
+  db.run(`UPDATE games SET is_enabled = 1, max_daily_reward = 5000 WHERE id IN ('color_tap', 'mines', 'memory_match', 'memoryMatch')`, () => {});
 
   // Cleanup Unused Legacy Games
   db.run("DELETE FROM game_sessions WHERE game_id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');", () => {});
@@ -388,7 +396,7 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_user_game_data ON user_game_data(user_id, game_id);`, () => {});
+  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_game_data_unique ON user_game_data(user_id, game_id);`, () => {});
 
   // Backfill last_active_at safely
   db.run(`UPDATE users SET last_active_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE last_active_at IS NULL;`, () => {});
