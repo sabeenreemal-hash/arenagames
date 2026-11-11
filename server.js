@@ -49,8 +49,11 @@ const spinWheelRoutes = require('./routes/spinWheelRoutes');
 const tasksRoutes = require('./routes/tasks');
 const tictactoeRoutes = require('./routes/tictactoe');
 
-// New Mines Puzzle Route
+// Mines Puzzle Route
 const minesRoutes = require('./routes/mines');
+
+// Color Tap Challenge Route
+const colorTapRoutes = require('./routes/colorTap');
 
 // ==========================================
 // 3. Mount Routes
@@ -70,6 +73,9 @@ app.use('/api/tictactoe', tictactoeRoutes);
 
 // Mount Mines route
 app.use('/api/mines', minesRoutes);
+
+// Mount Color Tap route
+app.use('/api/color-tap', colorTapRoutes);
 
 // ==========================================
 // 4. Base & Health Check Endpoints
@@ -107,5 +113,6 @@ app.listen(PORT, () => {
   console.log(`=========================================`);
   console.log(`🚀 Arena Games Server running on port ${PORT}`);
   console.log(`🎮 Mines route mounted at /api/mines`);
+  console.log(`🎯 Color Tap route mounted at /api/color-tap`);
   console.log(`=========================================`);
 });
