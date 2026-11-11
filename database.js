@@ -341,10 +341,7 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // ==========================================
   // Universal Cloud Game Progress Table
-  // (Used by routes/games.js for all games)
-  // ==========================================
   db.run(`
     CREATE TABLE IF NOT EXISTS user_game_data (
       user_id INTEGER NOT NULL,
@@ -358,14 +355,11 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Safe Column Migrations for user_game_data in case table existed earlier
   addColumnIfNotExists('user_game_data', 'level', 'INTEGER', 1);
   addColumnIfNotExists('user_game_data', 'data', 'TEXT', "'{}'");
   addColumnIfNotExists('user_game_data', 'updated_at', 'DATETIME', 'CURRENT_TIMESTAMP');
 
-  // ==========================================
-  // Register & Enable Allowed Games
-  // ==========================================
+  // Register Allowed Games
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)`, () => {});
@@ -375,7 +369,6 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memory_match', 'Memory Match', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memoryMatch', 'Memory Match', 5000, 1.0, 1)`, () => {});
 
-  // Ensure game titles stay active
   db.run(`UPDATE games SET is_enabled = 1, max_daily_reward = 5000 WHERE id IN ('color_tap', 'mines', 'memory_match', 'memoryMatch')`, () => {});
 
   // Cleanup Unused Legacy Games
@@ -400,6 +393,20 @@ db.serialize(() => {
 
   // Backfill last_active_at safely
   db.run(`UPDATE users SET last_active_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE last_active_at IS NULL;`, () => {});
+
+  // ==========================================
+  // AUTO-HEALING MIGRATIONS (Tasks & Screenshots)
+  // ==========================================
+  // 1. Ensure any legacy/migrated tasks with NULL is_active become active (1)
+  db.run(`UPDATE tasks SET is_active = 1 WHERE is_active IS NULL;`, () => {});
+
+  // 2. Convert old OS disk paths into clean web URLs for the Admin Panel
+  db.run(`
+    UPDATE task_submissions 
+    SET screenshot_path = '/uploads/task_proofs/' || substr(screenshot_path, instr(screenshot_path, 'proof_'))
+    WHERE screenshot_path LIKE '%proof_%' 
+      AND screenshot_path NOT LIKE '/uploads/task_proofs/%';
+  `, () => {});
 });
 
 module.exports = db;
