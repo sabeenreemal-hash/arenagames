@@ -315,6 +315,20 @@
       border: 1px solid rgba(0, 230, 118, 0.2);
     }
 
+    .live-users-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--primary);
+      background: rgba(0, 230, 118, 0.12);
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(0, 230, 118, 0.35);
+      letter-spacing: 0.3px;
+    }
+
     .status-dot {
       width: 8px;
       height: 8px;
@@ -329,12 +343,10 @@
         transform: scale(0.9);
         box-shadow: 0 0 4px var(--primary);
       }
-
       50% {
         transform: scale(1.25);
         box-shadow: 0 0 12px var(--primary);
       }
-
       100% {
         transform: scale(0.9);
         box-shadow: 0 0 4px var(--primary);
@@ -362,6 +374,22 @@
       padding: 20px;
       position: relative;
       overflow: hidden;
+    }
+
+    .metric-card.live-card {
+      border: 1px solid rgba(0, 230, 118, 0.35);
+      background: linear-gradient(145deg, rgba(18, 22, 31, 1) 0%, rgba(0, 230, 118, 0.05) 100%);
+    }
+
+    .metric-card::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 60px;
+      height: 60px;
+      background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
+      pointer-events: none;
     }
 
     .metric-title {
@@ -436,7 +464,7 @@
       padding: 9px 14px;
       border-radius: 8px;
       font-size: 13px;
-      width: 320px;
+      width: 280px;
       outline: none;
     }
 
@@ -516,6 +544,42 @@
       background: #2A1F40;
       color: #D8B4FE;
       border: 1px solid #9D4EDD;
+    }
+
+    /* ONLINE / ACTIVITY PILLS */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .pill-online {
+      background: rgba(0, 230, 118, 0.12);
+      color: var(--primary);
+      border: 1px solid rgba(0, 230, 118, 0.25);
+    }
+
+    .pill-away {
+      background: rgba(255, 165, 2, 0.12);
+      color: var(--warning);
+      border: 1px solid rgba(255, 165, 2, 0.25);
+    }
+
+    .pill-offline {
+      background: rgba(143, 156, 174, 0.12);
+      color: var(--text-muted);
+      border: 1px solid rgba(143, 156, 174, 0.2);
+    }
+
+    .dot-pulse {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
     }
 
     /* BUTTONS */
@@ -599,7 +663,6 @@
       display: flex;
       gap: 8px;
       margin-bottom: 16px;
-      flex-wrap: wrap;
     }
 
     .filter-btn {
@@ -624,28 +687,7 @@
       border-color: var(--primary);
     }
 
-    /* GENERAL MODAL */
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.75);
-      z-index: 10000;
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
-    }
-
-    .modal-card {
-      background: var(--surface-1);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 26px;
-      width: 100%;
-      max-width: 520px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-    }
-
+    /* SCREENSHOT THUMBNAIL */
     .proof-thumb {
       width: 50px;
       height: 50px;
@@ -661,6 +703,7 @@
       border-color: var(--primary);
     }
 
+    /* LIGHTBOX IMAGE MODAL */
     #image-modal {
       display: none;
       position: fixed;
@@ -717,72 +760,6 @@
     <img id="image-modal-src" src="" alt="Proof Preview" onclick="event.stopPropagation()">
   </div>
 
-  <!-- GATEWAY ADD/EDIT MODAL -->
-  <div id="gateway-modal" class="modal-overlay">
-    <div class="modal-card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-        <h2 id="gateway-modal-title" style="font-size: 18px; font-weight: 800;">Add Payment Gateway</h2>
-        <span onclick="closeGatewayModal()" style="font-size: 22px; cursor: pointer; color: var(--text-muted);">&times;</span>
-      </div>
-
-      <form id="gateway-form" onsubmit="handleSaveGateway(event)">
-        <input type="hidden" id="gateway-edit-index" value="-1">
-
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
-          <div class="form-group">
-            <label>Gateway Identifier (Unique ID)</label>
-            <input type="text" id="gateway-id" placeholder="e.g. eSewa, Khalti, IME_Pay" required>
-          </div>
-          <div class="form-group">
-            <label>Emoji / Icon</label>
-            <input type="text" id="gateway-icon" placeholder="🟢, 🟣, 🏦" required>
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
-          <div class="form-group">
-            <label>Display Name</label>
-            <input type="text" id="gateway-name" placeholder="e.g. eSewa (NPR)" required>
-          </div>
-          <div class="form-group">
-            <label>Currency</label>
-            <input type="text" id="gateway-currency" placeholder="NPR, USD" value="NPR" required>
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div class="form-group">
-            <label>Account Input Label</label>
-            <input type="text" id="gateway-label" placeholder="e.g. eSewa Mobile Number" required>
-          </div>
-          <div class="form-group">
-            <label>Placeholder Hint</label>
-            <input type="text" id="gateway-hint" placeholder="e.g. 98XXXXXXXX" required>
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div class="form-group">
-            <label>Min Coins</label>
-            <input type="number" id="gateway-min" placeholder="5000" min="100" value="5000" required>
-          </div>
-          <div class="form-group">
-            <label>Gateway Status</label>
-            <select id="gateway-status">
-              <option value="true">Active (Visible in App)</option>
-              <option value="false">Disabled</option>
-            </select>
-          </div>
-        </div>
-
-        <div style="display: flex; gap: 10px; margin-top: 10px;">
-          <button type="submit" class="btn btn-primary" style="flex: 1;">Save Gateway</button>
-          <button type="button" class="btn btn-action btn-act-gray" onclick="closeGatewayModal()" style="padding: 10px 16px;">Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <!-- 1. LOGIN OVERLAY -->
   <div id="login-overlay">
     <div class="login-box">
@@ -803,8 +780,10 @@
         <label>Password</label>
         <input type="password" id="admin-pass" placeholder="••••••••" autocomplete="current-password">
       </div>
-      <button class="btn btn-primary" onclick="attemptLogin()" style="width: 100%; padding: 12px; margin-top: 6px;">Sign In to Console</button>
-      <p id="login-error" style="color: var(--danger); text-align: center; margin-top: 14px; font-size: 12px; display: none;"></p>
+      <button class="btn btn-primary" onclick="attemptLogin()" style="width: 100%; padding: 12px; margin-top: 6px;">Sign
+        In to Console</button>
+      <p id="login-error"
+        style="color: var(--danger); text-align: center; margin-top: 14px; font-size: 12px; display: none;"></p>
     </div>
   </div>
 
@@ -882,11 +861,18 @@
           <div class="page-title" id="current-page-title">Dashboard Overview</div>
         </div>
         <div class="topbar-right">
+          <!-- LIVE ACTIVE USERS TOPBAR COUNTER -->
+          <div class="live-users-indicator" title="Active users currently on the app within the last 5 minutes">
+            <div class="status-dot"></div>
+            <span>Live Active Users: <strong id="topbar-live-users" style="color: white; font-size: 13px;">00</strong></span>
+          </div>
+
           <div class="status-indicator">
             <div class="status-dot"></div>
             <span>Server Live</span>
           </div>
-          <button class="btn btn-outline-gold" onclick="loadDashboard()" style="padding: 6px 12px; font-size: 12px;">🔄 Refresh</button>
+          <button class="btn btn-outline-gold" onclick="loadDashboard()" style="padding: 6px 12px; font-size: 12px;">🔄
+            Refresh</button>
         </div>
       </header>
 
@@ -895,6 +881,16 @@
 
         <!-- OVERVIEW METRIC CARDS -->
         <div class="metrics-grid">
+          <!-- REALTIME ACTIVE USERS METRIC CARD -->
+          <div class="metric-card live-card">
+            <div class="metric-title" style="display: flex; align-items: center; gap: 8px;">
+              <span class="status-dot" style="display: inline-block;"></span>
+              <span style="color: var(--primary);">Realtime Active Users</span>
+            </div>
+            <div class="metric-val" id="stat-active-users" style="color: var(--primary);">00</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">Active in last 5 mins</div>
+          </div>
+
           <div class="metric-card">
             <div class="metric-title">Registered Players</div>
             <div class="metric-val" id="stat-users" style="color: white;">...</div>
@@ -925,28 +921,34 @@
               </div>
             </div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
-              <div style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
+              <div
+                style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
                 <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--info);">📥 Task Submissions</h3>
                 <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
                   Review pending player tasks, verify screenshot/text proofs, approve or reject with automatic VPS disk cleanup.
                 </p>
-                <button class="btn btn-primary" onclick="switchTabByName('tab-submissions', 'Task Submissions Review')" style="font-size: 12px; padding: 7px 12px;">Review Submissions</button>
+                <button class="btn btn-primary" onclick="switchTabByName('tab-submissions', 'Task Submissions Review')"
+                  style="font-size: 12px; padding: 7px 12px;">Review Submissions</button>
               </div>
 
-              <div style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
+              <div
+                style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
                 <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--primary);">📋 Task Manager</h3>
                 <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
                   Create new tasks, set coin payouts, specify proof requirements, and manage active status.
                 </p>
-                <button class="btn btn-primary" onclick="switchTabByName('tab-tasks', 'Task Hub & Creation')" style="font-size: 12px; padding: 7px 12px;">Manage Tasks</button>
+                <button class="btn btn-primary" onclick="switchTabByName('tab-tasks', 'Task Hub & Creation')"
+                  style="font-size: 12px; padding: 7px 12px;">Manage Tasks</button>
               </div>
 
-              <div style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
+              <div
+                style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
                 <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--warning);">💸 Pending Payouts</h3>
                 <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
-                  Review player redemption requests with payment method details, account numbers, and cash payouts.
+                  Review player withdrawal claims and authorize or reject payment requests.
                 </p>
-                <button class="btn btn-primary" onclick="switchTabByName('tab-withdrawals', 'Redemptions Pipeline')" style="font-size: 12px; padding: 7px 12px;">Review Requests</button>
+                <button class="btn btn-primary" onclick="switchTabByName('tab-withdrawals', 'Redemptions Pipeline')"
+                  style="font-size: 12px; padding: 7px 12px;">Review Requests</button>
               </div>
             </div>
           </div>
@@ -1082,9 +1084,10 @@
             <div class="card-header-flex">
               <div>
                 <h2>Registered Users Database</h2>
-                <p>Inspect player accounts, registered IPs, multi-account alerts, adjust balances, or remove users.</p>
+                <p>Inspect live player activity, registration dates, modify balances, or permanently remove accounts.</p>
               </div>
-              <input type="text" id="user-search" class="search-bar" placeholder="Filter by username, email, IP..." onkeyup="filterUsersList()">
+              <input type="text" id="user-search" class="search-bar" placeholder="Filter users by username / email..."
+                onkeyup="filterUsersList()">
             </div>
 
             <div class="table-container">
@@ -1097,13 +1100,14 @@
                     <th>Coins</th>
                     <th>Streak / Stone</th>
                     <th>Account Created</th>
-                    <th>Registered IP & Multi-Account</th>
+                    <th>Online Activity</th>
+                    <th>Status</th>
                     <th>Admin Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td colspan="8">Fetching user accounts...</td>
+                    <td colspan="9">Fetching user accounts...</td>
                   </tr>
                 </tbody>
               </table>
@@ -1119,34 +1123,24 @@
             <div class="card-header-flex">
               <div>
                 <h2>Redemptions Pipeline</h2>
-                <p>Review player withdrawal claims with payout method, account number, and verify balances before approval.</p>
+                <p>Approve or deny coin payouts requested by players.</p>
               </div>
-            </div>
-
-            <div class="filter-tabs">
-              <button class="filter-btn active" onclick="filterWithdrawals('PENDING', this)">Pending Review</button>
-              <button class="filter-btn" onclick="filterWithdrawals('APPROVED', this)">Approved</button>
-              <button class="filter-btn" onclick="filterWithdrawals('REJECTED', this)">Rejected</button>
-              <button class="filter-btn" onclick="filterWithdrawals('ALL', this)">All Redemptions</button>
             </div>
 
             <div class="table-container">
               <table id="withdrawals-table">
                 <thead>
                   <tr>
-                    <th>ID / Date</th>
-                    <th>Player Info</th>
-                    <th>Payment Gateway</th>
-                    <th>Account / Phone Number</th>
-                    <th>Coins to Deduct</th>
-                    <th>Payout Amount</th>
-                    <th>Status</th>
+                    <th>User ID</th>
+                    <th>Recipient Account</th>
+                    <th>Coins Deducted</th>
+                    <th>Cash Value</th>
                     <th>Decision</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td colspan="8">Fetching redemptions...</td>
+                    <td colspan="5">Fetching pending redemptions...</td>
                   </tr>
                 </tbody>
               </table>
@@ -1162,9 +1156,9 @@
             <div class="card-header-flex">
               <div>
                 <h2>Redemption & Payment Gateways</h2>
-                <p>Configure user-facing payout methods (eSewa, Khalti, etc.). Add, edit details, or remove gateways.</p>
+                <p>Configure user-facing payout methods (eSewa, Khalti, PayPal, USDT TRC20, Bank, etc.)</p>
               </div>
-              <button class="btn btn-primary" onclick="openGatewayModal()">+ Add Payout Gateway</button>
+              <button class="btn btn-primary" onclick="openPaymentMethodModal()">+ Add Payout Gateway</button>
             </div>
 
             <div class="table-container">
@@ -1174,17 +1168,15 @@
                     <th>Icon</th>
                     <th>Gateway ID</th>
                     <th>Display Name</th>
-                    <th>Currency</th>
-                    <th>Account Input Label</th>
-                    <th>Hint</th>
                     <th>Min Coins</th>
-                    <th>Status</th>
+                    <th>Rate ($1 USD)</th>
+                    <th>Account Label</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td colspan="9">Loading payout gateways...</td>
+                    <td colspan="7">Loading payout gateways...</td>
                   </tr>
                 </tbody>
               </table>
@@ -1220,7 +1212,8 @@
               </select>
             </div>
 
-            <button class="btn btn-primary" onclick="updateSystemConfig()" style="margin-top: 10px;">Save Configuration Settings</button>
+            <button class="btn btn-primary" onclick="updateSystemConfig()" style="margin-top: 10px;">Save Configuration
+              Settings</button>
           </div>
         </section>
 
@@ -1292,10 +1285,9 @@
     const API_BASE = "/api/admin";
     let allUsersCache = [];
     let paymentMethodsList = [];
-    let withdrawalsCache = [];
     let currentSubmissionsCache = [];
     let activeSubFilter = 'pending';
-    let activeWithdrawalFilter = 'PENDING';
+    let livePulseInterval = null;
 
     function getHeaders() {
       const token = localStorage.getItem('admin_token');
@@ -1305,6 +1297,7 @@
       };
     }
 
+    // Helper: Normalize screenshot path to web URL
     function formatScreenshotUrl(pathStr) {
       if (!pathStr) return null;
       const normalized = pathStr.replace(/\\/g, '/');
@@ -1312,6 +1305,7 @@
       return `/uploads/task_proofs/${filename}`;
     }
 
+    // Lightbox modal helpers
     function openImageModal(src) {
       document.getElementById('image-modal-src').src = src;
       document.getElementById('image-modal').style.display = 'flex';
@@ -1320,6 +1314,51 @@
     function closeImageModal() {
       document.getElementById('image-modal').style.display = 'none';
       document.getElementById('image-modal-src').src = '';
+    }
+
+    // Format human-friendly time difference
+    function formatTimeAgo(dateString) {
+      if (!dateString) return "Never";
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return "Never";
+
+      const seconds = Math.floor((new Date() - date) / 1000);
+      if (seconds < 60) return "Just now";
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      if (days < 30) return `${days}d ago`;
+      return date.toLocaleDateString();
+    }
+
+    // Calculate user online badge
+    function getUserActivityBadge(lastActiveAt) {
+      if (!lastActiveAt) {
+        return `<span class="status-pill pill-offline"><span class="dot-pulse"></span> Offline</span><br><span style="font-size:11px; color:var(--text-muted);">Never logged in</span>`;
+      }
+
+      const diffMinutes = Math.floor((new Date() - new Date(lastActiveAt)) / 60000);
+      const readableAgo = formatTimeAgo(lastActiveAt);
+
+      if (diffMinutes < 5) {
+        return `<span class="status-pill pill-online"><span class="dot-pulse"></span> Online</span><br><span style="font-size:11px; color:var(--primary); font-weight:600;">Active now</span>`;
+      } else if (diffMinutes < 60) {
+        return `<span class="status-pill pill-away"><span class="dot-pulse"></span> Away</span><br><span style="font-size:11px; color:var(--text-muted);">${readableAgo}</span>`;
+      } else {
+        return `<span class="status-pill pill-offline"><span class="dot-pulse"></span> Inactive</span><br><span style="font-size:11px; color:var(--text-muted);">${readableAgo}</span>`;
+      }
+    }
+
+    // Helper: Update live counters across UI
+    function updateLiveActiveCount(count) {
+      const formatted = count < 10 ? `0${count}` : `${count}`;
+      const cardEl = document.getElementById('stat-active-users');
+      const topbarEl = document.getElementById('topbar-live-users');
+
+      if (cardEl) cardEl.innerText = formatted;
+      if (topbarEl) topbarEl.innerText = formatted;
     }
 
     // TAB SWITCHING
@@ -1340,8 +1379,6 @@
       if (tabId === 'tab-submissions') loadSubmissionsList();
       if (tabId === 'tab-admins') loadAdminUsersList();
       if (tabId === 'tab-users') loadUsersList();
-      if (tabId === 'tab-gateways') loadPaymentMethods();
-      if (tabId === 'tab-withdrawals') loadWithdrawals();
 
       if (window.innerWidth <= 900) {
         document.getElementById('app-sidebar').classList.remove('open');
@@ -1362,7 +1399,6 @@
       if (tabId === 'tab-tasks') loadTasksList();
       if (tabId === 'tab-submissions') loadSubmissionsList();
       if (tabId === 'tab-users') loadUsersList();
-      if (tabId === 'tab-withdrawals') loadWithdrawals();
     }
 
     function toggleMobileSidebar() {
@@ -1402,15 +1438,54 @@
         document.getElementById('login-overlay').style.display = 'none';
         document.getElementById('admin-content').style.display = 'flex';
         loadDashboard();
+
+        // Start auto-refreshing live active users every 15 seconds
+        if (!livePulseInterval) {
+          livePulseInterval = setInterval(() => {
+            fetchLiveActiveCount();
+          }, 15000);
+        }
       } else {
+        if (livePulseInterval) {
+          clearInterval(livePulseInterval);
+          livePulseInterval = null;
+        }
         document.getElementById('login-overlay').style.display = 'flex';
         document.getElementById('admin-content').style.display = 'none';
       }
     }
 
     function logout() {
+      if (livePulseInterval) {
+        clearInterval(livePulseInterval);
+        livePulseInterval = null;
+      }
       localStorage.removeItem('admin_token');
       checkSession();
+    }
+
+    // Live Users Counter fetcher
+    async function fetchLiveActiveCount() {
+      try {
+        const statsRes = await fetch(`${API_BASE}/dashboard`, { headers: getHeaders() });
+        if (statsRes.status === 200) {
+          const stats = await statsRes.json();
+          if (stats.activeUsers !== undefined) {
+            updateLiveActiveCount(stats.activeUsers);
+          } else {
+            // Fallback: calculate from user registry cache if backend does not yet return activeUsers
+            const now = new Date().getTime();
+            const activeNow = allUsersCache.filter(u => {
+              if (!u.last_active_at) return false;
+              const diffMinutes = (now - new Date(u.last_active_at).getTime()) / 60000;
+              return diffMinutes < 5;
+            }).length;
+            updateLiveActiveCount(activeNow);
+          }
+        }
+      } catch (e) {
+        // Silent fail on background tick
+      }
     }
 
     async function loadDashboard() {
@@ -1428,6 +1503,10 @@
         document.getElementById('nav-redeem-count').innerText = stats.pendingWithdrawals || 0;
         document.getElementById('nav-sub-pending-count').innerText = stats.pendingTasks || 0;
 
+        if (stats.activeUsers !== undefined) {
+          updateLiveActiveCount(stats.activeUsers);
+        }
+
         await loadUsersList();
         loadTasksList();
         loadSubmissionsList();
@@ -1441,12 +1520,22 @@
     }
 
     // ========================================================
-    // USERS REGISTRY & MULTI-ACCOUNT DETECTION
+    // USERS REGISTRY & DELETION
     // ========================================================
     async function loadUsersList() {
       try {
         const res = await fetch(`${API_BASE}/users`, { headers: getHeaders() });
         allUsersCache = await res.json();
+
+        // Calculate live users if not set
+        const now = new Date().getTime();
+        const activeNow = allUsersCache.filter(u => {
+          if (!u.last_active_at) return false;
+          const diffMinutes = (now - new Date(u.last_active_at).getTime()) / 60000;
+          return diffMinutes < 5;
+        }).length;
+        updateLiveActiveCount(activeNow);
+
         renderUsersTable(allUsersCache);
       } catch (err) { console.error("Failed to load users database registry"); }
     }
@@ -1456,54 +1545,30 @@
       const filtered = allUsersCache.filter(u =>
         (u.username && u.username.toLowerCase().includes(q)) ||
         (u.full_name && u.full_name.toLowerCase().includes(q)) ||
-        (u.email && u.email.toLowerCase().includes(q)) ||
-        (u.registration_ip && u.registration_ip.toLowerCase().includes(q))
+        (u.email && u.email.toLowerCase().includes(q))
       );
       renderUsersTable(filtered);
-    }
-
-    function filterByIp(ip) {
-      if (!ip || ip === 'unknown' || ip === 'N/A') return;
-      document.getElementById('user-search').value = ip;
-      filterUsersList();
     }
 
     function renderUsersTable(users) {
       const tbody = document.querySelector("#users-table tbody");
       tbody.innerHTML = "";
 
-      // 1. Calculate how many accounts share the same IP across all users
-      const ipCounts = {};
-      allUsersCache.forEach(u => {
-        const ip = (u.registration_ip || '').trim();
-        if (ip && ip !== 'unknown' && ip !== 'N/A') {
-          ipCounts[ip] = (ipCounts[ip] || 0) + 1;
-        }
-      });
-
       users.forEach(u => {
+        const statusBadge = u.is_banned === 1
+          ? `<span class="badge badge-banned">Banned</span>`
+          : `<span class="badge badge-active">Active</span>`;
+
         const streak = u.current_streak || 0;
         const stone = u.current_stone || 'NONE';
         const stoneBadge = `<span class="badge badge-stone">🔥 ${streak}d (${stone})</span>`;
+
+        const banButton = u.is_banned === 1
+          ? `<button class="btn-action btn-act-gray" onclick="toggleUserBan(${u.id}, false)">Unban</button>`
+          : `<button class="btn-action btn-act-danger" onclick="toggleUserBan(${u.id}, true)">Ban</button>`;
+
         const createdDate = u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Initial';
-
-        // 2. IP & Multi-Account Badge
-        const regIp = (u.registration_ip && u.registration_ip.trim() !== '') ? u.registration_ip.trim() : 'N/A';
-        const countOnSameIp = (regIp !== 'N/A' && regIp !== 'unknown') ? (ipCounts[regIp] || 1) : 1;
-
-        let ipCellContent = `<code>${regIp}</code>`;
-        if (countOnSameIp > 1) {
-          ipCellContent += `
-            <br>
-            <span class="badge" style="background:rgba(255, 71, 87, 0.2); color:var(--danger); border:1px solid rgba(255, 71, 87, 0.4); cursor:pointer; margin-top:4px;" 
-                  onclick="filterByIp('${regIp}')" 
-                  title="Click to view all accounts sharing this IP">
-              ⚠️ ${countOnSameIp} Accounts
-            </span>
-          `;
-        } else if (regIp !== 'N/A') {
-          ipCellContent += `<br><span style="font-size:10px; color:var(--text-muted);">Single Account</span>`;
-        }
+        const activityStatus = getUserActivityBadge(u.last_active_at);
 
         tbody.innerHTML += `
           <tr>
@@ -1513,26 +1578,32 @@
             <td><strong style="color:var(--primary);">${(u.balance || 0).toLocaleString()}</strong></td>
             <td>${stoneBadge}</td>
             <td><span style="font-size:12px; font-weight:600;">${createdDate}</span></td>
-            <td>${ipCellContent}</td>
+            <td>${activityStatus}</td>
+            <td>${statusBadge}</td>
             <td>
-              <button class="btn-action btn-act-streak" onclick="editUserStreak(${u.id}, '${u.username}', ${streak})">Streak</button>
-              <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${u.username}')">Coins</button>
-              <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${u.username}')">PW</button>
-              <button class="btn-action btn-act-danger" style="background:#B3001E;" onclick="deleteUserPermanently(${u.id}, '${u.username}')">🗑️ Delete</button>
+              <button class="btn-action btn-act-streak" title="Edit Streak" onclick="editUserStreak(${u.id}, '${u.username}', ${streak})">Streak</button>
+              <button class="btn-action btn-act-coins" title="Adjust Coins" onclick="editUserCoins(${u.id}, '${u.username}')">Coins</button>
+              <button class="btn-action btn-act-pass" title="Reset Password" onclick="resetUserPassword(${u.id}, '${u.username}')">PW</button>
+              ${banButton}
+              <button class="btn-action btn-act-danger" style="background:#B3001E;" title="Delete User Permanently" onclick="deleteUserPermanently(${u.id}, '${u.username}')">🗑️ Delete</button>
             </td>
           </tr>
         `;
       });
 
       if (tbody.innerHTML === "") {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No players found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted);">No players found.</td></tr>`;
       }
     }
 
     async function deleteUserPermanently(userId, username) {
-      if (!confirm(`⚠️ PERMANENT DELETE: Are you sure you want to permanently delete user @${username} (UID #${userId})?`)) return;
-      const verify = prompt(`Type username "${username}" to confirm:`);
-      if (verify !== username) return alert("Cancelled");
+      const confirmFirst = confirm(`⚠️ PERMANENT DELETE WARNING:\n\nAre you sure you want to permanently delete user @${username} (UID #${userId})?\n\nThis will wipe out their entire wallet, task history, and database records forever. This action CANNOT be undone!`);
+      if (!confirmFirst) return;
+
+      const confirmVerification = prompt(`To confirm deletion, please type the username "${username}" exactly:`);
+      if (confirmVerification !== username) {
+        return alert("Username does not match. Deletion cancelled.");
+      }
 
       try {
         const res = await fetch(`${API_BASE}/users/${userId}/delete`, {
@@ -1541,17 +1612,22 @@
         });
         const data = await res.json();
         if (data.success) {
-          alert(`User @${username} deleted.`);
+          alert(data.message || `User @${username} has been permanently deleted.`);
           loadDashboard();
+        } else {
+          alert(data.error || "Failed to delete user account.");
         }
-      } catch (err) { alert("Server error"); }
+      } catch (err) {
+        alert("Server error processing user deletion.");
+      }
     }
 
     async function editUserStreak(id, username, currentStreak) {
-      const input = prompt(`Set Streak Days for @${username}:`, currentStreak);
+      const input = prompt(`Set Streak Days for @${username} (Current: ${currentStreak} Days):\n\nEnter new streak count:`, currentStreak);
       if (input === null || input.trim() === "") return;
+
       const streakVal = parseInt(input.trim(), 10);
-      if (isNaN(streakVal) || streakVal < 0) return alert("Invalid number.");
+      if (isNaN(streakVal) || streakVal < 0) return alert("Please enter a valid positive number.");
 
       try {
         const res = await fetch(`${API_BASE}/users/${id}/streak`, {
@@ -1560,7 +1636,10 @@
           body: JSON.stringify({ streak: streakVal })
         });
         const data = await res.json();
-        if (data.success) { alert("Streak updated!"); loadDashboard(); }
+        if (data.success) {
+          alert(data.message || "Streak updated!");
+          loadDashboard();
+        }
       } catch (_) { alert("Connection Error"); }
     }
 
@@ -1577,13 +1656,16 @@
           body: JSON.stringify({ amount: amt })
         });
         const data = await res.json();
-        if (data.success) { alert(`Balance updated!`); loadDashboard(); }
+        if (data.success) {
+          alert(`Coin adjustment applied for @${username}`);
+          loadDashboard();
+        }
       } catch (_) { alert("Connection Error"); }
     }
 
     async function resetUserPassword(id, username) {
       const newPassword = prompt(`Enter new password for @${username} (min 6 chars):`);
-      if (!newPassword || newPassword.trim().length < 6) return alert("Min 6 chars.");
+      if (!newPassword || newPassword.trim().length < 6) return alert("Password must be at least 6 characters.");
 
       try {
         const res = await fetch(`${API_BASE}/users/${id}/password`, {
@@ -1592,12 +1674,28 @@
           body: JSON.stringify({ password: newPassword.trim() })
         });
         const data = await res.json();
-        if (data.success) alert("Password changed!");
+        if (data.success) alert(`Password successfully changed for @${username}`);
+      } catch (_) { alert("Connection Error"); }
+    }
+
+    async function toggleUserBan(id, shouldBan) {
+      if (!confirm(`Are you sure you want to ${shouldBan ? "BAN" : "UNBAN"} this user?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/users/${id}/ban`, {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ isBanned: shouldBan })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert("User ban status updated!");
+          loadDashboard();
+        }
       } catch (_) { alert("Connection Error"); }
     }
 
     // ========================================================
-    // TASKS SYSTEM
+    // TASK SYSTEM LOGIC
     // ========================================================
     async function handleCreateTask(e) {
       e.preventDefault();
@@ -1624,7 +1722,9 @@
         } else {
           alert(data.error || "Failed to create task");
         }
-      } catch (err) { alert("Server error creating task"); }
+      } catch (err) {
+        alert("Server error creating task");
+      }
     }
 
     async function loadTasksList() {
@@ -1669,7 +1769,9 @@
         } else {
           tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No tasks published yet.</td></tr>`;
         }
-      } catch (err) { console.error("Failed to load tasks", err); }
+      } catch (err) {
+        console.error("Failed to load tasks", err);
+      }
     }
 
     async function toggleTaskStatus(id, newStatus) {
@@ -1685,28 +1787,37 @@
     }
 
     async function deleteTask(id) {
-      if (!confirm(`Delete task #${id}? This will also delete related submissions.`)) return;
+      if (!confirm(`Are you sure you want to delete task #${id}? This will also delete any related submissions.`)) return;
       try {
-        const res = await fetch(`${API_BASE}/tasks/${id}/delete`, { method: "POST", headers: getHeaders() });
+        const res = await fetch(`${API_BASE}/tasks/${id}/delete`, {
+          method: "POST",
+          headers: getHeaders()
+        });
         const data = await res.json();
-        if (data.success) { alert("Task deleted"); loadTasksList(); loadDashboard(); }
+        if (data.success) {
+          alert(data.message || "Task deleted");
+          loadTasksList();
+          loadDashboard();
+        }
       } catch (_) { alert("Connection Error"); }
     }
 
     // ========================================================
-    // SUBMISSIONS
+    // SUBMISSIONS PIPELINE & REVIEW
     // ========================================================
     async function loadSubmissionsList() {
       try {
         const res = await fetch(`${API_BASE}/task-submissions`, { headers: getHeaders() });
         currentSubmissionsCache = await res.json();
         renderSubmissionsTable();
-      } catch (err) { console.error("Failed to load task submissions", err); }
+      } catch (err) {
+        console.error("Failed to load task submissions", err);
+      }
     }
 
     function filterSubmissions(filter, btn) {
       activeSubFilter = filter;
-      document.querySelectorAll('#tab-submissions .filter-tabs .filter-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.filter-tabs .filter-btn').forEach(b => b.classList.remove('active'));
       if (btn) btn.classList.add('active');
       renderSubmissionsTable();
     }
@@ -1762,18 +1873,28 @@
     }
 
     async function approveSubmission(id, rewardCoins, username) {
-      if (!confirm(`Approve submission #${id} for @${username}?`)) return;
+      if (!confirm(`Approve submission #${id} for @${username}?\n\nThis will credit ${rewardCoins} coins to user wallet and permanently DELETE the screenshot from VPS storage.`)) return;
+
       try {
-        const res = await fetch(`${API_BASE}/task-submissions/${id}/approve`, { method: "POST", headers: getHeaders() });
+        const res = await fetch(`${API_BASE}/task-submissions/${id}/approve`, {
+          method: "POST",
+          headers: getHeaders()
+        });
         const data = await res.json();
-        if (data.success) { alert("Approved!"); loadDashboard(); }
-        else alert(data.error || "Failed");
-      } catch (err) { alert("Server error"); }
+        if (data.success) {
+          alert(data.message || "Approved and coins credited!");
+          loadDashboard();
+        } else {
+          alert(data.error || "Failed to approve submission");
+        }
+      } catch (err) {
+        alert("Server error resolving submission.");
+      }
     }
 
     async function rejectSubmission(id, username) {
-      const reason = prompt(`Enter rejection reason for @${username}:`, "Screenshot unclear / invalid proof");
-      if (!reason || !reason.trim()) return;
+      const reason = prompt(`Enter rejection reason for @${username}:\n\nScreenshot will be permanently deleted from VPS storage.`, "Screenshot is unclear / proof requirement not satisfied");
+      if (reason === null || reason.trim() === "") return;
 
       try {
         const res = await fetch(`${API_BASE}/task-submissions/${id}/reject`, {
@@ -1782,12 +1903,19 @@
           body: JSON.stringify({ reason: reason.trim() })
         });
         const data = await res.json();
-        if (data.success) { alert("Rejected"); loadDashboard(); }
-      } catch (err) { alert("Server error"); }
+        if (data.success) {
+          alert(data.message || "Submission rejected and screenshot removed.");
+          loadDashboard();
+        } else {
+          alert(data.error || "Failed to reject submission");
+        }
+      } catch (err) {
+        alert("Server error rejecting submission.");
+      }
     }
 
     // ========================================================
-    // PAYMENT GATEWAYS (ADD / EDIT / DELETE MODAL)
+    // PAYMENT GATEWAYS
     // ========================================================
     async function loadPaymentMethods() {
       try {
@@ -1801,107 +1929,57 @@
       const tbody = document.querySelector("#methods-table tbody");
       tbody.innerHTML = "";
 
-      if (Array.isArray(paymentMethodsList) && paymentMethodsList.length > 0) {
-        paymentMethodsList.forEach((m, idx) => {
-          const isActive = m.is_active !== false;
-          const statusBadge = isActive
-            ? `<span class="badge badge-active">Active</span>`
-            : `<span class="badge badge-banned">Disabled</span>`;
-
-          tbody.innerHTML += `
-            <tr>
-              <td style="font-size: 22px;">${m.icon || '🪙'}</td>
-              <td><strong>${m.id}</strong></td>
-              <td>${m.name || m.id}</td>
-              <td><strong style="color:var(--primary);">${m.currency || 'NPR'}</strong></td>
-              <td>${m.label || 'Account Identifier'}</td>
-              <td><code>${m.hint || 'Hint'}</code></td>
-              <td>${(m.min || 5000).toLocaleString()} Coins</td>
-              <td>${statusBadge}</td>
-              <td>
-                <button class="btn-action btn-act-pass" onclick="openGatewayModal(${idx})">Edit</button>
-                <button class="btn-action btn-act-danger" onclick="deletePaymentMethod(${idx})">Delete</button>
-              </td>
-            </tr>
-          `;
-        });
-      } else {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted);">No payout options configured.</td></tr>`;
+      paymentMethodsList.forEach((m, idx) => {
+        tbody.innerHTML += `
+          <tr>
+            <td style="font-size: 20px;">${m.icon || '🪙'}</td>
+            <td><strong>${m.id}</strong></td>
+            <td>${m.name}</td>
+            <td>${(m.min || 10000).toLocaleString()} Coins</td>
+            <td>${m.rate || 1000} Coins = $1.00 USD</td>
+            <td>${m.label || m.name}</td>
+            <td>
+              <button class="btn-action btn-act-pass" onclick="editPaymentMethod(${idx})">Edit</button>
+              <button class="btn-action btn-act-danger" onclick="deletePaymentMethod(${idx})">Delete</button>
+            </td>
+          </tr>
+        `;
+      });
+      if (paymentMethodsList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No payout options configured.</td></tr>`;
       }
     }
 
-    function openGatewayModal(index = null) {
-      const isEdit = index !== null && index >= 0;
-      document.getElementById('gateway-modal-title').innerText = isEdit ? "Edit Payment Gateway" : "Add Payment Gateway";
-      document.getElementById('gateway-edit-index').value = isEdit ? index : -1;
+    function openPaymentMethodModal(index = null) {
+      const isEdit = index !== null;
+      const item = isEdit ? paymentMethodsList[index] : {
+        id: "PayPal", name: "PayPal", icon: "🅿️", min: 10000, rate: 1000, label: "PayPal Email", hint: "user@example.com"
+      };
 
-      if (isEdit) {
-        const m = paymentMethodsList[index];
-        document.getElementById('gateway-id').value = m.id || "";
-        document.getElementById('gateway-id').readOnly = true;
-        document.getElementById('gateway-name').value = m.name || "";
-        document.getElementById('gateway-icon').value = m.icon || "🪙";
-        document.getElementById('gateway-currency').value = m.currency || "NPR";
-        document.getElementById('gateway-label').value = m.label || "";
-        document.getElementById('gateway-hint').value = m.hint || "";
-        document.getElementById('gateway-min').value = m.min || 5000;
-        document.getElementById('gateway-status').value = (m.is_active !== false) ? "true" : "false";
-      } else {
-        document.getElementById('gateway-id').value = "";
-        document.getElementById('gateway-id').readOnly = false;
-        document.getElementById('gateway-name').value = "";
-        document.getElementById('gateway-icon').value = "🟢";
-        document.getElementById('gateway-currency').value = "NPR";
-        document.getElementById('gateway-label').value = "Mobile Number";
-        document.getElementById('gateway-hint').value = "98XXXXXXXX";
-        document.getElementById('gateway-min').value = 5000;
-        document.getElementById('gateway-status').value = "true";
-      }
+      const id = prompt("Gateway Unique ID (e.g. PayPal, USDT, eSewa):", item.id);
+      if (!id) return;
+      const name = prompt("Display Title:", item.name || id);
+      if (!name) return;
+      const icon = prompt("Emoji Icon (e.g. 🪙, 🅿️, 🟢):", item.icon || "🪙");
+      const min = parseInt(prompt("Minimum Coins for Payout:", item.min || 10000), 10) || 10000;
+      const rate = parseInt(prompt("Rate (Coins = $1.00 USD):", item.rate || 1000), 10) || 1000;
+      const label = prompt("Input Label shown to User:", item.label || `${name} Account`);
+      const hint = prompt("Placeholder Hint:", item.hint || "Enter identifier");
 
-      document.getElementById('gateway-modal').style.display = 'flex';
+      const newMethod = { id: id.trim(), name: name.trim(), icon: icon.trim(), min, rate, label: label.trim(), hint: hint.trim() };
+
+      if (isEdit) paymentMethodsList[index] = newMethod;
+      else paymentMethodsList.push(newMethod);
+
+      savePaymentMethodsToServer();
     }
 
-    function closeGatewayModal() {
-      document.getElementById('gateway-modal').style.display = 'none';
-      document.getElementById('gateway-form').reset();
-    }
+    function editPaymentMethod(index) { openPaymentMethodModal(index); }
 
-    async function handleSaveGateway(e) {
-      e.preventDefault();
-      const index = parseInt(document.getElementById('gateway-edit-index').value, 10);
-      const isEdit = index >= 0;
-
-      const id = document.getElementById('gateway-id').value.trim();
-      const name = document.getElementById('gateway-name').value.trim();
-      const icon = document.getElementById('gateway-icon').value.trim() || "🪙";
-      const currency = document.getElementById('gateway-currency').value.trim().toUpperCase() || "NPR";
-      const label = document.getElementById('gateway-label').value.trim();
-      const hint = document.getElementById('gateway-hint').value.trim();
-      const min = parseInt(document.getElementById('gateway-min').value, 10) || 5000;
-      const is_active = document.getElementById('gateway-status').value === "true";
-
-      const gatewayObj = { id, name, icon, currency, label, hint, min, is_active };
-
-      if (isEdit) {
-        paymentMethodsList[index] = gatewayObj;
-      } else {
-        const existingIdx = paymentMethodsList.findIndex(m => m.id.toLowerCase() === id.toLowerCase());
-        if (existingIdx >= 0) {
-          return alert(`Gateway with ID "${id}" already exists.`);
-        }
-        paymentMethodsList.push(gatewayObj);
-      }
-
-      await savePaymentMethodsToServer();
-      closeGatewayModal();
-    }
-
-    async function deletePaymentMethod(index) {
-      const item = paymentMethodsList[index];
-      if (!confirm(`Are you sure you want to delete payment method "${item.name || item.id}"?`)) return;
-
+    function deletePaymentMethod(index) {
+      if (!confirm(`Delete payout gateway?`)) return;
       paymentMethodsList.splice(index, 1);
-      await savePaymentMethodsToServer();
+      savePaymentMethodsToServer();
     }
 
     async function savePaymentMethodsToServer() {
@@ -1915,131 +1993,12 @@
         if (data.success) {
           alert("Payment gateways updated!");
           renderPaymentMethodsTable();
-        } else {
-          alert(data.error || "Failed to save gateways");
         }
       } catch (_) { alert("Connection error"); }
     }
 
     // ========================================================
-    // WITHDRAWALS & REDEMPTIONS
-    // ========================================================
-    async function loadWithdrawals() {
-      try {
-        const res = await fetch(`${API_BASE}/withdrawals`, { headers: getHeaders() });
-        withdrawalsCache = await res.json();
-        renderWithdrawalsTable();
-      } catch (err) { console.error("Failed to fetch withdrawals list"); }
-    }
-
-    function filterWithdrawals(status, btn) {
-      activeWithdrawalFilter = status;
-      document.querySelectorAll('#tab-withdrawals .filter-tabs .filter-btn').forEach(b => b.classList.remove('active'));
-      if (btn) btn.classList.add('active');
-      renderWithdrawalsTable();
-    }
-
-    function renderWithdrawalsTable() {
-      const tbody = document.querySelector("#withdrawals-table tbody");
-      tbody.innerHTML = "";
-
-      let list = withdrawalsCache;
-      if (activeWithdrawalFilter !== 'ALL') {
-        list = withdrawalsCache.filter(w => (w.status || 'PENDING').toUpperCase() === activeWithdrawalFilter);
-      }
-
-      if (Array.isArray(list) && list.length > 0) {
-        list.forEach(w => {
-          const dateStr = w.created_at ? new Date(w.created_at).toLocaleString() : 'N/A';
-          const coins = (w.coin_amount || 0).toLocaleString();
-          const userBalance = (w.user_balance !== undefined) ? `${(w.user_balance).toLocaleString()} coins` : 'N/A';
-
-          let cashFormatted = '';
-          if (w.npr_amount !== undefined && w.npr_amount !== null) {
-            cashFormatted = `रू ${w.npr_amount} NPR`;
-          } else if (w.usd_amount !== undefined && w.usd_amount !== null) {
-            cashFormatted = `$${Number(w.usd_amount).toFixed(2)} USD`;
-          } else {
-            cashFormatted = 'Fixed NPR';
-          }
-
-          let statusBadge = `<span class="badge badge-pending">Pending</span>`;
-          if (w.status === 'APPROVED') statusBadge = `<span class="badge badge-active">Approved</span>`;
-          if (w.status === 'REJECTED') statusBadge = `<span class="badge badge-rejected">Rejected</span>`;
-
-          const pmMatch = paymentMethodsList.find(m => m.id.toLowerCase() === (w.payment_method || '').toLowerCase());
-          const pmIcon = pmMatch ? pmMatch.icon : (w.payment_method === 'eSewa' ? '🟢' : (w.payment_method === 'Khalti' ? '🟣' : '🪙'));
-
-          let actionButtons = '';
-          if (w.status === 'PENDING') {
-            actionButtons = `
-              <button class="btn-action btn-act-coins" onclick="resolveWithdrawal(${w.id}, 'APPROVED', '${w.username}', ${w.coin_amount}, '${cashFormatted}')">Approve</button>
-              <button class="btn-action btn-act-danger" onclick="resolveWithdrawal(${w.id}, 'REJECTED', '${w.username}')">Reject</button>
-            `;
-          } else {
-            actionButtons = `<span style="font-size:11px; color:var(--text-muted); font-weight:600;">Resolved</span>`;
-          }
-
-          tbody.innerHTML += `
-            <tr>
-              <td>#${w.id}<br><span style="font-size:11px; color:var(--text-muted);">${dateStr}</span></td>
-              <td>
-                <strong>@${w.username || 'User'}</strong><br>
-                <span style="font-size:11px; color:var(--text-muted);">UID: #${w.user_id}</span><br>
-                <span style="font-size:11px; color:var(--primary);">Wallet: ${userBalance}</span>
-              </td>
-              <td>
-                <span style="font-size:16px;">${pmIcon}</span> 
-                <strong style="color:white;">${w.payment_method}</strong>
-              </td>
-              <td>
-                <strong style="letter-spacing:1px; color:var(--info);">${w.account_info}</strong>
-              </td>
-              <td>
-                <strong style="color:var(--warning); font-size:14px;">${coins} 🪙</strong>
-              </td>
-              <td>
-                <strong style="color:var(--primary); font-size:14px;">${cashFormatted}</strong>
-              </td>
-              <td>${statusBadge}</td>
-              <td>${actionButtons}</td>
-            </tr>
-          `;
-        });
-      } else {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No redemptions found in '${activeWithdrawalFilter}'.</td></tr>`;
-      }
-    }
-
-    async function resolveWithdrawal(id, status, username, coins = 0, cash = '') {
-      if (status === 'APPROVED') {
-        if (!confirm(`APPROVE REDEMPTION #${id}?\n\nPlayer: @${username}\nCoins to Deduct: ${coins.toLocaleString()}\nPayout: ${cash}\n\nThis will deduct ${coins.toLocaleString()} coins from the user's wallet and restart their 7-day cooldown.`)) {
-          return;
-        }
-      } else {
-        if (!confirm(`REJECT REDEMPTION #${id} for @${username}?\n\nThis will mark the request as rejected without deducting any coins.`)) {
-          return;
-        }
-      }
-
-      try {
-        const res = await fetch(`${API_BASE}/withdrawals/${id}/status`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ status })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert(`Redemption marked as: ${status}!`);
-          loadDashboard();
-        } else {
-          alert(data.error || "Failed to process withdrawal");
-        }
-      } catch (err) { alert("Server error updating withdrawal"); }
-    }
-
-    // ========================================================
-    // APP CONFIG & VERSION
+    // SYSTEM CONFIG
     // ========================================================
     async function loadConfig() {
       try {
@@ -2066,7 +2025,52 @@
     }
 
     // ========================================================
-    // ADMIN ACCOUNTS MANAGEMENT
+    // REDEMPTIONS
+    // ========================================================
+    async function loadWithdrawals() {
+      try {
+        const res = await fetch(`${API_BASE}/withdrawals`, { headers: getHeaders() });
+        const withdrawals = await res.json();
+        const tbody = document.querySelector("#withdrawals-table tbody");
+        tbody.innerHTML = "";
+
+        withdrawals.forEach(w => {
+          if (w.status === "PENDING") {
+            tbody.innerHTML += `
+              <tr>
+                <td><strong>@${w.username}</strong><br><span style="font-size:11px; color:var(--text-muted);">UID: ${w.user_id}</span></td>
+                <td><strong>${w.payment_method}:</strong> ${w.account_info}</td>
+                <td><strong style="color:var(--primary);">${w.coin_amount.toLocaleString()} Coins</strong></td>
+                <td><strong>$${w.usd_amount.toFixed(2)} USD</strong></td>
+                <td>
+                  <button class="btn-action btn-act-coins" onclick="resolveWithdrawal(${w.id}, 'APPROVED')">Approve</button>
+                  <button class="btn-action btn-act-danger" onclick="resolveWithdrawal(${w.id}, 'REJECTED')">Reject</button>
+                </td>
+              </tr>
+            `;
+          }
+        });
+        if (tbody.innerHTML === "") {
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No pending withdrawals.</td></tr>`;
+        }
+      } catch (err) { console.error("Failed to fetch withdrawals list"); }
+    }
+
+    async function resolveWithdrawal(id, status) {
+      const res = await fetch(`${API_BASE}/withdrawals/${id}/status`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Withdrawal marked as: ${status}`);
+        loadDashboard();
+      }
+    }
+
+    // ========================================================
+    // ADMIN CREDENTIALS & USERS MANAGEMENT
     // ========================================================
     async function handleCreateAdmin(e) {
       e.preventDefault();
@@ -2074,7 +2078,9 @@
       const fullName = document.getElementById('new-admin-name').value.trim();
       const password = document.getElementById('new-admin-pass').value.trim();
 
-      if (password.length < 6) return alert("Min 6 characters required.");
+      if (password.length < 6) {
+        return alert("Admin password must be at least 6 characters long.");
+      }
 
       try {
         const res = await fetch(`${API_BASE}/admins/create`, {
@@ -2084,15 +2090,17 @@
         });
         const data = await res.json();
         if (data.success) {
-          alert(`Admin @${username} created!`);
+          alert(`Admin @${username} created successfully!`);
           document.getElementById('new-admin-user').value = '';
           document.getElementById('new-admin-name').value = '';
           document.getElementById('new-admin-pass').value = '';
           loadAdminUsersList();
         } else {
-          alert(data.error || "Failed");
+          alert(data.error || "Failed to create administrator");
         }
-      } catch (err) { alert("Server error"); }
+      } catch (err) {
+        alert("Server error while creating administrator.");
+      }
     }
 
     async function loadAdminUsersList() {
@@ -2101,6 +2109,13 @@
 
       try {
         const res = await fetch(`${API_BASE}/admins`, { headers: getHeaders() });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--danger);">Error: ${errData.error || 'Could not fetch admin accounts'}</td></tr>`;
+          return;
+        }
+
         const admins = await res.json();
         tbody.innerHTML = "";
 
@@ -2129,12 +2144,13 @@
         }
       } catch (err) {
         console.error("Failed to load admin list", err);
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--danger);">Failed to connect to admin API.</td></tr>`;
       }
     }
 
     async function resetAdminPassword(username) {
       const newPass = prompt(`Enter new password for Admin @${username} (min 6 characters):`);
-      if (!newPass || newPass.trim().length < 6) return alert("Min 6 chars.");
+      if (!newPass || newPass.trim().length < 6) return alert("Password must be at least 6 characters.");
 
       try {
         const res = await fetch(`${API_BASE}/admins/password`, {
@@ -2143,12 +2159,16 @@
           body: JSON.stringify({ username, password: newPass.trim() })
         });
         const data = await res.json();
-        if (data.success) alert("Password changed!");
-      } catch (err) { alert("Connection error"); }
+        if (data.success) alert(`Password changed for admin @${username}`);
+        else alert(data.error || "Failed to update password");
+      } catch (err) {
+        alert("Connection error");
+      }
     }
 
     async function deleteAdmin(username) {
-      if (!confirm(`Delete admin account @${username}?`)) return;
+      if (!confirm(`Are you sure you want to delete administrator account @${username}?`)) return;
+
       try {
         const res = await fetch(`${API_BASE}/admins/delete`, {
           method: "POST",
@@ -2156,8 +2176,15 @@
           body: JSON.stringify({ username })
         });
         const data = await res.json();
-        if (data.success) { alert("Admin deleted"); loadAdminUsersList(); }
-      } catch (err) { alert("Connection error"); }
+        if (data.success) {
+          alert(`Admin @${username} removed`);
+          loadAdminUsersList();
+        } else {
+          alert(data.error || "Failed to delete admin");
+        }
+      } catch (err) {
+        alert("Connection error");
+      }
     }
 
     checkSession();
