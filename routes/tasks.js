@@ -27,19 +27,29 @@ function extractUserId(req) {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
     try {
+      let payload = null;
       if (jwt) {
-        const decoded = jwt.decode(token);
-        if (decoded && (decoded.id || decoded.userId || decoded.sub)) {
-          return decoded.id || decoded.userId || decoded.sub;
-        }
+        payload = jwt.decode(token);
       } else {
         const parts = token.split('.');
         if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-          return payload.id || payload.userId || payload.sub;
+          payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
         }
       }
-    } catch (_) {}
+      if (payload) {
+        return (
+          payload.id ||
+          payload.userId ||
+          payload.user_id ||
+          payload.uid ||
+          payload._id ||
+          payload.sub ||
+          null
+        );
+      }
+    } catch (e) {
+      console.error('[JWT EXTRACT ERROR]:', e.message);
+    }
   }
   return null;
 }
@@ -61,24 +71,36 @@ const upload = multer({
 function deleteScreenshot(filePath) {
   if (filePath && fs.existsSync(filePath)) {
     fs.unlink(filePath, (err) => {
-      if (err) console.error(`[VPS Clean Error] ${filePath}:`, err.message);
-      else console.log(`[VPS Clean Success] Deleted: ${filePath}`);
+      if (err) console.error(`[Clean Error] ${filePath}:`, err.message);
     });
   }
 }
 
-// GET /api/tasks — Available Tasks for user
-router.get('/tasks', (req, res) => {
+// ==========================================
+// 1. GET Available Tasks
+// Supports both GET /api/tasks and GET /api/tasks/tasks
+// ==========================================
+router.get(['/', '/tasks'], (req, res) => {
   const userId = extractUserId(req) || 0;
 
+  // Uses NOT EXISTS instead of NOT IN to avoid NULL traps,
+  // and accepts all common boolean/active representations.
   const sql = `
-    SELECT * FROM tasks 
-    WHERE (is_active = 1 OR is_active = '1' OR is_active IS NULL)
-      AND id NOT IN (
-        SELECT task_id FROM task_submissions 
-        WHERE user_id = ? AND status IN ('pending', 'approved')
-      )
-    ORDER BY id DESC
+    SELECT t.* FROM tasks t
+    WHERE (
+      t.is_active = 1 
+      OR t.is_active = '1' 
+      OR t.is_active = 'true' 
+      OR t.is_active = 'active'
+      OR t.is_active IS NULL
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM task_submissions ts 
+      WHERE ts.task_id = t.id 
+        AND ts.user_id = ? 
+        AND ts.status IN ('pending', 'approved')
+    )
+    ORDER BY t.id DESC
   `;
 
   db.all(sql, [userId], (err, rows) => {
@@ -88,12 +110,16 @@ router.get('/tasks', (req, res) => {
     }
 
     const taskList = rows || [];
+    console.log(`[TASKS API] User #${userId} requested tasks. Found ${taskList.length} available.`);
     res.json({ success: true, tasks: taskList });
   });
 });
 
-// GET /api/tasks/my-submissions
-router.get('/tasks/my-submissions', (req, res) => {
+// ==========================================
+// 2. GET My Submissions
+// Supports both /my-submissions and /tasks/my-submissions
+// ==========================================
+router.get(['/my-submissions', '/tasks/my-submissions'], (req, res) => {
   const userId = extractUserId(req);
 
   if (!userId) {
@@ -131,8 +157,11 @@ router.get('/tasks/my-submissions', (req, res) => {
   });
 });
 
-// POST /api/tasks/:id/submit
-router.post('/tasks/:id/submit', upload.single('screenshot'), (req, res) => {
+// ==========================================
+// 3. POST Submit Task Proof
+// Supports both /:id/submit and /tasks/:id/submit
+// ==========================================
+router.post(['/:id/submit', '/tasks/:id/submit'], upload.single('screenshot'), (req, res) => {
   const rawTaskId = req.params.id;
   const taskId = parseInt(rawTaskId, 10);
   const rawUserId = extractUserId(req);
@@ -145,14 +174,14 @@ router.post('/tasks/:id/submit', upload.single('screenshot'), (req, res) => {
     return res.status(401).json({ success: false, message: 'Unauthorized. Please login again.' });
   }
 
-  // 1. Verify task actually exists in tasks table (Prevents FOREIGN KEY Constraint Error)
+  // 1. Verify task exists
   db.get('SELECT id FROM tasks WHERE id = ?', [taskId], (taskErr, taskRow) => {
     if (taskErr || !taskRow) {
       if (screenshotPath) deleteScreenshot(screenshotPath);
       return res.status(404).json({ success: false, message: 'Task does not exist or has been removed.' });
     }
 
-    // 2. Check if a pending submission already exists
+    // 2. Check for existing pending submission
     db.get(
       `SELECT id FROM task_submissions WHERE task_id = ? AND user_id = ? AND status = 'pending'`,
       [taskId, userId],
@@ -167,14 +196,14 @@ router.post('/tasks/:id/submit', upload.single('screenshot'), (req, res) => {
           return res.status(400).json({ success: false, message: 'You already have a pending submission for this task.' });
         }
 
-        // 3. If re-applying, clean up the old rejected record so it cleanly moves to Pending
+        // 3. Remove previous rejected submission if re-applying
         db.run(
           `DELETE FROM task_submissions WHERE task_id = ? AND user_id = ? AND status = 'rejected'`,
           [taskId, userId],
           (delErr) => {
             if (delErr) console.error('[REAPPLY CLEANUP ERROR]:', delErr.message);
 
-            // 4. Insert the new pending submission
+            // 4. Insert new pending submission
             db.run(
               `INSERT INTO task_submissions (task_id, user_id, proof_text, screenshot_path, status)
                VALUES (?, ?, ?, ?, 'pending')`,
