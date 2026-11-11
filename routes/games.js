@@ -150,7 +150,7 @@ router.post('/session/end', authenticateToken, (req, res) => {
             }
           }
 
-          // Fetch user profile to calculate streak progress
+          // Fetch user profile to calculate streak progress & check referral
           db.get('SELECT * FROM users WHERE id = ?', [userId], (userErr, user) => {
             if (userErr || !user) {
               return res.status(404).json({ error: 'User not found' });
@@ -198,6 +198,7 @@ router.post('/session/end', authenticateToken, (req, res) => {
               );
 
               if (pointsEarned > 0) {
+                // Credit user earnings
                 db.run(
                   `UPDATE users SET 
                     balance = balance + ?, 
@@ -227,6 +228,31 @@ router.post('/session/end', authenticateToken, (req, res) => {
                   `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'GAME_REWARD', ?, ?)`,
                   [userId, pointsEarned, refId]
                 );
+
+                // --- 6. Referral Commission (10%) ---
+                if (user.referred_by_id) {
+                  const commission = Math.floor(pointsEarned * 0.10);
+                  if (commission > 0) {
+                    // Credit referrer
+                    db.run(
+                      `UPDATE users 
+                       SET balance = balance + ?, 
+                           total_coins_earned = COALESCE(total_coins_earned, 0) + ? 
+                       WHERE id = ?`,
+                      [commission, commission, user.referred_by_id]
+                    );
+
+                    // Insert referral commission record
+                    const referralTxRef = `USER_${userId}_GAME_${sessionId}`;
+                    db.run(
+                      `INSERT INTO transactions (user_id, type, amount, reference_id) 
+                       VALUES (?, 'REFERRAL_COMMISSION', ?, ?)`,
+                      [user.referred_by_id, commission, referralTxRef]
+                    );
+
+                    console.log(`🤝 [REFERRAL COMMISSION] +${commission} coins given to Referrer ID ${user.referred_by_id} from User ${userId}`);
+                  }
+                }
               }
 
               // Auto-advance level in user_game_data if wonLevel is verified
