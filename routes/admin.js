@@ -36,22 +36,31 @@ const DEFAULT_PAYMENT_METHODS = [
   }
 ];
 
-// Helper: Safely delete screenshot from VPS disk to keep storage free
+// Helper: Safely delete screenshot from VPS disk to keep storage clean
 function deleteScreenshotFile(filePath) {
-  if (filePath && typeof filePath === 'string') {
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlink(filePath, (err) => {
-          if (err) {
-            console.error('[VPS Storage Cleanup Error]: Failed to delete file:', filePath, err.message);
-          } else {
-            console.log('[VPS Storage Cleanup Success]: Deleted screenshot to save disk space:', filePath);
-          }
-        });
-      }
-    } catch (e) {
-      console.error('[VPS Storage Cleanup Exception]:', e.message);
+  if (!filePath || typeof filePath !== 'string') return;
+
+  try {
+    // 1. Extract only the filename (e.g., 'proof_1_17156291823.png')
+    // This handles web paths (/uploads/task_proofs/...), Linux paths, or Windows paths
+    const fileName = path.basename(filePath);
+    
+    // 2. Resolve to the real disk folder in backend/uploads/task_proofs/
+    const diskPath = path.join(__dirname, '../uploads/task_proofs', fileName);
+
+    if (fs.existsSync(diskPath)) {
+      fs.unlink(diskPath, (err) => {
+        if (err) {
+          console.error('[VPS Storage Cleanup Error]: Failed to delete file:', diskPath, err.message);
+        } else {
+          console.log('[VPS Storage Cleanup Success]: Deleted screenshot to save disk space:', fileName);
+        }
+      });
+    } else {
+      console.warn('[VPS Storage Cleanup]: File not found on disk:', diskPath);
     }
+  } catch (e) {
+    console.error('[VPS Storage Cleanup Exception]:', e.message);
   }
 }
 
@@ -422,7 +431,7 @@ router.post('/users/:id/ban', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// I. Payment Gateways Configuration (Add / Edit / Delete Supported)
+// I. Payment Gateways Configuration
 // ---------------------------------------------------------------------------
 router.get('/payment-methods', adminAuth, (req, res) => {
   db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, row) => {
@@ -455,7 +464,7 @@ router.post('/payment-methods', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// J. Withdrawals Pipeline & Resolutions (Shows Gateways & Deducts Coins on Approval)
+// J. Withdrawals Pipeline & Resolutions
 // ---------------------------------------------------------------------------
 router.get('/withdrawals', adminAuth, (req, res) => {
   db.all(
@@ -500,7 +509,6 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
       const nowIso = new Date().toISOString();
 
       if (status === 'APPROVED') {
-        // Verify balance
         if ((user.balance || 0) < record.coin_amount) {
           return res.status(400).json({
             error: `User has insufficient balance (${user.balance || 0} coins). Required: ${record.coin_amount} coins.`
@@ -510,7 +518,6 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
         db.serialize(() => {
           db.run('BEGIN TRANSACTION');
 
-          // Deduct coins and reset weekly cooldown timestamp
           db.run(
             'UPDATE users SET balance = balance - ?, last_withdrawal_at = ? WHERE id = ?',
             [record.coin_amount, nowIso, record.user_id]
@@ -538,7 +545,6 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
         db.serialize(() => {
           db.run('BEGIN TRANSACTION');
 
-          // Coins were never deducted during PENDING, so just mark REJECTED without modifying balance
           db.run(
             'UPDATE withdrawals SET status = ?, processed_at = ? WHERE id = ?',
             ['REJECTED', nowIso, withdrawalId]
@@ -712,7 +718,17 @@ router.get('/task-submissions', adminAuth, (req, res) => {
 
   db.all(sql, params, (err, rows) => {
     if (err) return res.status(500).json({ error: 'Failed to retrieve task submissions' });
-    res.json(rows || []);
+
+    // Normalize screenshot paths into clean web URLs for the admin panel UI
+    const sanitizedRows = (rows || []).map(r => {
+      if (r.screenshot_path) {
+        const fileName = path.basename(r.screenshot_path);
+        r.screenshot_path = `/uploads/task_proofs/${fileName}`;
+      }
+      return r;
+    });
+
+    res.json(sanitizedRows);
   });
 });
 
@@ -772,13 +788,14 @@ router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
                     db.run('COMMIT', (commitErr) => {
                       if (commitErr) return res.status(500).json({ error: 'Transaction commit failed' });
 
+                      // Deletes the file from VPS disk space immediately
                       deleteScreenshotFile(sub.screenshot_path);
 
                       creditReferralCommission(sub.user_id, sub.reward_coins, 'TASK', `TASK_SUB_${subId}`, 0.10);
 
                       res.json({
                         success: true,
-                        message: `Task submission #${subId} approved! ${sub.reward_coins} coins credited.`
+                        message: `Task submission #${subId} approved! ${sub.reward_coins} coins credited and screenshot deleted from storage.`
                       });
                     });
                   }
@@ -817,11 +834,12 @@ router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
       function (updateErr) {
         if (updateErr) return res.status(500).json({ error: 'Failed to reject submission' });
 
+        // Deletes the file from VPS disk space immediately
         deleteScreenshotFile(sub.screenshot_path);
 
         res.json({
           success: true,
-          message: `Submission #${subId} rejected with reason: "${reason.trim()}".`
+          message: `Submission #${subId} rejected with reason: "${reason.trim()}". Screenshot removed from storage.`
         });
       }
     );
