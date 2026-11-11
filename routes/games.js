@@ -35,7 +35,7 @@ function getYesterdayStr() {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Start a verified game session (color_tap, tictactoe_1v1, rps_1v1, mines)
+// 1. Start a verified game session (color_tap, tictactoe_1v1, rps_1v1, mines, memory_match)
 // ---------------------------------------------------------------------------
 router.post('/session/start', authenticateToken, (req, res) => {
   const userId = req.user.id;
@@ -47,6 +47,7 @@ router.post('/session/start', authenticateToken, (req, res) => {
 
   db.get('SELECT * FROM games WHERE id = ? AND is_enabled = 1', [gameId], (err, game) => {
     if (err || !game) {
+      console.error(`[SESSION START REJECTED] Game '${gameId}' is not registered in the games table or is disabled.`);
       return res.status(404).json({ error: `Game ${gameId} not registered or offline` });
     }
 
@@ -74,9 +75,10 @@ router.post('/session/end', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Invalid match completion payload' });
   }
 
-  // ✅ Authorized game titles (includes color_tap and mines)
-  const allowedGames = ['color_tap', 'mines', 'tictactoe_1v1', 'rps_1v1', 'dot_connect'];
+  // ✅ Authorized game titles (Added 'memory_match')
+  const allowedGames = ['color_tap', 'mines', 'tictactoe_1v1', 'rps_1v1', 'dot_connect', 'memory_match'];
   if (!allowedGames.includes(gameId)) {
+    console.error(`[REWARD REJECTED] Unauthorized game title: ${gameId}`);
     return res.status(400).json({ error: 'Unauthorized game title' });
   }
 
@@ -88,6 +90,7 @@ router.post('/session/end', authenticateToken, (req, res) => {
     [sessionId, userId, gameId],
     (err, session) => {
       if (err || !session) {
+        console.error(`[REWARD REJECTED] Invalid or expired session '${sessionId}' for game '${gameId}'.`);
         return res.status(400).json({ error: 'Session expired or invalid' });
       }
 
