@@ -20,6 +20,7 @@ const DEFAULT_PAYMENT_METHODS = [
     icon: "🟢",
     currency: "NPR",
     min: 5000,
+    rate: 1000,
     label: "eSewa Mobile Number",
     hint: "98XXXXXXXX",
     is_active: true
@@ -30,6 +31,7 @@ const DEFAULT_PAYMENT_METHODS = [
     icon: "🟣",
     currency: "NPR",
     min: 5000,
+    rate: 1000,
     label: "Khalti Mobile Number",
     hint: "98XXXXXXXX",
     is_active: true
@@ -41,11 +43,7 @@ function deleteScreenshotFile(filePath) {
   if (!filePath || typeof filePath !== 'string') return;
 
   try {
-    // 1. Extract only the filename (e.g., 'proof_1_17156291823.png')
-    // This handles web paths (/uploads/task_proofs/...), Linux paths, or Windows paths
     const fileName = path.basename(filePath);
-    
-    // 2. Resolve to the real disk folder in backend/uploads/task_proofs/
     const diskPath = path.join(__dirname, '../uploads/task_proofs', fileName);
 
     if (fs.existsSync(diskPath)) {
@@ -127,6 +125,43 @@ function calculateStoneBadge(streakDays) {
   }
   return 'NONE';
 }
+
+// ===========================================================================
+// PUBLIC ROUTES FOR THE MOBILE APP (NO adminAuth REQUIRED)
+// ===========================================================================
+
+// 1. Mobile App Version Check (Used on Splash/Startup for Force Updates)
+router.get('/public/config', (req, res) => {
+  db.all('SELECT key, value FROM app_config', (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Database read error' });
+
+    const config = {};
+    (rows || []).forEach(r => {
+      config[r.key] = r.value;
+    });
+
+    const isForceUpdate = config.force_update === 'true' || config.force_update === true || config.force_update === '1';
+
+    res.json({
+      min_version: config.min_version || '1.0.0',
+      update_url: config.update_url || 'https://play.google.com/store',
+      force_update: isForceUpdate
+    });
+  });
+});
+
+// 2. Mobile App Payout Gateways (Used on User Withdrawal Screen)
+router.get('/public/payment-methods', (req, res) => {
+  db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, row) => {
+    if (err) return res.status(500).json({ error: 'Database read error' });
+    try {
+      const data = row && row.value ? JSON.parse(row.value) : DEFAULT_PAYMENT_METHODS;
+      res.json(data);
+    } catch {
+      res.json(DEFAULT_PAYMENT_METHODS);
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // A. Admin Authentication Login
@@ -431,7 +466,7 @@ router.post('/users/:id/ban', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// I. Payment Gateways Configuration
+// I. Payment Gateways Configuration (Admin Console)
 // ---------------------------------------------------------------------------
 router.get('/payment-methods', adminAuth, (req, res) => {
   db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, row) => {
@@ -569,7 +604,7 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// K. App Config Versioning
+// K. App Config Versioning (Admin Console)
 // ---------------------------------------------------------------------------
 router.get('/config', adminAuth, (req, res) => {
   db.all('SELECT * FROM app_config', (err, rows) => {
@@ -586,7 +621,7 @@ router.post('/config/update', adminAuth, (req, res) => {
     db.run('BEGIN TRANSACTION');
     const stmt = db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)');
     for (const [key, val] of Object.entries(settings)) {
-      stmt.run(key, val.toString());
+      stmt.run(key, val !== undefined && val !== null ? val.toString() : '');
     }
     stmt.finalize();
     db.run('COMMIT', (err) => {
@@ -719,7 +754,6 @@ router.get('/task-submissions', adminAuth, (req, res) => {
   db.all(sql, params, (err, rows) => {
     if (err) return res.status(500).json({ error: 'Failed to retrieve task submissions' });
 
-    // Normalize screenshot paths into clean web URLs for the admin panel UI
     const sanitizedRows = (rows || []).map(r => {
       if (r.screenshot_path) {
         const fileName = path.basename(r.screenshot_path);
@@ -788,7 +822,6 @@ router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
                     db.run('COMMIT', (commitErr) => {
                       if (commitErr) return res.status(500).json({ error: 'Transaction commit failed' });
 
-                      // Deletes the file from VPS disk space immediately
                       deleteScreenshotFile(sub.screenshot_path);
 
                       creditReferralCommission(sub.user_id, sub.reward_coins, 'TASK', `TASK_SUB_${subId}`, 0.10);
@@ -834,7 +867,6 @@ router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
       function (updateErr) {
         if (updateErr) return res.status(500).json({ error: 'Failed to reject submission' });
 
-        // Deletes the file from VPS disk space immediately
         deleteScreenshotFile(sub.screenshot_path);
 
         res.json({
