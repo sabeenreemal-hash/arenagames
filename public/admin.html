@@ -7,705 +7,111 @@
   <title>Arena Games — Admin Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
-    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-dark: #0A0C10;
       --surface-1: #12161F;
       --surface-2: #1A202C;
-      --surface-hover: #242C3D;
       --border: #232B3E;
       --primary: #00E676;
       --primary-hover: #19ff8c;
       --primary-glow: rgba(0, 230, 118, 0.15);
       --gold: #FFD700;
-      --gold-glow: rgba(255, 215, 0, 0.15);
       --danger: #FF4757;
       --info: #00B0FF;
       --warning: #FFA502;
       --text-main: #FFFFFF;
       --text-muted: #8F9CAE;
-      --sidebar-width: 260px;
+      --sidebar-width: 250px;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg-dark); color: var(--text-main); min-height: 100vh; }
+
+    /* LOGIN */
+    #login-overlay { position: fixed; inset: 0; background: #0A0C10; display: flex; justify-content: center; align-items: center; z-index: 9999; padding: 20px; }
+    .login-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 32px; width: 100%; max-width: 360px; }
+    .login-box h2 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+    .login-box p { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
+
+    .form-group { margin-bottom: 14px; text-align: left; }
+    .form-group label { display: block; font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 5px; text-transform: uppercase; }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; background: var(--surface-2); border: 1px solid var(--border); color: white; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none;
     }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--primary); }
 
-    body {
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: var(--bg-dark);
-      color: var(--text-main);
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
+    /* LAYOUT */
+    .app-layout { display: flex; min-height: 100vh; }
+    .sidebar { width: var(--sidebar-width); background: var(--surface-1); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 100; }
+    .sidebar-header { padding: 20px 18px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+    .sidebar-brand h2 { font-size: 16px; font-weight: 800; }
+    .sidebar-brand span { font-size: 10px; color: var(--primary); font-weight: 700; text-transform: uppercase; }
 
-    /* LOGIN MODAL OVERLAY */
-    #login-overlay {
-      position: fixed;
-      inset: 0;
-      background: radial-gradient(circle at center, #161D2B 0%, #080A0E 100%);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      z-index: 9999;
-      padding: 20px;
-    }
+    .nav-list { list-style: none; padding: 14px 10px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+    .nav-label { font-size: 10px; font-weight: 700; color: #53627A; text-transform: uppercase; padding: 10px 10px 4px; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; color: var(--text-muted); cursor: pointer; font-size: 13px; font-weight: 600; }
+    .nav-item:hover { background: var(--surface-2); color: #FFF; }
+    .nav-item.active { background: var(--primary-glow); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
+    .nav-item .badge-pill { margin-left: auto; background: var(--surface-2); border: 1px solid var(--border); padding: 2px 7px; border-radius: 10px; font-size: 11px; }
 
-    .login-box {
-      background: var(--surface-1);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 36px 32px;
-      width: 100%;
-      max-width: 380px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-    }
+    .sidebar-footer { padding: 14px; border-top: 1px solid var(--border); }
+    .btn-logout { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(255, 71, 87, 0.12); color: var(--danger); border: 1px solid rgba(255, 71, 87, 0.3); padding: 9px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
 
-    .login-box h2 {
-      font-size: 22px;
-      font-weight: 800;
-      margin-bottom: 6px;
-    }
+    /* CONTENT */
+    .main-wrapper { margin-left: var(--sidebar-width); flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .topbar { height: 60px; background: var(--surface-1); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 90; }
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+    .page-title { font-size: 16px; font-weight: 800; }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
 
-    .login-box p {
-      color: var(--text-muted);
-      font-size: 13px;
-      margin-bottom: 24px;
-    }
+    .content-area { padding: 22px; flex: 1; }
 
-    .form-group {
-      margin-bottom: 18px;
-      text-align: left;
-    }
+    /* METRICS */
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px; }
+    .metric-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+    .metric-title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+    .metric-val { font-size: 24px; font-weight: 800; margin-top: 6px; }
 
-    .form-group label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-muted);
-      margin-bottom: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
+    /* TABS */
+    .tab-section { display: none; }
+    .tab-section.active { display: block; }
+    .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .card-header-flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+    .card-header-flex h2 { font-size: 16px; font-weight: 800; }
 
-    .form-group input,
-    .form-group select,
-    .form-group textarea {
-      width: 100%;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      color: white;
-      padding: 12px 14px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-family: inherit;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    .form-group input:focus,
-    .form-group select:focus,
-    .form-group textarea:focus {
-      border-color: var(--primary);
-    }
-
-    /* LAYOUT WRAPPER */
-    .app-layout {
-      display: flex;
-      min-height: 100vh;
-    }
-
-    /* SIDEBAR */
-    .sidebar {
-      width: var(--sidebar-width);
-      background: var(--surface-1);
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      position: fixed;
-      top: 0;
-      bottom: 0;
-      left: 0;
-      z-index: 100;
-      transition: transform 0.3s ease;
-    }
-
-    .sidebar-header {
-      padding: 24px 20px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .sidebar-logo-icon {
-      width: 38px;
-      height: 38px;
-      background: linear-gradient(135deg, var(--primary), #00A859);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      box-shadow: 0 4px 12px var(--primary-glow);
-    }
-
-    .sidebar-brand h2 {
-      font-size: 17px;
-      font-weight: 800;
-      letter-spacing: -0.2px;
-    }
-
-    .sidebar-brand span {
-      font-size: 11px;
-      color: var(--primary);
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    .nav-list {
-      list-style: none;
-      padding: 20px 12px;
-      flex: 1;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .nav-label {
-      font-size: 11px;
-      font-weight: 700;
-      color: #53627A;
-      text-transform: uppercase;
-      padding: 12px 12px 6px;
-      letter-spacing: 0.8px;
-    }
-
-    .nav-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 11px 14px;
-      border-radius: 10px;
-      color: var(--text-muted);
-      cursor: pointer;
-      font-size: 13.5px;
-      font-weight: 600;
-      transition: all 0.2s;
-    }
-
-    .nav-item:hover {
-      background: var(--surface-2);
-      color: #FFF;
-    }
-
-    .nav-item.active {
-      background: var(--primary-glow);
-      color: var(--primary);
-      border: 1px solid rgba(0, 230, 118, 0.3);
-    }
-
-    .nav-item .icon {
-      font-size: 18px;
-      line-height: 1;
-    }
-
-    .nav-item .badge-pill {
-      margin-left: auto;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      padding: 2px 7px;
-      border-radius: 10px;
-      font-size: 11px;
-      font-weight: 700;
-    }
-
-    .sidebar-footer {
-      padding: 16px 14px;
-      border-top: 1px solid var(--border);
-    }
-
-    .btn-logout {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      background: rgba(255, 71, 87, 0.12);
-      color: var(--danger);
-      border: 1px solid rgba(255, 71, 87, 0.3);
-      padding: 11px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: 0.2s;
-    }
-
-    .btn-logout:hover {
-      background: var(--danger);
-      color: white;
-    }
-
-    /* MAIN CONTENT */
-    .main-wrapper {
-      margin-left: var(--sidebar-width);
-      flex: 1;
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-    }
-
-    /* TOPBAR */
-    .topbar {
-      height: 70px;
-      background: var(--surface-1);
-      border-bottom: 1px solid var(--border);
-      padding: 0 28px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 90;
-    }
-
-    .topbar-left {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .mobile-menu-btn {
-      display: none;
-      background: transparent;
-      border: none;
-      font-size: 22px;
-      color: white;
-      cursor: pointer;
-    }
-
-    .page-title {
-      font-size: 18px;
-      font-weight: 800;
-    }
-
-    .topbar-right {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .status-indicator {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--primary);
-      background: var(--primary-glow);
-      padding: 6px 12px;
-      border-radius: 20px;
-      border: 1px solid rgba(0, 230, 118, 0.2);
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--primary);
-      box-shadow: 0 0 8px var(--primary);
-      animation: pulseGlow 1.8s infinite;
-    }
-
-    @keyframes pulseGlow {
-      0% {
-        transform: scale(0.9);
-        box-shadow: 0 0 4px var(--primary);
-      }
-
-      50% {
-        transform: scale(1.25);
-        box-shadow: 0 0 12px var(--primary);
-      }
-
-      100% {
-        transform: scale(0.9);
-        box-shadow: 0 0 4px var(--primary);
-      }
-    }
-
-    /* CONTENT BODY */
-    .content-area {
-      padding: 28px;
-      flex: 1;
-    }
-
-    /* METRIC CARDS */
-    .metrics-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 18px;
-      margin-bottom: 28px;
-    }
-
-    .metric-card {
-      background: var(--surface-1);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 20px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .metric-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .metric-val {
-      font-size: 28px;
-      font-weight: 800;
-      margin-top: 8px;
-    }
-
-    /* PANELS */
-    .tab-section {
-      display: none;
-    }
-
-    .tab-section.active {
-      display: block;
-      animation: fadeIn 0.25s ease;
-    }
-
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(6px);
-      }
-
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .card {
-      background: var(--surface-1);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 22px;
-      margin-bottom: 24px;
-    }
-
-    .card-header-flex {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 14px;
-      margin-bottom: 18px;
-    }
-
-    .card-header-flex h2 {
-      font-size: 17px;
-      font-weight: 800;
-    }
-
-    .card-header-flex p {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    /* SEARCH INPUT */
-    .search-bar {
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      color: white;
-      padding: 9px 14px;
-      border-radius: 8px;
-      font-size: 13px;
-      width: 320px;
-      outline: none;
-    }
-
-    .search-bar:focus {
-      border-color: var(--primary);
-    }
+    .search-bar { background: var(--surface-2); border: 1px solid var(--border); color: white; padding: 8px 12px; border-radius: 8px; font-size: 13px; width: 260px; outline: none; }
 
     /* TABLES */
-    .table-container {
-      overflow-x: auto;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      text-align: left;
-      font-size: 13px;
-    }
-
-    th {
-      background: #10141D;
-      color: var(--text-muted);
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
-
-    td {
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-    }
-
-    tr:hover td {
-      background: rgba(255, 255, 255, 0.015);
-    }
+    .table-container { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12.5px; }
+    th { background: #10141D; color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:hover td { background: rgba(255, 255, 255, 0.015); }
 
     /* BADGES */
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 4px 9px;
-      border-radius: 6px;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-    }
-
-    .badge-active {
-      background: var(--primary-glow);
-      color: var(--primary);
-      border: 1px solid rgba(0, 230, 118, 0.3);
-    }
-
-    .badge-banned,
-    .badge-rejected {
-      background: rgba(255, 71, 87, 0.15);
-      color: var(--danger);
-      border: 1px solid rgba(255, 71, 87, 0.3);
-    }
-
-    .badge-pending {
-      background: rgba(255, 165, 2, 0.15);
-      color: var(--warning);
-      border: 1px solid rgba(255, 165, 2, 0.3);
-    }
-
-    .badge-stone {
-      background: #2A1F40;
-      color: #D8B4FE;
-      border: 1px solid #9D4EDD;
-    }
+    .badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 5px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; }
+    .badge-active { background: var(--primary-glow); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
+    .badge-banned, .badge-rejected { background: rgba(255, 71, 87, 0.15); color: var(--danger); border: 1px solid rgba(255, 71, 87, 0.3); }
+    .badge-pending { background: rgba(255, 165, 2, 0.15); color: var(--warning); border: 1px solid rgba(255, 165, 2, 0.3); }
 
     /* BUTTONS */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 9px 16px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-      border: none;
-      transition: 0.15s;
-    }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 14px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; border: none; }
+    .btn-primary { background: var(--primary); color: #080A0E; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-action { padding: 5px 8px; font-size: 11px; font-weight: 700; border-radius: 5px; border: none; cursor: pointer; margin-right: 3px; }
+    .btn-act-streak { background: var(--warning); color: white; }
+    .btn-act-coins { background: var(--primary); color: #080A0E; }
+    .btn-act-pass { background: var(--info); color: white; }
+    .btn-act-danger { background: var(--danger); color: white; }
+    .btn-act-gray { background: #404859; color: white; }
 
-    .btn-primary {
-      background: var(--primary);
-      color: #080A0E;
-    }
+    .proof-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); }
 
-    .btn-primary:hover {
-      background: var(--primary-hover);
-    }
-
-    .btn-outline-gold {
-      background: transparent;
-      border: 1px solid var(--gold);
-      color: var(--gold);
-    }
-
-    .btn-outline-gold:hover {
-      background: var(--gold-glow);
-    }
-
-    .btn-action {
-      padding: 5px 9px;
-      font-size: 11.5px;
-      font-weight: 700;
-      border-radius: 6px;
-      border: none;
-      cursor: pointer;
-      margin-right: 4px;
-      margin-bottom: 4px;
-      transition: 0.15s;
-    }
-
-    .btn-action:hover {
-      opacity: 0.85;
-      transform: translateY(-1px);
-    }
-
-    .btn-act-streak {
-      background: var(--warning);
-      color: white;
-    }
-
-    .btn-act-coins {
-      background: var(--primary);
-      color: #080A0E;
-    }
-
-    .btn-act-pass {
-      background: var(--info);
-      color: white;
-    }
-
-    .btn-act-danger {
-      background: var(--danger);
-      color: white;
-    }
-
-    .btn-act-gray {
-      background: #404859;
-      color: white;
-    }
-
-    /* FILTER TABS */
-    .filter-tabs {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-
-    .filter-btn {
-      padding: 6px 14px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 700;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      cursor: pointer;
-      transition: 0.2s;
-    }
-
-    .filter-btn:hover {
-      color: white;
-    }
-
-    .filter-btn.active {
-      background: var(--primary);
-      color: #080A0E;
-      border-color: var(--primary);
-    }
-
-    /* GENERAL MODAL */
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.75);
-      z-index: 10000;
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
-    }
-
-    .modal-card {
-      background: var(--surface-1);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 26px;
-      width: 100%;
-      max-width: 520px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-    }
-
-    .proof-thumb {
-      width: 50px;
-      height: 50px;
-      object-fit: cover;
-      border-radius: 6px;
-      cursor: pointer;
-      border: 1px solid var(--border);
-      transition: transform 0.2s;
-    }
-
-    .proof-thumb:hover {
-      transform: scale(1.08);
-      border-color: var(--primary);
-    }
-
-    #image-modal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.85);
-      z-index: 10000;
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
-    }
-
-    #image-modal img {
-      max-width: 90vw;
-      max-height: 85vh;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
-    }
-
-    #image-modal-close {
-      position: absolute;
-      top: 20px;
-      right: 24px;
-      font-size: 28px;
-      color: white;
-      cursor: pointer;
-    }
-
-    @media (max-width: 900px) {
-      .sidebar {
-        transform: translateX(-100%);
-      }
-
-      .sidebar.open {
-        transform: translateX(0);
-      }
-
-      .main-wrapper {
-        margin-left: 0;
-      }
-
-      .mobile-menu-btn {
-        display: block;
-      }
-    }
+    /* MODAL */
+    #image-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.88); z-index: 10000; justify-content: center; align-items: center; padding: 20px; }
+    #image-modal img { max-width: 90vw; max-height: 85vh; border-radius: 10px; }
   </style>
 </head>
 
@@ -713,88 +119,14 @@
 
   <!-- LIGHTBOX IMAGE MODAL -->
   <div id="image-modal" onclick="closeImageModal()">
-    <span id="image-modal-close">&times;</span>
     <img id="image-modal-src" src="" alt="Proof Preview" onclick="event.stopPropagation()">
   </div>
 
-  <!-- GATEWAY ADD/EDIT MODAL -->
-  <div id="gateway-modal" class="modal-overlay">
-    <div class="modal-card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-        <h2 id="gateway-modal-title" style="font-size: 18px; font-weight: 800;">Add Payment Gateway</h2>
-        <span onclick="closeGatewayModal()" style="font-size: 22px; cursor: pointer; color: var(--text-muted);">&times;</span>
-      </div>
-
-      <form id="gateway-form" onsubmit="handleSaveGateway(event)">
-        <input type="hidden" id="gateway-edit-index" value="-1">
-
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
-          <div class="form-group">
-            <label>Gateway Identifier (Unique ID)</label>
-            <input type="text" id="gateway-id" placeholder="e.g. eSewa, Khalti, IME_Pay" required>
-          </div>
-          <div class="form-group">
-            <label>Emoji / Icon</label>
-            <input type="text" id="gateway-icon" placeholder="🟢, 🟣, 🏦" required>
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
-          <div class="form-group">
-            <label>Display Name</label>
-            <input type="text" id="gateway-name" placeholder="e.g. eSewa (NPR)" required>
-          </div>
-          <div class="form-group">
-            <label>Currency</label>
-            <input type="text" id="gateway-currency" placeholder="NPR, USD" value="NPR" required>
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div class="form-group">
-            <label>Account Input Label</label>
-            <input type="text" id="gateway-label" placeholder="e.g. eSewa Mobile Number" required>
-          </div>
-          <div class="form-group">
-            <label>Placeholder Hint</label>
-            <input type="text" id="gateway-hint" placeholder="e.g. 98XXXXXXXX" required>
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div class="form-group">
-            <label>Min Coins</label>
-            <input type="number" id="gateway-min" placeholder="5000" min="100" value="5000" required>
-          </div>
-          <div class="form-group">
-            <label>Gateway Status</label>
-            <select id="gateway-status">
-              <option value="true">Active (Visible in App)</option>
-              <option value="false">Disabled</option>
-            </select>
-          </div>
-        </div>
-
-        <div style="display: flex; gap: 10px; margin-top: 10px;">
-          <button type="submit" class="btn btn-primary" style="flex: 1;">Save Gateway</button>
-          <button type="button" class="btn btn-action btn-act-gray" onclick="closeGatewayModal()" style="padding: 10px 16px;">Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- 1. LOGIN OVERLAY -->
+  <!-- LOGIN OVERLAY -->
   <div id="login-overlay">
     <div class="login-box">
-      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
-        <div class="sidebar-logo-icon">🎮</div>
-        <div>
-          <h2>Arena Games</h2>
-          <span style="font-size: 11px; color: var(--primary); font-weight: 700;">CENTRAL ADMIN CONSOLE</span>
-        </div>
-      </div>
+      <h2>Arena Games</h2>
       <p>Enter administrator credentials to authenticate.</p>
-
       <div class="form-group">
         <label>Admin Username</label>
         <input type="text" id="admin-user" placeholder="admin" autocomplete="username">
@@ -803,105 +135,83 @@
         <label>Password</label>
         <input type="password" id="admin-pass" placeholder="••••••••" autocomplete="current-password">
       </div>
-      <button class="btn btn-primary" onclick="attemptLogin()" style="width: 100%; padding: 12px; margin-top: 6px;">Sign In to Console</button>
-      <p id="login-error" style="color: var(--danger); text-align: center; margin-top: 14px; font-size: 12px; display: none;"></p>
+      <button class="btn btn-primary" onclick="attemptLogin()" style="width: 100%; padding: 11px;">Sign In</button>
+      <p id="login-error" style="color: var(--danger); text-align: center; margin-top: 12px; font-size: 12px; display: none;"></p>
     </div>
   </div>
 
-  <!-- 2. PROTECTED ADMIN APPLICATION -->
+  <!-- APPLICATION -->
   <div id="admin-content" style="display: none;" class="app-layout">
 
-    <!-- FIXED SIDEBAR MENU -->
-    <aside class="sidebar" id="app-sidebar">
+    <aside class="sidebar">
       <div class="sidebar-header">
-        <div class="sidebar-logo-icon">🎮</div>
         <div class="sidebar-brand">
           <h2>Arena Games</h2>
-          <span>Master Admin</span>
+          <span>Admin Console</span>
         </div>
       </div>
 
       <ul class="nav-list">
         <div class="nav-label">Core Operations</div>
         <li class="nav-item active" onclick="switchTab('tab-dashboard', this)">
-          <span class="icon">📊</span>
-          <span>Dashboard</span>
+          <span>📊</span><span>Dashboard</span>
         </li>
         <li class="nav-item" onclick="switchTab('tab-tasks', this)">
-          <span class="icon">📋</span>
-          <span>Task Hub</span>
+          <span>📋</span><span>Task Hub</span>
           <span class="badge-pill" id="nav-tasks-count">0</span>
         </li>
         <li class="nav-item" onclick="switchTab('tab-submissions', this)">
-          <span class="icon">📥</span>
-          <span>Submissions</span>
+          <span>📥</span><span>Submissions</span>
           <span class="badge-pill" id="nav-sub-pending-count" style="color: var(--warning);">0</span>
         </li>
 
-        <div class="nav-label">Player Management</div>
+        <div class="nav-label">Players</div>
         <li class="nav-item" onclick="switchTab('tab-users', this)">
-          <span class="icon">👥</span>
-          <span>All Users Registry</span>
+          <span>👥</span><span>Users Registry</span>
           <span class="badge-pill" id="nav-users-count">0</span>
         </li>
         <li class="nav-item" onclick="switchTab('tab-withdrawals', this)">
-          <span class="icon">💸</span>
-          <span>Redemptions</span>
+          <span>💸</span><span>Redemptions</span>
           <span class="badge-pill" id="nav-redeem-count" style="color: var(--warning);">0</span>
         </li>
 
-        <div class="nav-label">Platform Control</div>
+        <div class="nav-label">Settings</div>
         <li class="nav-item" onclick="switchTab('tab-gateways', this)">
-          <span class="icon">💳</span>
-          <span>Payout Gateways</span>
+          <span>💳</span><span>Gateways</span>
         </li>
         <li class="nav-item" onclick="switchTab('tab-version', this)">
-          <span class="icon">⚙️</span>
-          <span>System & Updates</span>
+          <span>⚙️</span><span>System Update</span>
         </li>
         <li class="nav-item" onclick="switchTab('tab-admins', this)">
-          <span class="icon">🛡️</span>
-          <span>Admin Credentials</span>
+          <span>🛡️</span><span>Admin Credentials</span>
         </li>
       </ul>
 
       <div class="sidebar-footer">
-        <button class="btn-logout" onclick="logout()">
-          <span>🚪</span> Sign Out Admin
-        </button>
+        <button class="btn-logout" onclick="logout()">🚪 Sign Out</button>
       </div>
     </aside>
 
-    <!-- MAIN PAGE CONTAINER -->
     <div class="main-wrapper">
-
-      <!-- TOP NAVIGATION BAR -->
       <header class="topbar">
         <div class="topbar-left">
-          <button class="mobile-menu-btn" onclick="toggleMobileSidebar()">☰</button>
           <div class="page-title" id="current-page-title">Dashboard Overview</div>
         </div>
         <div class="topbar-right">
-          <div class="status-indicator">
-            <div class="status-dot"></div>
-            <span>Server Live</span>
-          </div>
-          <button class="btn btn-outline-gold" onclick="loadDashboard()" style="padding: 6px 12px; font-size: 12px;">🔄 Refresh</button>
+          <button class="btn btn-primary" onclick="loadDashboardStats()" style="padding: 6px 12px; font-size: 11px;">🔄 Refresh</button>
         </div>
       </header>
 
-      <!-- CONTENT BODY -->
       <main class="content-area">
-
-        <!-- OVERVIEW METRIC CARDS -->
+        <!-- METRIC CARDS -->
         <div class="metrics-grid">
           <div class="metric-card">
             <div class="metric-title">Registered Players</div>
-            <div class="metric-val" id="stat-users" style="color: white;">...</div>
+            <div class="metric-val" id="stat-users">0</div>
           </div>
           <div class="metric-card">
-            <div class="metric-title">Total Wallet Capital</div>
-            <div class="metric-val" id="stat-coins" style="color: var(--primary);">...</div>
+            <div class="metric-title">Total Wallet Balance</div>
+            <div class="metric-val" id="stat-coins" style="color: var(--primary);">0</div>
           </div>
           <div class="metric-card">
             <div class="metric-title">Pending Tasks</div>
@@ -909,375 +219,174 @@
           </div>
           <div class="metric-card">
             <div class="metric-title">Pending Redemptions</div>
-            <div class="metric-val" id="stat-withdrawals" style="color: var(--warning);">...</div>
+            <div class="metric-val" id="stat-withdrawals" style="color: var(--warning);">0</div>
           </div>
         </div>
 
-        <!-- ======================================================== -->
-        <!-- TAB 1: DASHBOARD VIEW                                    -->
-        <!-- ======================================================== -->
+        <!-- TAB 1: DASHBOARD -->
         <section id="tab-dashboard" class="tab-section active">
           <div class="card">
-            <div class="card-header-flex">
-              <div>
-                <h2>Quick Overview</h2>
-                <p>High-level system status and immediate actions.</p>
-              </div>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
-              <div style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
-                <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--info);">📥 Task Submissions</h3>
-                <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
-                  Review pending player tasks, verify screenshot/text proofs, approve or reject with automatic VPS disk cleanup.
-                </p>
-                <button class="btn btn-primary" onclick="switchTabByName('tab-submissions', 'Task Submissions Review')" style="font-size: 12px; padding: 7px 12px;">Review Submissions</button>
-              </div>
-
-              <div style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
-                <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--primary);">📋 Task Manager</h3>
-                <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
-                  Create new tasks, set coin payouts, specify proof requirements, and manage active status.
-                </p>
-                <button class="btn btn-primary" onclick="switchTabByName('tab-tasks', 'Task Hub & Creation')" style="font-size: 12px; padding: 7px 12px;">Manage Tasks</button>
-              </div>
-
-              <div style="background: var(--surface-2); padding: 18px; border-radius: 10px; border: 1px solid var(--border);">
-                <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--warning);">💸 Pending Payouts</h3>
-                <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
-                  Review player redemption requests with payment method details, account numbers, and cash payouts.
-                </p>
-                <button class="btn btn-primary" onclick="switchTabByName('tab-withdrawals', 'Redemptions Pipeline')" style="font-size: 12px; padding: 7px 12px;">Review Requests</button>
-              </div>
-            </div>
+            <h2 style="margin-bottom: 8px;">System Active</h2>
+            <p style="color: var(--text-muted); font-size: 13px;">Select any operation from the sidebar to manage players, verify proofs, or update configuration.</p>
           </div>
         </section>
 
-        <!-- ======================================================== -->
-        <!-- TAB: TASK HUB                                            -->
-        <!-- ======================================================== -->
+        <!-- TAB 2: TASKS -->
         <section id="tab-tasks" class="tab-section">
-          <div class="card" style="max-width: 800px; margin-bottom: 24px;">
-            <div class="card-header-flex">
-              <div>
-                <h2>➕ Create New User Task</h2>
-                <p>This task will immediately appear on the app home screen and tasks hub.</p>
-              </div>
-            </div>
-
+          <div class="card" style="max-width: 650px;">
+            <div class="card-header-flex"><h2>➕ Create New Task</h2></div>
             <form onsubmit="handleCreateTask(event)">
-              <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 14px;">
-                <div class="form-group">
-                  <label>Task Title</label>
-                  <input type="text" id="task-title" placeholder="e.g. Subscribe to our YouTube Channel" required>
-                </div>
+              <div class="form-group">
+                <label>Task Title</label>
+                <input type="text" id="task-title" required>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div class="form-group">
                   <label>Reward Coins</label>
-                  <input type="number" id="task-coins" placeholder="e.g. 150" min="1" required>
+                  <input type="number" id="task-coins" min="1" required>
                 </div>
-              </div>
-
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
                 <div class="form-group">
-                  <label>Proof Type Required</label>
+                  <label>Proof Type</label>
                   <select id="task-proof-type">
-                    <option value="both">Both Text & Screenshot Proof</option>
+                    <option value="both">Both Screenshot & Text</option>
                     <option value="screenshot">Screenshot Only</option>
-                    <option value="text">Text / Username Proof Only</option>
+                    <option value="text">Text Only</option>
                   </select>
                 </div>
-                <div class="form-group">
-                  <label>Task Action Link (Optional)</label>
-                  <input type="url" id="task-url" placeholder="https://youtube.com/@channel or https://t.me/...">
-                </div>
               </div>
-
               <div class="form-group">
-                <label>Task Instructions (Shown to Players)</label>
-                <textarea id="task-instructions" rows="3" placeholder="Explain what the player must do step-by-step and what proof to submit..." required></textarea>
+                <label>Action Link (Optional)</label>
+                <input type="url" id="task-url" placeholder="https://...">
               </div>
-
-              <button type="submit" class="btn btn-primary">+ Publish Task to App</button>
+              <div class="form-group">
+                <label>Instructions</label>
+                <textarea id="task-instructions" rows="2" required></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary">+ Publish Task</button>
             </form>
           </div>
 
           <div class="card">
-            <div class="card-header-flex">
-              <div>
-                <h2>Published App Tasks</h2>
-                <p>Manage, toggle active state, or remove existing tasks.</p>
-              </div>
-            </div>
-
+            <div class="card-header-flex"><h2>Active Tasks</h2></div>
             <div class="table-container">
               <table id="tasks-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Task Title</th>
-                    <th>Reward</th>
-                    <th>Proof Type</th>
-                    <th>Link</th>
-                    <th>Status</th>
-                    <th>Submissions</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="8">Loading tasks...</td>
-                  </tr>
-                </tbody>
+                <thead><tr><th>ID</th><th>Title</th><th>Reward</th><th>Type</th><th>Link</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody></tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- ======================================================== -->
-        <!-- TAB: SUBMISSIONS                                         -->
-        <!-- ======================================================== -->
+        <!-- TAB 3: SUBMISSIONS -->
         <section id="tab-submissions" class="tab-section">
           <div class="card">
             <div class="card-header-flex">
+              <h2>Task Submissions Review</h2>
               <div>
-                <h2>Task Submissions Review</h2>
-                <p>Inspect proof, approve rewards, or reject with a reason. Screenshots are automatically deleted from VPS upon decision.</p>
+                <button class="btn btn-primary" onclick="loadSubmissionsList('pending')" style="padding: 4px 10px;">Pending</button>
+                <button class="btn btn-action" onclick="loadSubmissionsList('approved')" style="padding: 4px 10px;">Approved</button>
+                <button class="btn btn-action" onclick="loadSubmissionsList('rejected')" style="padding: 4px 10px;">Rejected</button>
               </div>
             </div>
-
-            <div class="filter-tabs">
-              <button class="filter-btn active" onclick="filterSubmissions('pending', this)">Pending Review</button>
-              <button class="filter-btn" onclick="filterSubmissions('approved', this)">Approved</button>
-              <button class="filter-btn" onclick="filterSubmissions('rejected', this)">Rejected</button>
-              <button class="filter-btn" onclick="filterSubmissions('all', this)">All History</button>
-            </div>
-
             <div class="table-container">
               <table id="submissions-table">
-                <thead>
-                  <tr>
-                    <th>ID / Date</th>
-                    <th>Player</th>
-                    <th>Task</th>
-                    <th>Proof Text</th>
-                    <th>Screenshot</th>
-                    <th>Status</th>
-                    <th>Decision</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="7">Loading submissions...</td>
-                  </tr>
-                </tbody>
+                <thead><tr><th>ID</th><th>Player</th><th>Task</th><th>Proof Text</th><th>Screenshot</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody></tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- ======================================================== -->
-        <!-- TAB 2: USERS REGISTRY                                    -->
-        <!-- ======================================================== -->
+        <!-- TAB 4: USERS -->
         <section id="tab-users" class="tab-section">
           <div class="card">
             <div class="card-header-flex">
-              <div>
-                <h2>Registered Users Database</h2>
-                <p>Inspect player accounts, registered IPs, multi-account alerts, adjust balances, or remove users.</p>
-              </div>
-              <input type="text" id="user-search" class="search-bar" placeholder="Filter by username, email, IP..." onkeyup="filterUsersList()">
+              <h2>Players Registry</h2>
+              <input type="text" id="user-search" class="search-bar" placeholder="Instant filter username/email..." oninput="debouncedSearch()">
             </div>
-
             <div class="table-container">
               <table id="users-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Player</th>
-                    <th>Email</th>
-                    <th>Coins</th>
-                    <th>Streak / Stone</th>
-                    <th>Account Created</th>
-                    <th>Registered IP & Multi-Account</th>
-                    <th>Admin Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="8">Fetching user accounts...</td>
-                  </tr>
-                </tbody>
+                <thead><tr><th>ID</th><th>Player</th><th>Email</th><th>Coins</th><th>Streak</th><th>Joined</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody></tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- ======================================================== -->
-        <!-- TAB 3: WITHDRAWALS & REDEMPTIONS                         -->
-        <!-- ======================================================== -->
+        <!-- TAB 5: REDEMPTIONS -->
         <section id="tab-withdrawals" class="tab-section">
           <div class="card">
-            <div class="card-header-flex">
-              <div>
-                <h2>Redemptions Pipeline</h2>
-                <p>Review player withdrawal claims with payout method, account number, and verify balances before approval.</p>
-              </div>
-            </div>
-
-            <div class="filter-tabs">
-              <button class="filter-btn active" onclick="filterWithdrawals('PENDING', this)">Pending Review</button>
-              <button class="filter-btn" onclick="filterWithdrawals('APPROVED', this)">Approved</button>
-              <button class="filter-btn" onclick="filterWithdrawals('REJECTED', this)">Rejected</button>
-              <button class="filter-btn" onclick="filterWithdrawals('ALL', this)">All Redemptions</button>
-            </div>
-
+            <div class="card-header-flex"><h2>Pending Withdrawals</h2></div>
             <div class="table-container">
               <table id="withdrawals-table">
-                <thead>
-                  <tr>
-                    <th>ID / Date</th>
-                    <th>Player Info</th>
-                    <th>Payment Gateway</th>
-                    <th>Account / Phone Number</th>
-                    <th>Coins to Deduct</th>
-                    <th>Payout Amount</th>
-                    <th>Status</th>
-                    <th>Decision</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="8">Fetching redemptions...</td>
-                  </tr>
-                </tbody>
+                <thead><tr><th>User</th><th>Account</th><th>Coins</th><th>NPR Value</th><th>Decision</th></tr></thead>
+                <tbody></tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- ======================================================== -->
-        <!-- TAB 4: PAYOUT GATEWAYS                                   -->
-        <!-- ======================================================== -->
+        <!-- TAB 6: GATEWAYS -->
         <section id="tab-gateways" class="tab-section">
           <div class="card">
             <div class="card-header-flex">
-              <div>
-                <h2>Redemption & Payment Gateways</h2>
-                <p>Configure user-facing payout methods (eSewa, Khalti, etc.). Add, edit details, or remove gateways.</p>
-              </div>
-              <button class="btn btn-primary" onclick="openGatewayModal()">+ Add Payout Gateway</button>
+              <h2>Payment Gateways</h2>
+              <button class="btn btn-primary" onclick="openPaymentMethodModal()">+ Add Gateway</button>
             </div>
-
             <div class="table-container">
               <table id="methods-table">
-                <thead>
-                  <tr>
-                    <th>Icon</th>
-                    <th>Gateway ID</th>
-                    <th>Display Name</th>
-                    <th>Currency</th>
-                    <th>Account Input Label</th>
-                    <th>Hint</th>
-                    <th>Min Coins</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="9">Loading payout gateways...</td>
-                  </tr>
-                </tbody>
+                <thead><tr><th>Icon</th><th>ID</th><th>Name</th><th>Min Coins</th><th>Input Label</th><th>Actions</th></tr></thead>
+                <tbody></tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- ======================================================== -->
-        <!-- TAB 5: APP CONFIG & VERSION                              -->
-        <!-- ======================================================== -->
+        <!-- TAB 7: SYSTEM CONFIG -->
         <section id="tab-version" class="tab-section">
-          <div class="card" style="max-width: 600px;">
-            <div class="card-header-flex">
-              <div>
-                <h2>App Version & Force Update</h2>
-                <p>Control client update requirements and store redirection links.</p>
-              </div>
-            </div>
-
+          <div class="card" style="max-width: 500px;">
+            <div class="card-header-flex"><h2>App Version Control</h2></div>
             <div class="form-group">
               <label>Minimum Version Required</label>
               <input type="text" id="config-min" value="1.0.0">
             </div>
             <div class="form-group">
-              <label>Force Update Store Redirect Link</label>
-              <input type="text" id="config-url" value="https://play.google.com/store">
+              <label>Store Redirect Link</label>
+              <input type="text" id="config-url">
             </div>
             <div class="form-group">
-              <label>Activate Force Update</label>
+              <label>Force Update</label>
               <select id="config-force">
                 <option value="true">Active (true)</option>
                 <option value="false">Inactive (false)</option>
               </select>
             </div>
-
-            <button class="btn btn-primary" onclick="updateSystemConfig()" style="margin-top: 10px;">Save Configuration Settings</button>
+            <button class="btn btn-primary" onclick="updateSystemConfig()">Save Version Settings</button>
           </div>
         </section>
 
-        <!-- ======================================================== -->
-        <!-- TAB 6: ADMIN USERS & PASSWORDS                           -->
-        <!-- ======================================================== -->
+        <!-- TAB 8: ADMINS -->
         <section id="tab-admins" class="tab-section">
-          <div class="card" style="max-width: 700px; margin-bottom: 24px;">
-            <div class="card-header-flex">
-              <div>
-                <h2>➕ Create New Admin Account</h2>
-                <p>Add a new administrator credential with access to this console.</p>
-              </div>
-            </div>
-
+          <div class="card" style="max-width: 500px;">
+            <div class="card-header-flex"><h2>Create Admin</h2></div>
             <form onsubmit="handleCreateAdmin(event)">
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
-                <div class="form-group">
-                  <label>Admin Username</label>
-                  <input type="text" id="new-admin-user" placeholder="e.g. manager" required>
-                </div>
-                <div class="form-group">
-                  <label>Full Name / Title</label>
-                  <input type="text" id="new-admin-name" placeholder="e.g. Operations Head" required>
-                </div>
+              <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="new-admin-user" required>
               </div>
               <div class="form-group">
-                <label>Admin Password</label>
-                <input type="password" id="new-admin-pass" placeholder="Enter secure password (min 6 chars)" required>
+                <label>Password</label>
+                <input type="password" id="new-admin-pass" required>
               </div>
-              <button type="submit" class="btn btn-primary">+ Create Administrator</button>
+              <button type="submit" class="btn btn-primary">+ Create</button>
             </form>
           </div>
-
           <div class="card">
-            <div class="card-header-flex">
-              <div>
-                <h2>Active Admin Accounts</h2>
-                <p>All admin credentials allowed to sign into the console.</p>
-              </div>
-            </div>
-
+            <div class="card-header-flex"><h2>Existing Admins</h2></div>
             <div class="table-container">
               <table id="admins-table">
-                <thead>
-                  <tr>
-                    <th>Username</th>
-                    <th>Name / Role</th>
-                    <th>Created</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td colspan="4">Loading administrators...</td>
-                  </tr>
-                </tbody>
+                <thead><tr><th>Username</th><th>Name</th><th>Actions</th></tr></thead>
+                <tbody></tbody>
               </table>
             </div>
           </div>
@@ -1287,29 +396,17 @@
     </div>
   </div>
 
-  <!-- JAVASCRIPT LOGIC -->
   <script>
     const API_BASE = "/api/admin";
     let allUsersCache = [];
     let paymentMethodsList = [];
-    let withdrawalsCache = [];
-    let currentSubmissionsCache = [];
-    let activeSubFilter = 'pending';
-    let activeWithdrawalFilter = 'PENDING';
+    let searchTimeout = null;
 
     function getHeaders() {
-      const token = localStorage.getItem('admin_token');
       return {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`
+        "Authorization": `Bearer ${localStorage.getItem('admin_token')}`
       };
-    }
-
-    function formatScreenshotUrl(pathStr) {
-      if (!pathStr) return null;
-      const normalized = pathStr.replace(/\\/g, '/');
-      const filename = normalized.split('/').pop();
-      return `/uploads/task_proofs/${filename}`;
     }
 
     function openImageModal(src) {
@@ -1322,54 +419,27 @@
       document.getElementById('image-modal-src').src = '';
     }
 
-    // TAB SWITCHING
     function switchTab(tabId, element) {
       document.querySelectorAll('.tab-section').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
 
       const target = document.getElementById(tabId);
       if (target) target.classList.add('active');
-      if (element) element.classList.add('active');
-
-      const titleEl = document.getElementById('current-page-title');
       if (element) {
-        titleEl.innerText = element.querySelector('span:nth-child(2)').innerText;
+        element.classList.add('active');
+        document.getElementById('current-page-title').innerText = element.querySelector('span:nth-child(2)').innerText;
       }
 
-      if (tabId === 'tab-tasks') loadTasksList();
-      if (tabId === 'tab-submissions') loadSubmissionsList();
-      if (tabId === 'tab-admins') loadAdminUsersList();
+      // LAZY LOAD: Fetch only when clicked
       if (tabId === 'tab-users') loadUsersList();
+      if (tabId === 'tab-tasks') loadTasksList();
+      if (tabId === 'tab-submissions') loadSubmissionsList('pending');
+      if (tabId === 'tab-withdrawals') loadWithdrawals();
       if (tabId === 'tab-gateways') loadPaymentMethods();
-      if (tabId === 'tab-withdrawals') loadWithdrawals();
-
-      if (window.innerWidth <= 900) {
-        document.getElementById('app-sidebar').classList.remove('open');
-      }
+      if (tabId === 'tab-version') loadConfig();
+      if (tabId === 'tab-admins') loadAdminUsersList();
     }
 
-    function switchTabByName(tabId, titleText) {
-      document.querySelectorAll('.tab-section').forEach(t => t.classList.remove('active'));
-      const target = document.getElementById(tabId);
-      if (target) target.classList.add('active');
-
-      document.querySelectorAll('.nav-item').forEach(n => {
-        n.classList.remove('active');
-        if (n.innerText.includes(titleText)) n.classList.add('active');
-      });
-      document.getElementById('current-page-title').innerText = titleText;
-
-      if (tabId === 'tab-tasks') loadTasksList();
-      if (tabId === 'tab-submissions') loadSubmissionsList();
-      if (tabId === 'tab-users') loadUsersList();
-      if (tabId === 'tab-withdrawals') loadWithdrawals();
-    }
-
-    function toggleMobileSidebar() {
-      document.getElementById('app-sidebar').classList.toggle('open');
-    }
-
-    // AUTHENTICATION
     async function attemptLogin() {
       const username = document.getElementById('admin-user').value.trim();
       const password = document.getElementById('admin-pass').value.trim();
@@ -1382,7 +452,6 @@
           body: JSON.stringify({ username, password })
         });
         const data = await res.json();
-
         if (res.status === 200 && data.token) {
           localStorage.setItem('admin_token', data.token);
           checkSession();
@@ -1390,8 +459,8 @@
           errorMsg.innerText = data.error || "Login credentials failed";
           errorMsg.style.display = "block";
         }
-      } catch (err) {
-        errorMsg.innerText = "Cannot connect to server API";
+      } catch (_) {
+        errorMsg.innerText = "Cannot connect to server";
         errorMsg.style.display = "block";
       }
     }
@@ -1401,7 +470,7 @@
       if (token) {
         document.getElementById('login-overlay').style.display = 'none';
         document.getElementById('admin-content').style.display = 'flex';
-        loadDashboard();
+        loadDashboardStats();
       } else {
         document.getElementById('login-overlay').style.display = 'flex';
         document.getElementById('admin-content').style.display = 'none';
@@ -1413,755 +482,417 @@
       checkSession();
     }
 
-    async function loadDashboard() {
+    // High performance summary stats
+    async function loadDashboardStats() {
       try {
-        const statsRes = await fetch(`${API_BASE}/dashboard`, { headers: getHeaders() });
-        if (statsRes.status === 401 || statsRes.status === 403) return logout();
+        const res = await fetch(`${API_BASE}/dashboard`, { headers: getHeaders() });
+        if (res.status === 401 || res.status === 403) return logout();
+        const stats = await res.json();
 
-        const stats = await statsRes.json();
         document.getElementById('stat-users').innerText = (stats.totalUsers || 0).toLocaleString();
-        document.getElementById('stat-coins').innerText = (stats.totalCoins || 0).toLocaleString() + " Coins";
+        document.getElementById('stat-coins').innerText = (stats.totalCoins || 0).toLocaleString() + " 🪙";
         document.getElementById('stat-withdrawals').innerText = stats.pendingWithdrawals || 0;
         document.getElementById('stat-tasks').innerText = stats.pendingTasks || 0;
 
         document.getElementById('nav-users-count').innerText = stats.totalUsers || 0;
         document.getElementById('nav-redeem-count').innerText = stats.pendingWithdrawals || 0;
         document.getElementById('nav-sub-pending-count').innerText = stats.pendingTasks || 0;
-
-        await loadUsersList();
-        loadTasksList();
-        loadSubmissionsList();
-        loadPaymentMethods();
-        loadConfig();
-        loadWithdrawals();
-        loadAdminUsersList();
-      } catch (err) {
-        console.error("Dashboard refresh error:", err);
-      }
+      } catch (_) {}
     }
 
-    // ========================================================
-    // USERS REGISTRY & MULTI-ACCOUNT DETECTION
-    // ========================================================
+    // High-speed user rendering (Single-Pass DOM)
     async function loadUsersList() {
       try {
         const res = await fetch(`${API_BASE}/users`, { headers: getHeaders() });
         allUsersCache = await res.json();
-        renderUsersTable(allUsersCache);
-      } catch (err) { console.error("Failed to load users database registry"); }
+        renderUsersFast(allUsersCache);
+      } catch (_) {}
     }
 
-    function filterUsersList() {
-      const q = document.getElementById('user-search').value.toLowerCase().trim();
-      const filtered = allUsersCache.filter(u =>
-        (u.username && u.username.toLowerCase().includes(q)) ||
-        (u.full_name && u.full_name.toLowerCase().includes(q)) ||
-        (u.email && u.email.toLowerCase().includes(q)) ||
-        (u.registration_ip && u.registration_ip.toLowerCase().includes(q))
-      );
-      renderUsersTable(filtered);
+    function debouncedSearch() {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        const q = document.getElementById('user-search').value.toLowerCase().trim();
+        const filtered = allUsersCache.filter(u =>
+          (u.username && u.username.toLowerCase().includes(q)) ||
+          (u.email && u.email.toLowerCase().includes(q))
+        );
+        renderUsersFast(filtered);
+      }, 200);
     }
 
-    function filterByIp(ip) {
-      if (!ip || ip === 'unknown' || ip === 'N/A') return;
-      document.getElementById('user-search').value = ip;
-      filterUsersList();
-    }
-
-    function renderUsersTable(users) {
+    function renderUsersFast(users) {
       const tbody = document.querySelector("#users-table tbody");
-      tbody.innerHTML = "";
+      if (!users || users.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No users found.</td></tr>`;
+        return;
+      }
 
-      // 1. Calculate how many accounts share the same IP across all users
-      const ipCounts = {};
-      allUsersCache.forEach(u => {
-        const ip = (u.registration_ip || '').trim();
-        if (ip && ip !== 'unknown' && ip !== 'N/A') {
-          ipCounts[ip] = (ipCounts[ip] || 0) + 1;
-        }
-      });
+      // Single string build — eliminates browser freezing
+      let html = '';
+      for (let i = 0; i < users.length; i++) {
+        const u = users[i];
+        const statusBadge = u.is_banned === 1 
+          ? `<span class="badge badge-banned">Banned</span>` 
+          : `<span class="badge badge-active">Active</span>`;
 
-      users.forEach(u => {
-        const streak = u.current_streak || 0;
-        const stone = u.current_stone || 'NONE';
-        const stoneBadge = `<span class="badge badge-stone">🔥 ${streak}d (${stone})</span>`;
-        const createdDate = u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Initial';
-
-        // 2. IP & Multi-Account Badge
-        const regIp = (u.registration_ip && u.registration_ip.trim() !== '') ? u.registration_ip.trim() : 'N/A';
-        const countOnSameIp = (regIp !== 'N/A' && regIp !== 'unknown') ? (ipCounts[regIp] || 1) : 1;
-
-        let ipCellContent = `<code>${regIp}</code>`;
-        if (countOnSameIp > 1) {
-          ipCellContent += `
-            <br>
-            <span class="badge" style="background:rgba(255, 71, 87, 0.2); color:var(--danger); border:1px solid rgba(255, 71, 87, 0.4); cursor:pointer; margin-top:4px;" 
-                  onclick="filterByIp('${regIp}')" 
-                  title="Click to view all accounts sharing this IP">
-              ⚠️ ${countOnSameIp} Accounts
-            </span>
-          `;
-        } else if (regIp !== 'N/A') {
-          ipCellContent += `<br><span style="font-size:10px; color:var(--text-muted);">Single Account</span>`;
-        }
-
-        tbody.innerHTML += `
+        html += `
           <tr>
             <td>#${u.id}</td>
-            <td><strong>@${u.username}</strong><br><span style="font-size:11px; color:var(--text-muted);">${u.full_name || ''}</span></td>
+            <td><strong>@${u.username}</strong></td>
             <td>${u.email}</td>
-            <td><strong style="color:var(--primary);">${(u.balance || 0).toLocaleString()}</strong></td>
-            <td>${stoneBadge}</td>
-            <td><span style="font-size:12px; font-weight:600;">${createdDate}</span></td>
-            <td>${ipCellContent}</td>
+            <td style="color:var(--primary); font-weight:800;">${(u.balance || 0).toLocaleString()}</td>
+            <td>🔥 ${u.current_streak || 0}d</td>
+            <td>${u.created_at ? u.created_at.split('T')[0] : ''}</td>
+            <td>${statusBadge}</td>
             <td>
-              <button class="btn-action btn-act-streak" onclick="editUserStreak(${u.id}, '${u.username}', ${streak})">Streak</button>
               <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${u.username}')">Coins</button>
               <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${u.username}')">PW</button>
-              <button class="btn-action btn-act-danger" style="background:#B3001E;" onclick="deleteUserPermanently(${u.id}, '${u.username}')">🗑️ Delete</button>
+              <button class="btn-action ${u.is_banned === 1 ? 'btn-act-gray' : 'btn-act-danger'}" onclick="toggleUserBan(${u.id}, ${u.is_banned !== 1})">
+                ${u.is_banned === 1 ? 'Unban' : 'Ban'}
+              </button>
+              <button class="btn-action btn-act-danger" style="background:#B3001E;" onclick="deleteUserPermanently(${u.id}, '${u.username}')">Del</button>
             </td>
           </tr>
         `;
-      });
-
-      if (tbody.innerHTML === "") {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No players found.</td></tr>`;
       }
-    }
-
-    async function deleteUserPermanently(userId, username) {
-      if (!confirm(`⚠️ PERMANENT DELETE: Are you sure you want to permanently delete user @${username} (UID #${userId})?`)) return;
-      const verify = prompt(`Type username "${username}" to confirm:`);
-      if (verify !== username) return alert("Cancelled");
-
-      try {
-        const res = await fetch(`${API_BASE}/users/${userId}/delete`, {
-          method: "POST",
-          headers: getHeaders()
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert(`User @${username} deleted.`);
-          loadDashboard();
-        }
-      } catch (err) { alert("Server error"); }
-    }
-
-    async function editUserStreak(id, username, currentStreak) {
-      const input = prompt(`Set Streak Days for @${username}:`, currentStreak);
-      if (input === null || input.trim() === "") return;
-      const streakVal = parseInt(input.trim(), 10);
-      if (isNaN(streakVal) || streakVal < 0) return alert("Invalid number.");
-
-      try {
-        const res = await fetch(`${API_BASE}/users/${id}/streak`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ streak: streakVal })
-        });
-        const data = await res.json();
-        if (data.success) { alert("Streak updated!"); loadDashboard(); }
-      } catch (_) { alert("Connection Error"); }
+      tbody.innerHTML = html;
     }
 
     async function editUserCoins(id, username) {
-      const adjustment = prompt(`Adjust Coin balance for @${username}:\nEnter positive (e.g. 500) or negative (e.g. -500):`);
-      if (adjustment === null || adjustment === "") return;
-      const amt = parseInt(adjustment, 10);
-      if (isNaN(amt)) return alert("Please provide a valid integer amount.");
+      const val = prompt(`Adjust Coins for @${username} (+/- amount):`);
+      if (!val) return;
+      const amt = parseInt(val, 10);
+      if (isNaN(amt)) return alert("Invalid number");
 
-      try {
-        const res = await fetch(`${API_BASE}/users/${id}/coins`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ amount: amt })
-        });
-        const data = await res.json();
-        if (data.success) { alert(`Balance updated!`); loadDashboard(); }
-      } catch (_) { alert("Connection Error"); }
+      const res = await fetch(`${API_BASE}/users/${id}/coins`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ amount: amt })
+      });
+      if ((await res.json()).success) loadUsersList();
     }
 
     async function resetUserPassword(id, username) {
-      const newPassword = prompt(`Enter new password for @${username} (min 6 chars):`);
-      if (!newPassword || newPassword.trim().length < 6) return alert("Min 6 chars.");
+      const pw = prompt(`New password for @${username} (min 6 chars):`);
+      if (!pw || pw.length < 6) return alert("Must be 6+ chars");
 
-      try {
-        const res = await fetch(`${API_BASE}/users/${id}/password`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ password: newPassword.trim() })
-        });
-        const data = await res.json();
-        if (data.success) alert("Password changed!");
-      } catch (_) { alert("Connection Error"); }
+      const res = await fetch(`${API_BASE}/users/${id}/password`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ password: pw })
+      });
+      if ((await res.json()).success) alert("Password reset successfully!");
     }
 
-    // ========================================================
-    // TASKS SYSTEM
-    // ========================================================
-    async function handleCreateTask(e) {
-      e.preventDefault();
-      const title = document.getElementById('task-title').value.trim();
-      const reward_coins = parseInt(document.getElementById('task-coins').value, 10);
-      const proof_type = document.getElementById('task-proof-type').value;
-      const action_url = document.getElementById('task-url').value.trim();
-      const instructions = document.getElementById('task-instructions').value.trim();
+    async function toggleUserBan(id, shouldBan) {
+      if (!confirm(`Confirm ${shouldBan ? "BAN" : "UNBAN"}?`)) return;
+      await fetch(`${API_BASE}/users/${id}/ban`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ isBanned: shouldBan })
+      });
+      loadUsersList();
+    }
 
+    async function deleteUserPermanently(userId, username) {
+      if (prompt(`Type '${username}' to confirm permanent deletion:`) !== username) return;
+      const res = await fetch(`${API_BASE}/users/${userId}/delete`, {
+        method: "POST",
+        headers: getHeaders()
+      });
+      if ((await res.json()).success) loadUsersList();
+    }
+
+    // Submissions
+    async function loadSubmissionsList(status = 'pending') {
       try {
-        const res = await fetch(`${API_BASE}/tasks/create`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ title, reward_coins, proof_type, action_url, instructions })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert("Task published successfully!");
-          document.getElementById('task-title').value = '';
-          document.getElementById('task-coins').value = '';
-          document.getElementById('task-url').value = '';
-          document.getElementById('task-instructions').value = '';
-          loadTasksList();
-        } else {
-          alert(data.error || "Failed to create task");
+        const res = await fetch(`${API_BASE}/task-submissions?status=${status}`, { headers: getHeaders() });
+        const list = await res.json();
+        const tbody = document.querySelector("#submissions-table tbody");
+
+        if (!list || list.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No ${status} submissions.</td></tr>`;
+          return;
         }
-      } catch (err) { alert("Server error creating task"); }
+
+        let html = '';
+        for (let i = 0; i < list.length; i++) {
+          const s = list[i];
+          const thumb = s.screenshot_path
+            ? `<img src="${s.screenshot_path}" class="proof-thumb" onclick="openImageModal('${s.screenshot_path}')">`
+            : 'None';
+
+          const action = s.status === 'pending'
+            ? `<button class="btn-action btn-act-coins" onclick="approveSubmission(${s.id})">Approve</button>
+               <button class="btn-action btn-act-danger" onclick="rejectSubmission(${s.id})">Reject</button>`
+            : `<span style="font-size:11px;">${s.status}</span>`;
+
+          html += `
+            <tr>
+              <td>#${s.id}</td>
+              <td><strong>@${s.username}</strong></td>
+              <td>${s.task_title}</td>
+              <td>${s.proof_text || ''}</td>
+              <td>${thumb}</td>
+              <td><span class="badge ${s.status === 'approved' ? 'badge-active' : (s.status === 'rejected' ? 'badge-rejected' : 'badge-pending')}">${s.status}</span></td>
+              <td>${action}</td>
+            </tr>
+          `;
+        }
+        tbody.innerHTML = html;
+      } catch (_) {}
     }
 
+    async function approveSubmission(id) {
+      const res = await fetch(`${API_BASE}/task-submissions/${id}/approve`, {
+        method: "POST",
+        headers: getHeaders()
+      });
+      if ((await res.json()).success) {
+        loadSubmissionsList('pending');
+        loadDashboardStats();
+      }
+    }
+
+    async function rejectSubmission(id) {
+      const reason = prompt("Enter rejection reason:", "Unclear proof");
+      if (!reason) return;
+      const res = await fetch(`${API_BASE}/task-submissions/${id}/reject`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ reason })
+      });
+      if ((await res.json()).success) {
+        loadSubmissionsList('pending');
+        loadDashboardStats();
+      }
+    }
+
+    // Withdrawals
+    async function loadWithdrawals() {
+      try {
+        const res = await fetch(`${API_BASE}/withdrawals`, { headers: getHeaders() });
+        const list = await res.json();
+        const tbody = document.querySelector("#withdrawals-table tbody");
+        const pending = list.filter(w => w.status === 'PENDING');
+
+        if (pending.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No pending redemptions.</td></tr>`;
+          return;
+        }
+
+        let html = '';
+        for (let i = 0; i < pending.length; i++) {
+          const w = pending[i];
+          html += `
+            <tr>
+              <td><strong>@${w.username}</strong></td>
+              <td>${w.payment_method}: ${w.account_info}</td>
+              <td style="color:var(--primary); font-weight:800;">${w.coin_amount.toLocaleString()}</td>
+              <td>रू ${w.npr_amount || 0}</td>
+              <td>
+                <button class="btn-action btn-act-coins" onclick="resolveWithdrawal(${w.id}, 'APPROVED')">Approve</button>
+                <button class="btn-action btn-act-danger" onclick="resolveWithdrawal(${w.id}, 'REJECTED')">Reject</button>
+              </td>
+            </tr>
+          `;
+        }
+        tbody.innerHTML = html;
+      } catch (_) {}
+    }
+
+    async function resolveWithdrawal(id, status) {
+      const res = await fetch(`${API_BASE}/withdrawals/${id}/status`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ status })
+      });
+      if ((await res.json()).success) {
+        loadWithdrawals();
+        loadDashboardStats();
+      }
+    }
+
+    // Gateways
+    async function loadPaymentMethods() {
+      try {
+        const res = await fetch(`${API_BASE}/payment-methods`, { headers: getHeaders() });
+        paymentMethodsList = await res.json();
+        const tbody = document.querySelector("#methods-table tbody");
+        let html = '';
+        paymentMethodsList.forEach((m, idx) => {
+          html += `
+            <tr>
+              <td style="font-size:18px;">${m.icon || '🪙'}</td>
+              <td><strong>${m.id}</strong></td>
+              <td>${m.name}</td>
+              <td>${(m.min || 5000).toLocaleString()}</td>
+              <td>${m.label || m.name}</td>
+              <td><button class="btn-action btn-act-danger" onclick="deleteMethod(${idx})">Delete</button></td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html || `<tr><td colspan="6" style="text-align:center;">No gateways.</td></tr>`;
+      } catch (_) {}
+    }
+
+    function openPaymentMethodModal() {
+      const id = prompt("Gateway ID (e.g. eSewa, Khalti, USDT):");
+      if (!id) return;
+      const name = prompt("Display Name:", id);
+      const icon = prompt("Emoji Icon (e.g. 🟢, 🟣, 🪙):", "🪙");
+      const label = prompt("Input Label (e.g. eSewa Mobile Number):", `${name} Account`);
+      const hint = prompt("Placeholder Hint:", "Enter account info");
+
+      paymentMethodsList.push({ id, name, icon, min: 5000, label, hint, is_active: true });
+      savePaymentMethods();
+    }
+
+    async function deleteMethod(idx) {
+      if (!confirm("Delete gateway?")) return;
+      paymentMethodsList.splice(idx, 1);
+      savePaymentMethods();
+    }
+
+    async function savePaymentMethods() {
+      await fetch(`${API_BASE}/payment-methods`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ methods: paymentMethodsList })
+      });
+      loadPaymentMethods();
+    }
+
+    // Tasks Management
     async function loadTasksList() {
       try {
         const res = await fetch(`${API_BASE}/tasks`, { headers: getHeaders() });
         const tasks = await res.json();
         const tbody = document.querySelector("#tasks-table tbody");
-        tbody.innerHTML = "";
-
-        document.getElementById('nav-tasks-count').innerText = Array.isArray(tasks) ? tasks.length : 0;
-
-        if (Array.isArray(tasks) && tasks.length > 0) {
-          tasks.forEach(t => {
-            const statusBadge = t.is_active === 1
-              ? `<span class="badge badge-active">Active</span>`
-              : `<span class="badge badge-banned">Inactive</span>`;
-
-            const linkCell = t.action_url
-              ? `<a href="${t.action_url}" target="_blank" style="color:var(--info); font-size:12px;">Open ↗</a>`
-              : `<span style="color:var(--text-muted); font-size:11px;">None</span>`;
-
-            const toggleBtn = t.is_active === 1
-              ? `<button class="btn-action btn-act-gray" onclick="toggleTaskStatus(${t.id}, 0)">Disable</button>`
-              : `<button class="btn-action btn-act-coins" onclick="toggleTaskStatus(${t.id}, 1)">Activate</button>`;
-
-            tbody.innerHTML += `
-              <tr>
-                <td>#${t.id}</td>
-                <td><strong>${t.title}</strong><br><span style="font-size:11px; color:var(--text-muted);">${(t.instructions || '').substring(0, 45)}...</span></td>
-                <td><strong style="color:var(--primary);">+${t.reward_coins}</strong></td>
-                <td><span style="text-transform: capitalize;">${t.proof_type}</span></td>
-                <td>${linkCell}</td>
-                <td>${statusBadge}</td>
-                <td><span style="color:var(--warning);">${t.pending_count || 0} Pnd</span> / <span style="color:var(--primary);">${t.approved_count || 0} Appr</span></td>
-                <td>
-                  ${toggleBtn}
-                  <button class="btn-action btn-act-danger" onclick="deleteTask(${t.id})">Delete</button>
-                </td>
-              </tr>
-            `;
-          });
-        } else {
-          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No tasks published yet.</td></tr>`;
-        }
-      } catch (err) { console.error("Failed to load tasks", err); }
+        let html = '';
+        (tasks || []).forEach(t => {
+          html += `
+            <tr>
+              <td>#${t.id}</td>
+              <td><strong>${t.title}</strong></td>
+              <td style="color:var(--primary); font-weight:800;">+${t.reward_coins}</td>
+              <td>${t.proof_type}</td>
+              <td>${t.action_url ? `<a href="${t.action_url}" target="_blank" style="color:var(--info);">Open ↗</a>` : 'None'}</td>
+              <td><span class="badge ${t.is_active === 1 ? 'badge-active' : 'badge-banned'}">${t.is_active === 1 ? 'Active' : 'Off'}</span></td>
+              <td>
+                <button class="btn-action btn-act-gray" onclick="toggleTask(${t.id}, ${t.is_active === 1 ? 0 : 1})">${t.is_active === 1 ? 'Disable' : 'Enable'}</button>
+                <button class="btn-action btn-act-danger" onclick="deleteTask(${t.id})">Del</button>
+              </td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html || `<tr><td colspan="7" style="text-align:center;">No tasks.</td></tr>`;
+      } catch (_) {}
     }
 
-    async function toggleTaskStatus(id, newStatus) {
-      try {
-        const res = await fetch(`${API_BASE}/tasks/${id}/update`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ is_active: newStatus })
-        });
-        const data = await res.json();
-        if (data.success) loadTasksList();
-      } catch (_) { alert("Connection Error"); }
+    async function handleCreateTask(e) {
+      e.preventDefault();
+      const body = {
+        title: document.getElementById('task-title').value.trim(),
+        reward_coins: parseInt(document.getElementById('task-coins').value, 10),
+        proof_type: document.getElementById('task-proof-type').value,
+        action_url: document.getElementById('task-url').value.trim(),
+        instructions: document.getElementById('task-instructions').value.trim()
+      };
+      const res = await fetch(`${API_BASE}/tasks/create`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify(body)
+      });
+      if ((await res.json()).success) {
+        alert("Task published!");
+        loadTasksList();
+      }
+    }
+
+    async function toggleTask(id, state) {
+      await fetch(`${API_BASE}/tasks/${id}/update`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ is_active: state })
+      });
+      loadTasksList();
     }
 
     async function deleteTask(id) {
-      if (!confirm(`Delete task #${id}? This will also delete related submissions.`)) return;
-      try {
-        const res = await fetch(`${API_BASE}/tasks/${id}/delete`, { method: "POST", headers: getHeaders() });
-        const data = await res.json();
-        if (data.success) { alert("Task deleted"); loadTasksList(); loadDashboard(); }
-      } catch (_) { alert("Connection Error"); }
+      if (!confirm("Delete task?")) return;
+      await fetch(`${API_BASE}/tasks/${id}/delete`, { method: "POST", headers: getHeaders() });
+      loadTasksList();
     }
 
-    // ========================================================
-    // SUBMISSIONS
-    // ========================================================
-    async function loadSubmissionsList() {
-      try {
-        const res = await fetch(`${API_BASE}/task-submissions`, { headers: getHeaders() });
-        currentSubmissionsCache = await res.json();
-        renderSubmissionsTable();
-      } catch (err) { console.error("Failed to load task submissions", err); }
-    }
-
-    function filterSubmissions(filter, btn) {
-      activeSubFilter = filter;
-      document.querySelectorAll('#tab-submissions .filter-tabs .filter-btn').forEach(b => b.classList.remove('active'));
-      if (btn) btn.classList.add('active');
-      renderSubmissionsTable();
-    }
-
-    function renderSubmissionsTable() {
-      const tbody = document.querySelector("#submissions-table tbody");
-      tbody.innerHTML = "";
-
-      let list = currentSubmissionsCache;
-      if (activeSubFilter !== 'all') {
-        list = currentSubmissionsCache.filter(s => s.status === activeSubFilter);
-      }
-
-      if (Array.isArray(list) && list.length > 0) {
-        list.forEach(sub => {
-          const dateStr = sub.submitted_at ? new Date(sub.submitted_at).toLocaleDateString() : 'N/A';
-          let statusBadge = `<span class="badge badge-pending">Pending</span>`;
-          if (sub.status === 'approved') statusBadge = `<span class="badge badge-active">Approved</span>`;
-          if (sub.status === 'rejected') statusBadge = `<span class="badge badge-rejected">Rejected</span>`;
-
-          const screenshotUrl = formatScreenshotUrl(sub.screenshot_path);
-          const screenshotCell = screenshotUrl
-            ? `<img src="${screenshotUrl}" class="proof-thumb" onclick="openImageModal('${screenshotUrl}')" alt="Proof">`
-            : `<span style="font-size:11px; color:var(--text-muted);">${sub.proof_type === 'text' ? 'Text Only' : 'Deleted/None'}</span>`;
-
-          let actionsCell = '';
-          if (sub.status === 'pending') {
-            actionsCell = `
-              <button class="btn-action btn-act-coins" onclick="approveSubmission(${sub.id}, ${sub.reward_coins}, '${sub.username}')">Approve</button>
-              <button class="btn-action btn-act-danger" onclick="rejectSubmission(${sub.id}, '${sub.username}')">Reject</button>
-            `;
-          } else if (sub.status === 'rejected') {
-            actionsCell = `<span style="font-size:11px; color:var(--danger);">${sub.rejection_reason || 'Rejected'}</span>`;
-          } else {
-            actionsCell = `<span style="font-size:11px; color:var(--primary);">+${sub.reward_coins} Credited</span>`;
-          }
-
-          tbody.innerHTML += `
-            <tr>
-              <td>#${sub.id}<br><span style="font-size:11px; color:var(--text-muted);">${dateStr}</span></td>
-              <td><strong>@${sub.username}</strong><br><span style="font-size:11px; color:var(--text-muted);">UID: ${sub.user_id}</span></td>
-              <td><strong>${sub.task_title}</strong><br><span style="font-size:11px; color:var(--primary);">+${sub.reward_coins} Coins</span></td>
-              <td><span style="font-size:12px; color:white;">${sub.proof_text || '<em style="color:var(--text-muted);">No text</em>'}</span></td>
-              <td>${screenshotCell}</td>
-              <td>${statusBadge}</td>
-              <td>${actionsCell}</td>
-            </tr>
-          `;
-        });
-      } else {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No submissions found in '${activeSubFilter}'.</td></tr>`;
-      }
-    }
-
-    async function approveSubmission(id, rewardCoins, username) {
-      if (!confirm(`Approve submission #${id} for @${username}?`)) return;
-      try {
-        const res = await fetch(`${API_BASE}/task-submissions/${id}/approve`, { method: "POST", headers: getHeaders() });
-        const data = await res.json();
-        if (data.success) { alert("Approved!"); loadDashboard(); }
-        else alert(data.error || "Failed");
-      } catch (err) { alert("Server error"); }
-    }
-
-    async function rejectSubmission(id, username) {
-      const reason = prompt(`Enter rejection reason for @${username}:`, "Screenshot unclear / invalid proof");
-      if (!reason || !reason.trim()) return;
-
-      try {
-        const res = await fetch(`${API_BASE}/task-submissions/${id}/reject`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ reason: reason.trim() })
-        });
-        const data = await res.json();
-        if (data.success) { alert("Rejected"); loadDashboard(); }
-      } catch (err) { alert("Server error"); }
-    }
-
-    // ========================================================
-    // PAYMENT GATEWAYS (ADD / EDIT / DELETE MODAL)
-    // ========================================================
-    async function loadPaymentMethods() {
-      try {
-        const res = await fetch(`${API_BASE}/payment-methods`, { headers: getHeaders() });
-        paymentMethodsList = await res.json();
-        renderPaymentMethodsTable();
-      } catch (e) { console.error("Failed to load payment gateways", e); }
-    }
-
-    function renderPaymentMethodsTable() {
-      const tbody = document.querySelector("#methods-table tbody");
-      tbody.innerHTML = "";
-
-      if (Array.isArray(paymentMethodsList) && paymentMethodsList.length > 0) {
-        paymentMethodsList.forEach((m, idx) => {
-          const isActive = m.is_active !== false;
-          const statusBadge = isActive
-            ? `<span class="badge badge-active">Active</span>`
-            : `<span class="badge badge-banned">Disabled</span>`;
-
-          tbody.innerHTML += `
-            <tr>
-              <td style="font-size: 22px;">${m.icon || '🪙'}</td>
-              <td><strong>${m.id}</strong></td>
-              <td>${m.name || m.id}</td>
-              <td><strong style="color:var(--primary);">${m.currency || 'NPR'}</strong></td>
-              <td>${m.label || 'Account Identifier'}</td>
-              <td><code>${m.hint || 'Hint'}</code></td>
-              <td>${(m.min || 5000).toLocaleString()} Coins</td>
-              <td>${statusBadge}</td>
-              <td>
-                <button class="btn-action btn-act-pass" onclick="openGatewayModal(${idx})">Edit</button>
-                <button class="btn-action btn-act-danger" onclick="deletePaymentMethod(${idx})">Delete</button>
-              </td>
-            </tr>
-          `;
-        });
-      } else {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted);">No payout options configured.</td></tr>`;
-      }
-    }
-
-    function openGatewayModal(index = null) {
-      const isEdit = index !== null && index >= 0;
-      document.getElementById('gateway-modal-title').innerText = isEdit ? "Edit Payment Gateway" : "Add Payment Gateway";
-      document.getElementById('gateway-edit-index').value = isEdit ? index : -1;
-
-      if (isEdit) {
-        const m = paymentMethodsList[index];
-        document.getElementById('gateway-id').value = m.id || "";
-        document.getElementById('gateway-id').readOnly = true;
-        document.getElementById('gateway-name').value = m.name || "";
-        document.getElementById('gateway-icon').value = m.icon || "🪙";
-        document.getElementById('gateway-currency').value = m.currency || "NPR";
-        document.getElementById('gateway-label').value = m.label || "";
-        document.getElementById('gateway-hint').value = m.hint || "";
-        document.getElementById('gateway-min').value = m.min || 5000;
-        document.getElementById('gateway-status').value = (m.is_active !== false) ? "true" : "false";
-      } else {
-        document.getElementById('gateway-id').value = "";
-        document.getElementById('gateway-id').readOnly = false;
-        document.getElementById('gateway-name').value = "";
-        document.getElementById('gateway-icon').value = "🟢";
-        document.getElementById('gateway-currency').value = "NPR";
-        document.getElementById('gateway-label').value = "Mobile Number";
-        document.getElementById('gateway-hint').value = "98XXXXXXXX";
-        document.getElementById('gateway-min').value = 5000;
-        document.getElementById('gateway-status').value = "true";
-      }
-
-      document.getElementById('gateway-modal').style.display = 'flex';
-    }
-
-    function closeGatewayModal() {
-      document.getElementById('gateway-modal').style.display = 'none';
-      document.getElementById('gateway-form').reset();
-    }
-
-    async function handleSaveGateway(e) {
-      e.preventDefault();
-      const index = parseInt(document.getElementById('gateway-edit-index').value, 10);
-      const isEdit = index >= 0;
-
-      const id = document.getElementById('gateway-id').value.trim();
-      const name = document.getElementById('gateway-name').value.trim();
-      const icon = document.getElementById('gateway-icon').value.trim() || "🪙";
-      const currency = document.getElementById('gateway-currency').value.trim().toUpperCase() || "NPR";
-      const label = document.getElementById('gateway-label').value.trim();
-      const hint = document.getElementById('gateway-hint').value.trim();
-      const min = parseInt(document.getElementById('gateway-min').value, 10) || 5000;
-      const is_active = document.getElementById('gateway-status').value === "true";
-
-      const gatewayObj = { id, name, icon, currency, label, hint, min, is_active };
-
-      if (isEdit) {
-        paymentMethodsList[index] = gatewayObj;
-      } else {
-        const existingIdx = paymentMethodsList.findIndex(m => m.id.toLowerCase() === id.toLowerCase());
-        if (existingIdx >= 0) {
-          return alert(`Gateway with ID "${id}" already exists.`);
-        }
-        paymentMethodsList.push(gatewayObj);
-      }
-
-      await savePaymentMethodsToServer();
-      closeGatewayModal();
-    }
-
-    async function deletePaymentMethod(index) {
-      const item = paymentMethodsList[index];
-      if (!confirm(`Are you sure you want to delete payment method "${item.name || item.id}"?`)) return;
-
-      paymentMethodsList.splice(index, 1);
-      await savePaymentMethodsToServer();
-    }
-
-    async function savePaymentMethodsToServer() {
-      try {
-        const res = await fetch(`${API_BASE}/payment-methods`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ methods: paymentMethodsList })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert("Payment gateways updated!");
-          renderPaymentMethodsTable();
-        } else {
-          alert(data.error || "Failed to save gateways");
-        }
-      } catch (_) { alert("Connection error"); }
-    }
-
-    // ========================================================
-    // WITHDRAWALS & REDEMPTIONS
-    // ========================================================
-    async function loadWithdrawals() {
-      try {
-        const res = await fetch(`${API_BASE}/withdrawals`, { headers: getHeaders() });
-        withdrawalsCache = await res.json();
-        renderWithdrawalsTable();
-      } catch (err) { console.error("Failed to fetch withdrawals list"); }
-    }
-
-    function filterWithdrawals(status, btn) {
-      activeWithdrawalFilter = status;
-      document.querySelectorAll('#tab-withdrawals .filter-tabs .filter-btn').forEach(b => b.classList.remove('active'));
-      if (btn) btn.classList.add('active');
-      renderWithdrawalsTable();
-    }
-
-    function renderWithdrawalsTable() {
-      const tbody = document.querySelector("#withdrawals-table tbody");
-      tbody.innerHTML = "";
-
-      let list = withdrawalsCache;
-      if (activeWithdrawalFilter !== 'ALL') {
-        list = withdrawalsCache.filter(w => (w.status || 'PENDING').toUpperCase() === activeWithdrawalFilter);
-      }
-
-      if (Array.isArray(list) && list.length > 0) {
-        list.forEach(w => {
-          const dateStr = w.created_at ? new Date(w.created_at).toLocaleString() : 'N/A';
-          const coins = (w.coin_amount || 0).toLocaleString();
-          const userBalance = (w.user_balance !== undefined) ? `${(w.user_balance).toLocaleString()} coins` : 'N/A';
-
-          let cashFormatted = '';
-          if (w.npr_amount !== undefined && w.npr_amount !== null) {
-            cashFormatted = `रू ${w.npr_amount} NPR`;
-          } else if (w.usd_amount !== undefined && w.usd_amount !== null) {
-            cashFormatted = `$${Number(w.usd_amount).toFixed(2)} USD`;
-          } else {
-            cashFormatted = 'Fixed NPR';
-          }
-
-          let statusBadge = `<span class="badge badge-pending">Pending</span>`;
-          if (w.status === 'APPROVED') statusBadge = `<span class="badge badge-active">Approved</span>`;
-          if (w.status === 'REJECTED') statusBadge = `<span class="badge badge-rejected">Rejected</span>`;
-
-          const pmMatch = paymentMethodsList.find(m => m.id.toLowerCase() === (w.payment_method || '').toLowerCase());
-          const pmIcon = pmMatch ? pmMatch.icon : (w.payment_method === 'eSewa' ? '🟢' : (w.payment_method === 'Khalti' ? '🟣' : '🪙'));
-
-          let actionButtons = '';
-          if (w.status === 'PENDING') {
-            actionButtons = `
-              <button class="btn-action btn-act-coins" onclick="resolveWithdrawal(${w.id}, 'APPROVED', '${w.username}', ${w.coin_amount}, '${cashFormatted}')">Approve</button>
-              <button class="btn-action btn-act-danger" onclick="resolveWithdrawal(${w.id}, 'REJECTED', '${w.username}')">Reject</button>
-            `;
-          } else {
-            actionButtons = `<span style="font-size:11px; color:var(--text-muted); font-weight:600;">Resolved</span>`;
-          }
-
-          tbody.innerHTML += `
-            <tr>
-              <td>#${w.id}<br><span style="font-size:11px; color:var(--text-muted);">${dateStr}</span></td>
-              <td>
-                <strong>@${w.username || 'User'}</strong><br>
-                <span style="font-size:11px; color:var(--text-muted);">UID: #${w.user_id}</span><br>
-                <span style="font-size:11px; color:var(--primary);">Wallet: ${userBalance}</span>
-              </td>
-              <td>
-                <span style="font-size:16px;">${pmIcon}</span> 
-                <strong style="color:white;">${w.payment_method}</strong>
-              </td>
-              <td>
-                <strong style="letter-spacing:1px; color:var(--info);">${w.account_info}</strong>
-              </td>
-              <td>
-                <strong style="color:var(--warning); font-size:14px;">${coins} 🪙</strong>
-              </td>
-              <td>
-                <strong style="color:var(--primary); font-size:14px;">${cashFormatted}</strong>
-              </td>
-              <td>${statusBadge}</td>
-              <td>${actionButtons}</td>
-            </tr>
-          `;
-        });
-      } else {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No redemptions found in '${activeWithdrawalFilter}'.</td></tr>`;
-      }
-    }
-
-    async function resolveWithdrawal(id, status, username, coins = 0, cash = '') {
-      if (status === 'APPROVED') {
-        if (!confirm(`APPROVE REDEMPTION #${id}?\n\nPlayer: @${username}\nCoins to Deduct: ${coins.toLocaleString()}\nPayout: ${cash}\n\nThis will deduct ${coins.toLocaleString()} coins from the user's wallet and restart their 7-day cooldown.`)) {
-          return;
-        }
-      } else {
-        if (!confirm(`REJECT REDEMPTION #${id} for @${username}?\n\nThis will mark the request as rejected without deducting any coins.`)) {
-          return;
-        }
-      }
-
-      try {
-        const res = await fetch(`${API_BASE}/withdrawals/${id}/status`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ status })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert(`Redemption marked as: ${status}!`);
-          loadDashboard();
-        } else {
-          alert(data.error || "Failed to process withdrawal");
-        }
-      } catch (err) { alert("Server error updating withdrawal"); }
-    }
-
-    // ========================================================
-    // APP CONFIG & VERSION
-    // ========================================================
+    // System Config
     async function loadConfig() {
       try {
-        const configRes = await fetch(`${API_BASE}/config`, { headers: getHeaders() });
-        const config = await configRes.json();
+        const res = await fetch(`${API_BASE}/config`, { headers: getHeaders() });
+        const config = await res.json();
         document.getElementById('config-min').value = config.min_version || "1.0.0";
-        document.getElementById('config-url').value = config.update_url || "https://play.google.com/store";
+        document.getElementById('config-url').value = config.update_url || "";
         document.getElementById('config-force').value = config.force_update || "false";
-      } catch (err) { console.error("Error loading updates config"); }
+      } catch (_) {}
     }
 
     async function updateSystemConfig() {
-      const min_version = document.getElementById('config-min').value;
-      const update_url = document.getElementById('config-url').value;
-      const force_update = document.getElementById('config-force').value;
-
       const res = await fetch(`${API_BASE}/config/update`, {
         method: "POST",
         headers: getHeaders(),
-        body: JSON.stringify({ min_version, update_url, force_update })
+        body: JSON.stringify({
+          min_version: document.getElementById('config-min').value.trim(),
+          update_url: document.getElementById('config-url').value.trim(),
+          force_update: document.getElementById('config-force').value
+        })
       });
-      const data = await res.json();
-      if (data.success) alert("Configurations saved successfully!");
+      if ((await res.json()).success) alert("Configuration saved!");
     }
 
-    // ========================================================
-    // ADMIN ACCOUNTS MANAGEMENT
-    // ========================================================
-    async function handleCreateAdmin(e) {
-      e.preventDefault();
-      const username = document.getElementById('new-admin-user').value.trim();
-      const fullName = document.getElementById('new-admin-name').value.trim();
-      const password = document.getElementById('new-admin-pass').value.trim();
-
-      if (password.length < 6) return alert("Min 6 characters required.");
-
-      try {
-        const res = await fetch(`${API_BASE}/admins/create`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ username, full_name: fullName, password })
-        });
-        const data = await res.json();
-        if (data.success) {
-          alert(`Admin @${username} created!`);
-          document.getElementById('new-admin-user').value = '';
-          document.getElementById('new-admin-name').value = '';
-          document.getElementById('new-admin-pass').value = '';
-          loadAdminUsersList();
-        } else {
-          alert(data.error || "Failed");
-        }
-      } catch (err) { alert("Server error"); }
-    }
-
+    // Admins
     async function loadAdminUsersList() {
-      const tbody = document.querySelector("#admins-table tbody");
-      if (!tbody) return;
-
       try {
         const res = await fetch(`${API_BASE}/admins`, { headers: getHeaders() });
         const admins = await res.json();
-        tbody.innerHTML = "";
+        const tbody = document.querySelector("#admins-table tbody");
+        let html = '';
+        (admins || []).forEach(a => {
+          html += `
+            <tr>
+              <td><strong>@${a.username}</strong></td>
+              <td>${a.full_name || 'Admin'}</td>
+              <td>${a.username !== 'admin' ? `<button class="btn-action btn-act-danger" onclick="deleteAdmin('${a.username}')">Delete</button>` : 'Root'}</td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html;
+      } catch (_) {}
+    }
 
-        if (Array.isArray(admins) && admins.length > 0) {
-          admins.forEach(admin => {
-            const date = admin.created_at ? new Date(admin.created_at).toLocaleDateString() : 'N/A';
-            const isRoot = admin.username.toLowerCase() === "admin";
-            const deleteBtn = isRoot
-              ? `<span style="font-size:11px; color:var(--text-muted); padding: 5px 8px;">Root Protected</span>`
-              : `<button class="btn-action btn-act-danger" onclick="deleteAdmin('${admin.username}')">Delete</button>`;
-
-            tbody.innerHTML += `
-              <tr>
-                <td><strong>@${admin.username}</strong></td>
-                <td>${admin.full_name || 'Admin Staff'}</td>
-                <td>${date}</td>
-                <td>
-                  <button class="btn-action btn-act-pass" onclick="resetAdminPassword('${admin.username}')">Change PW</button>
-                  ${deleteBtn}
-                </td>
-              </tr>
-            `;
-          });
-        } else {
-          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No admin accounts found.</td></tr>`;
-        }
-      } catch (err) {
-        console.error("Failed to load admin list", err);
+    async function handleCreateAdmin(e) {
+      e.preventDefault();
+      const res = await fetch(`${API_BASE}/admins/create`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          username: document.getElementById('new-admin-user').value.trim(),
+          password: document.getElementById('new-admin-pass').value.trim()
+        })
+      });
+      if ((await res.json()).success) {
+        alert("Admin created!");
+        loadAdminUsersList();
       }
     }
 
-    async function resetAdminPassword(username) {
-      const newPass = prompt(`Enter new password for Admin @${username} (min 6 characters):`);
-      if (!newPass || newPass.trim().length < 6) return alert("Min 6 chars.");
-
-      try {
-        const res = await fetch(`${API_BASE}/admins/password`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ username, password: newPass.trim() })
-        });
-        const data = await res.json();
-        if (data.success) alert("Password changed!");
-      } catch (err) { alert("Connection error"); }
-    }
-
-    async function deleteAdmin(username) {
-      if (!confirm(`Delete admin account @${username}?`)) return;
-      try {
-        const res = await fetch(`${API_BASE}/admins/delete`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({ username })
-        });
-        const data = await res.json();
-        if (data.success) { alert("Admin deleted"); loadAdminUsersList(); }
-      } catch (err) { alert("Connection error"); }
+    async function deleteAdmin(u) {
+      if (!confirm(`Delete admin @${u}?`)) return;
+      await fetch(`${API_BASE}/admins/delete`, { method: "POST", headers: getHeaders(), body: JSON.stringify({ username: u }) });
+      loadAdminUsersList();
     }
 
     checkSession();
   </script>
 </body>
-
 </html>
