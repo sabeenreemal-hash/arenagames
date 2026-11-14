@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Arena Games — Admin Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,7 +17,6 @@
       --primary: #00E676;
       --primary-hover: #19ff8c;
       --primary-glow: rgba(0, 230, 118, 0.15);
-      --gold: #FFD700;
       --danger: #FF4757;
       --info: #00B0FF;
       --warning: #FFA502;
@@ -27,11 +26,11 @@
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg-dark); color: var(--text-main); min-height: 100vh; }
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg-dark); color: var(--text-main); min-height: 100vh; overflow-x: hidden; }
 
     /* LOGIN */
-    #login-overlay { position: fixed; inset: 0; background: #0A0C10; display: flex; justify-content: center; align-items: center; z-index: 9999; padding: 20px; }
-    .login-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 32px; width: 100%; max-width: 360px; }
+    #login-overlay { position: fixed; inset: 0; background: #0A0C10; display: flex; justify-content: center; align-items: center; z-index: 9999; padding: 16px; }
+    .login-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 26px 20px; width: 100%; max-width: 360px; }
     .login-box h2 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
     .login-box p { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
 
@@ -43,90 +42,177 @@
     .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--primary); }
 
     /* LAYOUT */
-    .app-layout { display: flex; min-height: 100vh; }
-    .sidebar { width: var(--sidebar-width); background: var(--surface-1); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 100; }
-    .sidebar-header { padding: 20px 18px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+    .app-layout { display: flex; min-height: 100vh; position: relative; }
+
+    /* SIDEBAR */
+    .sidebar {
+      width: var(--sidebar-width);
+      background: var(--surface-1);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 1000;
+      transition: transform 0.25s ease;
+    }
+    .sidebar-header { padding: 18px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
     .sidebar-brand h2 { font-size: 16px; font-weight: 800; }
     .sidebar-brand span { font-size: 10px; color: var(--primary); font-weight: 700; text-transform: uppercase; }
+    .sidebar-close-btn { display: none; background: transparent; border: none; color: white; font-size: 20px; cursor: pointer; }
 
-    .nav-list { list-style: none; padding: 14px 10px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
-    .nav-label { font-size: 10px; font-weight: 700; color: #53627A; text-transform: uppercase; padding: 10px 10px 4px; }
+    .nav-list { list-style: none; padding: 12px 8px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+    .nav-label { font-size: 10px; font-weight: 700; color: #53627A; text-transform: uppercase; padding: 10px 8px 4px; }
     .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; color: var(--text-muted); cursor: pointer; font-size: 13px; font-weight: 600; }
     .nav-item:hover { background: var(--surface-2); color: #FFF; }
     .nav-item.active { background: var(--primary-glow); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
     .nav-item .badge-pill { margin-left: auto; background: var(--surface-2); border: 1px solid var(--border); padding: 2px 7px; border-radius: 10px; font-size: 11px; }
 
-    .sidebar-footer { padding: 14px; border-top: 1px solid var(--border); }
+    .sidebar-footer { padding: 12px; border-top: 1px solid var(--border); }
     .btn-logout { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(255, 71, 87, 0.12); color: var(--danger); border: 1px solid rgba(255, 71, 87, 0.3); padding: 9px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
 
-    /* CONTENT */
-    .main-wrapper { margin-left: var(--sidebar-width); flex: 1; min-width: 0; display: flex; flex-direction: column; }
-    .topbar { height: 60px; background: var(--surface-1); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 90; }
-    .topbar-left { display: flex; align-items: center; gap: 12px; }
-    .page-title { font-size: 16px; font-weight: 800; }
-    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    /* MOBILE BACKDROP */
+    #sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 999;
+    }
 
-    .content-area { padding: 22px; flex: 1; }
+    /* CONTENT WRAPPER */
+    .main-wrapper { margin-left: var(--sidebar-width); flex: 1; min-width: 0; display: flex; flex-direction: column; width: calc(100% - var(--sidebar-width)); }
+
+    /* TOPBAR */
+    .topbar {
+      height: 60px;
+      background: var(--surface-1);
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 900;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+    .menu-toggle-btn {
+      display: none;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: white;
+      font-size: 18px;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .page-title { font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+    .topbar-right { display: flex; align-items: center; gap: 8px; }
+
+    .content-area { padding: 16px; flex: 1; }
 
     /* METRICS */
-    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px; }
-    .metric-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
-    .metric-title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
-    .metric-val { font-size: 24px; font-weight: 800; margin-top: 6px; }
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .metric-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+    .metric-title { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+    .metric-val { font-size: 20px; font-weight: 800; margin-top: 4px; }
 
-    /* TABS */
+    /* CARDS & FORMS */
     .tab-section { display: none; }
     .tab-section.active { display: block; }
-    .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
-    .card-header-flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-    .card-header-flex h2 { font-size: 16px; font-weight: 800; }
+    .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .card-header-flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+    .card-header-flex h2 { font-size: 15px; font-weight: 800; }
 
-    .search-bar { background: var(--surface-2); border: 1px solid var(--border); color: white; padding: 8px 12px; border-radius: 8px; font-size: 13px; width: 260px; outline: none; }
+    .search-bar { background: var(--surface-2); border: 1px solid var(--border); color: white; padding: 8px 12px; border-radius: 8px; font-size: 12.5px; width: 240px; outline: none; }
 
-    /* TABLES */
-    .table-container { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
-    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12.5px; }
-    th { background: #10141D; color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-    td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-    tr:hover td { background: rgba(255, 255, 255, 0.015); }
+    /* TABLES (Horizontal Scroll on Mobile) */
+    .table-container {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      -webkit-overflow-scrolling: touch;
+      margin-top: 4px;
+    }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; min-width: 550px; }
+    th { background: #10141D; color: var(--text-muted); font-size: 10.5px; font-weight: 700; text-transform: uppercase; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 
     /* BADGES */
-    .badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 5px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; }
+    .badge { display: inline-flex; align-items: center; padding: 3px 6px; border-radius: 5px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
     .badge-active { background: var(--primary-glow); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
     .badge-banned, .badge-rejected { background: rgba(255, 71, 87, 0.15); color: var(--danger); border: 1px solid rgba(255, 71, 87, 0.3); }
     .badge-pending { background: rgba(255, 165, 2, 0.15); color: var(--warning); border: 1px solid rgba(255, 165, 2, 0.3); }
 
     /* BUTTONS */
-    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 14px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; border: none; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 12px; border-radius: 7px; font-size: 11.5px; font-weight: 700; cursor: pointer; border: none; }
     .btn-primary { background: var(--primary); color: #080A0E; }
-    .btn-primary:hover { background: var(--primary-hover); }
-    .btn-action { padding: 5px 8px; font-size: 11px; font-weight: 700; border-radius: 5px; border: none; cursor: pointer; margin-right: 3px; }
-    .btn-act-streak { background: var(--warning); color: white; }
+    .btn-action { padding: 5px 8px; font-size: 11px; font-weight: 700; border-radius: 5px; border: none; cursor: pointer; margin-right: 3px; margin-bottom: 3px; }
     .btn-act-coins { background: var(--primary); color: #080A0E; }
     .btn-act-pass { background: var(--info); color: white; }
     .btn-act-danger { background: var(--danger); color: white; }
     .btn-act-gray { background: #404859; color: white; }
 
-    .proof-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); }
+    .proof-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); }
 
-    /* MODAL */
-    #image-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.88); z-index: 10000; justify-content: center; align-items: center; padding: 20px; }
-    #image-modal img { max-width: 90vw; max-height: 85vh; border-radius: 10px; }
+    /* LIGHTBOX MODAL */
+    #image-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.9); z-index: 10000; justify-content: center; align-items: center; padding: 14px; }
+    #image-modal img { max-width: 95vw; max-height: 85vh; border-radius: 8px; }
+
+    /* ============================================================ */
+    /* RESPONSIVE BREAKPOINT (MOBILE & TABLET <= 850px)             */
+    /* ============================================================ */
+    @media (max-width: 850px) {
+      .sidebar {
+        transform: translateX(-100%);
+      }
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      .sidebar-close-btn {
+        display: block;
+      }
+      .main-wrapper {
+        margin-left: 0 !important;
+        width: 100% !important;
+      }
+      .menu-toggle-btn {
+        display: flex;
+      }
+      .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .search-bar {
+        width: 100%;
+      }
+      .grid-2col {
+        grid-template-columns: 1fr !important;
+      }
+    }
   </style>
 </head>
 
 <body>
 
-  <!-- LIGHTBOX IMAGE MODAL -->
+  <!-- MOBILE BACKDROP -->
+  <div id="sidebar-backdrop" onclick="toggleSidebar(false)"></div>
+
+  <!-- LIGHTBOX PREVIEW -->
   <div id="image-modal" onclick="closeImageModal()">
     <img id="image-modal-src" src="" alt="Proof Preview" onclick="event.stopPropagation()">
   </div>
 
-  <!-- LOGIN OVERLAY -->
+  <!-- 1. LOGIN OVERLAY -->
   <div id="login-overlay">
     <div class="login-box">
       <h2>Arena Games</h2>
-      <p>Enter administrator credentials to authenticate.</p>
+      <p>Administrator Console Login</p>
       <div class="form-group">
         <label>Admin Username</label>
         <input type="text" id="admin-user" placeholder="admin" autocomplete="username">
@@ -140,19 +226,21 @@
     </div>
   </div>
 
-  <!-- APPLICATION -->
+  <!-- 2. MAIN APPLICATION -->
   <div id="admin-content" style="display: none;" class="app-layout">
 
-    <aside class="sidebar">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="app-sidebar">
       <div class="sidebar-header">
         <div class="sidebar-brand">
           <h2>Arena Games</h2>
           <span>Admin Console</span>
         </div>
+        <button class="sidebar-close-btn" onclick="toggleSidebar(false)">&times;</button>
       </div>
 
       <ul class="nav-list">
-        <div class="nav-label">Core Operations</div>
+        <div class="nav-label">Operations</div>
         <li class="nav-item active" onclick="switchTab('tab-dashboard', this)">
           <span>📊</span><span>Dashboard</span>
         </li>
@@ -192,33 +280,35 @@
       </div>
     </aside>
 
+    <!-- MAIN BODY -->
     <div class="main-wrapper">
       <header class="topbar">
         <div class="topbar-left">
+          <button class="menu-toggle-btn" onclick="toggleSidebar(true)">☰</button>
           <div class="page-title" id="current-page-title">Dashboard Overview</div>
         </div>
         <div class="topbar-right">
-          <button class="btn btn-primary" onclick="loadDashboardStats()" style="padding: 6px 12px; font-size: 11px;">🔄 Refresh</button>
+          <button class="btn btn-primary" onclick="loadDashboardStats()" style="padding: 6px 10px; font-size: 11px;">🔄 Refresh</button>
         </div>
       </header>
 
       <main class="content-area">
-        <!-- METRIC CARDS -->
+        <!-- METRICS -->
         <div class="metrics-grid">
           <div class="metric-card">
-            <div class="metric-title">Registered Players</div>
+            <div class="metric-title">Players</div>
             <div class="metric-val" id="stat-users">0</div>
           </div>
           <div class="metric-card">
-            <div class="metric-title">Total Wallet Balance</div>
+            <div class="metric-title">Coins Pool</div>
             <div class="metric-val" id="stat-coins" style="color: var(--primary);">0</div>
           </div>
           <div class="metric-card">
-            <div class="metric-title">Pending Tasks</div>
+            <div class="metric-title">Tasks</div>
             <div class="metric-val" id="stat-tasks" style="color: var(--info);">0</div>
           </div>
           <div class="metric-card">
-            <div class="metric-title">Pending Redemptions</div>
+            <div class="metric-title">Redeem Pnd</div>
             <div class="metric-val" id="stat-withdrawals" style="color: var(--warning);">0</div>
           </div>
         </div>
@@ -226,8 +316,8 @@
         <!-- TAB 1: DASHBOARD -->
         <section id="tab-dashboard" class="tab-section active">
           <div class="card">
-            <h2 style="margin-bottom: 8px;">System Active</h2>
-            <p style="color: var(--text-muted); font-size: 13px;">Select any operation from the sidebar to manage players, verify proofs, or update configuration.</p>
+            <h2 style="margin-bottom: 6px;">System Ready</h2>
+            <p style="color: var(--text-muted); font-size: 12.5px;">Tap the menu icon (☰) at the top-left to manage users, task submissions, or payment gateways.</p>
           </div>
         </section>
 
@@ -240,7 +330,7 @@
                 <label>Task Title</label>
                 <input type="text" id="task-title" required>
               </div>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div class="grid-2col" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div class="form-group">
                   <label>Reward Coins</label>
                   <input type="number" id="task-coins" min="1" required>
@@ -262,7 +352,7 @@
                 <label>Instructions</label>
                 <textarea id="task-instructions" rows="2" required></textarea>
               </div>
-              <button type="submit" class="btn btn-primary">+ Publish Task</button>
+              <button type="submit" class="btn btn-primary" style="width: 100%;">+ Publish Task</button>
             </form>
           </div>
 
@@ -282,10 +372,10 @@
           <div class="card">
             <div class="card-header-flex">
               <h2>Task Submissions Review</h2>
-              <div>
-                <button class="btn btn-primary" onclick="loadSubmissionsList('pending')" style="padding: 4px 10px;">Pending</button>
-                <button class="btn btn-action" onclick="loadSubmissionsList('approved')" style="padding: 4px 10px;">Approved</button>
-                <button class="btn btn-action" onclick="loadSubmissionsList('rejected')" style="padding: 4px 10px;">Rejected</button>
+              <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                <button class="btn btn-primary" onclick="loadSubmissionsList('pending')" style="padding: 4px 8px; font-size: 11px;">Pending</button>
+                <button class="btn btn-action" onclick="loadSubmissionsList('approved')" style="padding: 4px 8px; font-size: 11px;">Approved</button>
+                <button class="btn btn-action" onclick="loadSubmissionsList('rejected')" style="padding: 4px 8px; font-size: 11px;">Rejected</button>
               </div>
             </div>
             <div class="table-container">
@@ -302,11 +392,11 @@
           <div class="card">
             <div class="card-header-flex">
               <h2>Players Registry</h2>
-              <input type="text" id="user-search" class="search-bar" placeholder="Instant filter username/email..." oninput="debouncedSearch()">
+              <input type="text" id="user-search" class="search-bar" placeholder="Search username/email..." oninput="debouncedSearch()">
             </div>
             <div class="table-container">
               <table id="users-table">
-                <thead><tr><th>ID</th><th>Player</th><th>Email</th><th>Coins</th><th>Streak</th><th>Joined</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th>ID</th><th>Player</th><th>Email</th><th>Coins</th><th>Streak</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
@@ -319,7 +409,7 @@
             <div class="card-header-flex"><h2>Pending Withdrawals</h2></div>
             <div class="table-container">
               <table id="withdrawals-table">
-                <thead><tr><th>User</th><th>Account</th><th>Coins</th><th>NPR Value</th><th>Decision</th></tr></thead>
+                <thead><tr><th>User</th><th>Account</th><th>Coins</th><th>NPR</th><th>Decision</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
@@ -331,20 +421,20 @@
           <div class="card">
             <div class="card-header-flex">
               <h2>Payment Gateways</h2>
-              <button class="btn btn-primary" onclick="openPaymentMethodModal()">+ Add Gateway</button>
+              <button class="btn btn-primary" onclick="openPaymentMethodModal()" style="font-size: 11px;">+ Add Gateway</button>
             </div>
             <div class="table-container">
               <table id="methods-table">
-                <thead><tr><th>Icon</th><th>ID</th><th>Name</th><th>Min Coins</th><th>Input Label</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Icon</th><th>ID</th><th>Name</th><th>Min</th><th>Label</th><th>Actions</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- TAB 7: SYSTEM CONFIG -->
+        <!-- TAB 7: CONFIG -->
         <section id="tab-version" class="tab-section">
-          <div class="card" style="max-width: 500px;">
+          <div class="card" style="max-width: 480px;">
             <div class="card-header-flex"><h2>App Version Control</h2></div>
             <div class="form-group">
               <label>Minimum Version Required</label>
@@ -361,13 +451,13 @@
                 <option value="false">Inactive (false)</option>
               </select>
             </div>
-            <button class="btn btn-primary" onclick="updateSystemConfig()">Save Version Settings</button>
+            <button class="btn btn-primary" onclick="updateSystemConfig()" style="width: 100%;">Save Version Settings</button>
           </div>
         </section>
 
         <!-- TAB 8: ADMINS -->
         <section id="tab-admins" class="tab-section">
-          <div class="card" style="max-width: 500px;">
+          <div class="card" style="max-width: 480px;">
             <div class="card-header-flex"><h2>Create Admin</h2></div>
             <form onsubmit="handleCreateAdmin(event)">
               <div class="form-group">
@@ -378,7 +468,7 @@
                 <label>Password</label>
                 <input type="password" id="new-admin-pass" required>
               </div>
-              <button type="submit" class="btn btn-primary">+ Create</button>
+              <button type="submit" class="btn btn-primary" style="width: 100%;">+ Create</button>
             </form>
           </div>
           <div class="card">
@@ -409,6 +499,19 @@
       };
     }
 
+    // Mobile Sidebar Drawer Controller
+    function toggleSidebar(open) {
+      const sidebar = document.getElementById('app-sidebar');
+      const backdrop = document.getElementById('sidebar-backdrop');
+      if (open) {
+        sidebar.classList.add('open');
+        backdrop.style.display = 'block';
+      } else {
+        sidebar.classList.remove('open');
+        backdrop.style.display = 'none';
+      }
+    }
+
     function openImageModal(src) {
       document.getElementById('image-modal-src').src = src;
       document.getElementById('image-modal').style.display = 'flex';
@@ -430,7 +533,12 @@
         document.getElementById('current-page-title').innerText = element.querySelector('span:nth-child(2)').innerText;
       }
 
-      // LAZY LOAD: Fetch only when clicked
+      // Auto-close drawer on mobile when tab is clicked
+      if (window.innerWidth <= 850) {
+        toggleSidebar(false);
+      }
+
+      // Lazy Loading
       if (tabId === 'tab-users') loadUsersList();
       if (tabId === 'tab-tasks') loadTasksList();
       if (tabId === 'tab-submissions') loadSubmissionsList('pending');
@@ -456,7 +564,7 @@
           localStorage.setItem('admin_token', data.token);
           checkSession();
         } else {
-          errorMsg.innerText = data.error || "Login credentials failed";
+          errorMsg.innerText = data.error || "Login failed";
           errorMsg.style.display = "block";
         }
       } catch (_) {
@@ -482,7 +590,6 @@
       checkSession();
     }
 
-    // High performance summary stats
     async function loadDashboardStats() {
       try {
         const res = await fetch(`${API_BASE}/dashboard`, { headers: getHeaders() });
@@ -490,7 +597,7 @@
         const stats = await res.json();
 
         document.getElementById('stat-users').innerText = (stats.totalUsers || 0).toLocaleString();
-        document.getElementById('stat-coins').innerText = (stats.totalCoins || 0).toLocaleString() + " 🪙";
+        document.getElementById('stat-coins').innerText = (stats.totalCoins || 0).toLocaleString();
         document.getElementById('stat-withdrawals').innerText = stats.pendingWithdrawals || 0;
         document.getElementById('stat-tasks').innerText = stats.pendingTasks || 0;
 
@@ -500,7 +607,7 @@
       } catch (_) {}
     }
 
-    // High-speed user rendering (Single-Pass DOM)
+    // High speed users list
     async function loadUsersList() {
       try {
         const res = await fetch(`${API_BASE}/users`, { headers: getHeaders() });
@@ -524,11 +631,10 @@
     function renderUsersFast(users) {
       const tbody = document.querySelector("#users-table tbody");
       if (!users || users.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No users found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No users found.</td></tr>`;
         return;
       }
 
-      // Single string build — eliminates browser freezing
       let html = '';
       for (let i = 0; i < users.length; i++) {
         const u = users[i];
@@ -543,9 +649,8 @@
             <td>${u.email}</td>
             <td style="color:var(--primary); font-weight:800;">${(u.balance || 0).toLocaleString()}</td>
             <td>🔥 ${u.current_streak || 0}d</td>
-            <td>${u.created_at ? u.created_at.split('T')[0] : ''}</td>
             <td>${statusBadge}</td>
-            <td>
+            <td style="white-space: nowrap;">
               <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${u.username}')">Coins</button>
               <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${u.username}')">PW</button>
               <button class="btn-action ${u.is_banned === 1 ? 'btn-act-gray' : 'btn-act-danger'}" onclick="toggleUserBan(${u.id}, ${u.is_banned !== 1})">
@@ -560,10 +665,10 @@
     }
 
     async function editUserCoins(id, username) {
-      const val = prompt(`Adjust Coins for @${username} (+/- amount):`);
+      const val = prompt(`Adjust coins for @${username} (+/-):`);
       if (!val) return;
       const amt = parseInt(val, 10);
-      if (isNaN(amt)) return alert("Invalid number");
+      if (isNaN(amt)) return alert("Invalid amount");
 
       const res = await fetch(`${API_BASE}/users/${id}/coins`, {
         method: "POST",
@@ -575,14 +680,14 @@
 
     async function resetUserPassword(id, username) {
       const pw = prompt(`New password for @${username} (min 6 chars):`);
-      if (!pw || pw.length < 6) return alert("Must be 6+ chars");
+      if (!pw || pw.length < 6) return alert("Min 6 chars");
 
       const res = await fetch(`${API_BASE}/users/${id}/password`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({ password: pw })
       });
-      if ((await res.json()).success) alert("Password reset successfully!");
+      if ((await res.json()).success) alert("Password changed!");
     }
 
     async function toggleUserBan(id, shouldBan) {
@@ -597,10 +702,7 @@
 
     async function deleteUserPermanently(userId, username) {
       if (prompt(`Type '${username}' to confirm permanent deletion:`) !== username) return;
-      const res = await fetch(`${API_BASE}/users/${userId}/delete`, {
-        method: "POST",
-        headers: getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/users/${userId}/delete`, { method: "POST", headers: getHeaders() });
       if ((await res.json()).success) loadUsersList();
     }
 
@@ -636,7 +738,7 @@
               <td>${s.proof_text || ''}</td>
               <td>${thumb}</td>
               <td><span class="badge ${s.status === 'approved' ? 'badge-active' : (s.status === 'rejected' ? 'badge-rejected' : 'badge-pending')}">${s.status}</span></td>
-              <td>${action}</td>
+              <td style="white-space:nowrap;">${action}</td>
             </tr>
           `;
         }
@@ -645,10 +747,7 @@
     }
 
     async function approveSubmission(id) {
-      const res = await fetch(`${API_BASE}/task-submissions/${id}/approve`, {
-        method: "POST",
-        headers: getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/task-submissions/${id}/approve`, { method: "POST", headers: getHeaders() });
       if ((await res.json()).success) {
         loadSubmissionsList('pending');
         loadDashboardStats();
@@ -691,7 +790,7 @@
               <td>${w.payment_method}: ${w.account_info}</td>
               <td style="color:var(--primary); font-weight:800;">${w.coin_amount.toLocaleString()}</td>
               <td>रू ${w.npr_amount || 0}</td>
-              <td>
+              <td style="white-space:nowrap;">
                 <button class="btn-action btn-act-coins" onclick="resolveWithdrawal(${w.id}, 'APPROVED')">Approve</button>
                 <button class="btn-action btn-act-danger" onclick="resolveWithdrawal(${w.id}, 'REJECTED')">Reject</button>
               </td>
@@ -729,7 +828,7 @@
               <td>${m.name}</td>
               <td>${(m.min || 5000).toLocaleString()}</td>
               <td>${m.label || m.name}</td>
-              <td><button class="btn-action btn-act-danger" onclick="deleteMethod(${idx})">Delete</button></td>
+              <td><button class="btn-action btn-act-danger" onclick="deleteMethod(${idx})">Del</button></td>
             </tr>
           `;
         });
@@ -780,7 +879,7 @@
               <td>${t.proof_type}</td>
               <td>${t.action_url ? `<a href="${t.action_url}" target="_blank" style="color:var(--info);">Open ↗</a>` : 'None'}</td>
               <td><span class="badge ${t.is_active === 1 ? 'badge-active' : 'badge-banned'}">${t.is_active === 1 ? 'Active' : 'Off'}</span></td>
-              <td>
+              <td style="white-space:nowrap;">
                 <button class="btn-action btn-act-gray" onclick="toggleTask(${t.id}, ${t.is_active === 1 ? 0 : 1})">${t.is_active === 1 ? 'Disable' : 'Enable'}</button>
                 <button class="btn-action btn-act-danger" onclick="deleteTask(${t.id})">Del</button>
               </td>
@@ -826,7 +925,7 @@
       loadTasksList();
     }
 
-    // System Config
+    // Config
     async function loadConfig() {
       try {
         const res = await fetch(`${API_BASE}/config`, { headers: getHeaders() });
@@ -862,7 +961,7 @@
             <tr>
               <td><strong>@${a.username}</strong></td>
               <td>${a.full_name || 'Admin'}</td>
-              <td>${a.username !== 'admin' ? `<button class="btn-action btn-act-danger" onclick="deleteAdmin('${a.username}')">Delete</button>` : 'Root'}</td>
+              <td>${a.username !== 'admin' ? `<button class="btn-action btn-act-danger" onclick="deleteAdmin('${a.username}')">Del</button>` : 'Root'}</td>
             </tr>
           `;
         });
