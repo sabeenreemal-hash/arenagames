@@ -51,11 +51,9 @@ function deleteScreenshotFile(filePath) {
         if (err) {
           console.error('[VPS Storage Cleanup Error]: Failed to delete file:', diskPath, err.message);
         } else {
-          console.log('[VPS Storage Cleanup Success]: Deleted screenshot to save disk space:', fileName);
+          console.log('[VPS Storage Cleanup Success]: Deleted screenshot:', fileName);
         }
       });
-    } else {
-      console.warn('[VPS Storage Cleanup]: File not found on disk:', diskPath);
     }
   } catch (e) {
     console.error('[VPS Storage Cleanup Exception]:', e.message);
@@ -63,7 +61,7 @@ function deleteScreenshotFile(filePath) {
 }
 
 // ---------------------------------------------------------------------------
-// 0. Safe Initialization (No unhandled exceptions)
+// 0. Safe Database Initialization
 // ---------------------------------------------------------------------------
 db.serialize(() => {
   db.run(`
@@ -74,30 +72,22 @@ db.serialize(() => {
       password_hash TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
-  `, (err) => {
-    if (err) {
-      console.error("[Admins Table Init Error]:", err.message);
-      return;
-    }
+  `);
 
-    db.get("SELECT COUNT(*) as count FROM admins", (cErr, row) => {
-      if (!cErr && row && row.count === 0) {
-        bcrypt.hash('admin123', 10, (hErr, hash) => {
-          if (!hErr && hash) {
-            db.run(
-              "INSERT INTO admins (username, full_name, password_hash) VALUES (?, ?, ?)",
-              ['admin', 'Master Admin', hash],
-              (iErr) => {
-                if (!iErr) console.log("[Admin Init] Created default admin: admin / admin123");
-              }
-            );
-          }
-        });
-      }
-    });
+  db.get("SELECT COUNT(*) as count FROM admins", (cErr, row) => {
+    if (!cErr && row && row.count === 0) {
+      bcrypt.hash('admin123', 10, (hErr, hash) => {
+        if (!hErr && hash) {
+          db.run(
+            "INSERT INTO admins (username, full_name, password_hash) VALUES (?, ?, ?)",
+            ['admin', 'Master Admin', hash]
+          );
+        }
+      });
+    }
   });
 
-  // Ensure default payment methods exist in app_config
+  // Ensure default payment methods exist
   db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, row) => {
     if (!err && (!row || !row.value)) {
       db.run(
@@ -108,29 +98,11 @@ db.serialize(() => {
   });
 });
 
-// 7-Level Stone Badge Tier Definitions
-const STONE_TIERS = [
-  { rank: 7, name: 'RUBY', days: 100 },
-  { rank: 6, name: 'DIAMOND', days: 75 },
-  { rank: 5, name: 'AMETHYST', days: 50 },
-  { rank: 4, name: 'SAPPHIRE', days: 35 },
-  { rank: 3, name: 'JADE', days: 20 },
-  { rank: 2, name: 'QUARTZ', days: 10 },
-  { rank: 1, name: 'AGATE', days: 5 },
-];
+// ---------------------------------------------------------------------------
+// PUBLIC ROUTES FOR MOBILE APP (NO adminAuth REQUIRED)
+// ---------------------------------------------------------------------------
 
-function calculateStoneBadge(streakDays) {
-  for (const stone of STONE_TIERS) {
-    if (streakDays >= stone.days) return stone.name;
-  }
-  return 'NONE';
-}
-
-// ===========================================================================
-// PUBLIC ROUTES FOR THE MOBILE APP (NO adminAuth REQUIRED)
-// ===========================================================================
-
-// 1. Mobile App Version Check (Used on Splash/Startup for Force Updates)
+// 1. Version Check & Force Update Endpoint
 router.get('/public/config', (req, res) => {
   db.all('SELECT key, value FROM app_config', (err, rows) => {
     if (err) return res.status(500).json({ error: 'Database read error' });
@@ -140,17 +112,15 @@ router.get('/public/config', (req, res) => {
       config[r.key] = r.value;
     });
 
-    const isForceUpdate = config.force_update === 'true' || config.force_update === true || config.force_update === '1';
-
     res.json({
       min_version: config.min_version || '1.0.0',
       update_url: config.update_url || 'https://play.google.com/store',
-      force_update: isForceUpdate
+      force_update: config.force_update === 'true' || config.force_update === true || config.force_update === '1'
     });
   });
 });
 
-// 2. Mobile App Payout Gateways (Used on User Withdrawal Screen)
+// 2. Public Payment Gateways (Redemption Options for Mobile App)
 router.get('/public/payment-methods', (req, res) => {
   db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, row) => {
     if (err) return res.status(500).json({ error: 'Database read error' });
@@ -164,7 +134,7 @@ router.get('/public/payment-methods', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// A. Admin Authentication Login
+// A. Admin Login
 // ---------------------------------------------------------------------------
 router.post('/login', (req, res) => {
   const { username, password } = req.body;
@@ -179,64 +149,45 @@ router.post('/login', (req, res) => {
     const storedHash = admin.password_hash || admin.password;
     if (!storedHash) return res.status(401).json({ error: 'No password set for this account' });
 
-    if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$')) {
-      bcrypt.compare(password.trim(), storedHash, (cmpErr, isValid) => {
-        if (cmpErr || !isValid) {
-          return res.status(401).json({ error: 'Invalid admin credentials' });
+    bcrypt.compare(password.trim(), storedHash, (cmpErr, isValid) => {
+      if (cmpErr || !isValid) {
+        // Fallback check for plain text legacy passwords
+        if (password.trim() === storedHash) {
+          const token = jwt.sign({ id: admin.id, username: admin.username }, JWT_ADMIN_SECRET, { expiresIn: '7d' });
+          return res.json({ success: true, token });
         }
-        const token = jwt.sign(
-          { id: admin.id, username: admin.username },
-          JWT_ADMIN_SECRET,
-          { expiresIn: '7d' }
-        );
-        res.json({ success: true, token });
-      });
-    } else {
-      if (password.trim() !== storedHash) {
         return res.status(401).json({ error: 'Invalid admin credentials' });
       }
-      const token = jwt.sign(
-        { id: admin.id, username: admin.username },
-        JWT_ADMIN_SECRET,
-        { expiresIn: '7d' }
-      );
+
+      const token = jwt.sign({ id: admin.id, username: admin.username }, JWT_ADMIN_SECRET, { expiresIn: '7d' });
       res.json({ success: true, token });
-    }
+    });
   });
 });
 
 // ---------------------------------------------------------------------------
-// B. Dashboard Overview Metrics (WITH REALTIME LIVE ACTIVE USERS)
+// B. Fast Dashboard Overview Metrics (Heavy Active-User Query Removed)
 // ---------------------------------------------------------------------------
 router.get('/dashboard', adminAuth, (req, res) => {
   const stats = {};
-  db.get('SELECT COUNT(*) as users FROM users', (err, r) => {
-    stats.totalUsers = r ? r.users : 0;
-    db.get('SELECT SUM(balance) as coins FROM users', (err, r2) => {
-      stats.totalCoins = r2 ? (r2.coins || 0) : 0;
-      db.get("SELECT COUNT(*) as p FROM withdrawals WHERE status = 'PENDING'", (err, r3) => {
-        stats.pendingWithdrawals = r3 ? r3.p : 0;
-        db.get("SELECT COUNT(*) as t FROM task_submissions WHERE status = 'pending'", (err, r4) => {
-          stats.pendingTasks = r4 ? r4.t : 0;
+  
+  db.get('SELECT COUNT(*) as users, COALESCE(SUM(balance), 0) as coins FROM users', (err, r1) => {
+    stats.totalUsers = r1 ? r1.users : 0;
+    stats.totalCoins = r1 ? r1.coins : 0;
 
-          db.get(
-            `SELECT COUNT(*) as active 
-             FROM users 
-             WHERE last_active_at IS NOT NULL 
-               AND datetime(substr(replace(last_active_at, 'T', ' '), 1, 19)) >= datetime('now', '-5 minutes')`,
-            (err, r5) => {
-              stats.activeUsers = r5 ? r5.active : 0;
-              res.json(stats);
-            }
-          );
-        });
+    db.get("SELECT COUNT(*) as p FROM withdrawals WHERE status = 'PENDING'", (wErr, r2) => {
+      stats.pendingWithdrawals = r2 ? r2.p : 0;
+
+      db.get("SELECT COUNT(*) as t FROM task_submissions WHERE status = 'pending'", (tErr, r3) => {
+        stats.pendingTasks = r3 ? r3.t : 0;
+        res.json(stats);
       });
     });
   });
 });
 
 // ---------------------------------------------------------------------------
-// C. Users Registry (Includes created_at & last_active_at)
+// C. Users Registry
 // ---------------------------------------------------------------------------
 router.get('/users', adminAuth, (req, res) => {
   db.all(
@@ -246,15 +197,11 @@ router.get('/users', adminAuth, (req, res) => {
       username, 
       email, 
       balance, 
-      COALESCE(total_coins_earned, 0) as total_coins_earned,
       COALESCE(current_streak, 0) as current_streak,
-      COALESCE(highest_streak, 0) as highest_streak,
-      COALESCE(current_stone, 'NONE') as current_stone,
       is_banned, 
-      created_at,
-      COALESCE(last_active_at, created_at) as last_active_at
+      created_at
      FROM users
-     ORDER BY created_at DESC`,
+     ORDER BY id DESC LIMIT 500`,
     (err, rows) => {
       if (err) return res.status(500).json({ error: 'Failed to retrieve users' });
       res.json(rows || []);
@@ -266,15 +213,9 @@ router.get('/users', adminAuth, (req, res) => {
 // D. Admin Accounts Management
 // ---------------------------------------------------------------------------
 router.get('/admins', adminAuth, (req, res) => {
-  db.all('SELECT * FROM admins ORDER BY id ASC', (err, rows) => {
+  db.all('SELECT id, username, full_name, created_at FROM admins ORDER BY id ASC', (err, rows) => {
     if (err) return res.status(500).json({ error: 'Failed to fetch admin accounts' });
-    const sanitized = (rows || []).map(admin => ({
-      id: admin.id,
-      username: admin.username,
-      full_name: admin.full_name || 'Admin Staff',
-      created_at: admin.created_at || null
-    }));
-    res.json(sanitized);
+    res.json(rows || []);
   });
 });
 
@@ -296,7 +237,7 @@ router.post('/admins/create', adminAuth, (req, res) => {
       [cleanUser, cleanName, hash],
       function (err) {
         if (err) {
-          if (err.message && (err.message.includes('UNIQUE') || err.message.includes('PRIMARY KEY'))) {
+          if (err.message && err.message.includes('UNIQUE')) {
             return res.status(400).json({ error: `Username @${cleanUser} already exists.` });
           }
           return res.status(500).json({ error: 'Database error creating admin' });
@@ -322,7 +263,6 @@ router.post('/admins/password', adminAuth, (req, res) => {
       [hash, username.trim().toLowerCase()],
       function (err) {
         if (err) return res.status(500).json({ error: 'Failed to update password' });
-        if (this.changes === 0) return res.status(404).json({ error: 'Admin account not found' });
         res.json({ success: true, message: `Password updated for @${username}` });
       }
     );
@@ -339,48 +279,12 @@ router.post('/admins/delete', adminAuth, (req, res) => {
 
   db.run('DELETE FROM admins WHERE LOWER(username) = ?', [username.trim().toLowerCase()], function (err) {
     if (err) return res.status(500).json({ error: 'Failed to delete admin' });
-    if (this.changes === 0) return res.status(404).json({ error: 'Admin account not found' });
     res.json({ success: true, message: `Admin @${username} removed` });
   });
 });
 
 // ---------------------------------------------------------------------------
-// E. Set / Modify User Streak & Stone Badge
-// ---------------------------------------------------------------------------
-router.post('/users/:id/streak', adminAuth, (req, res) => {
-  const { streak } = req.body;
-  const userId = req.params.id;
-
-  const streakNum = parseInt(streak, 10);
-  if (isNaN(streakNum) || streakNum < 0) {
-    return res.status(400).json({ error: 'Valid positive streak count is required' });
-  }
-
-  const stoneName = calculateStoneBadge(streakNum);
-  const today = new Date().toISOString().split('T')[0];
-
-  db.run(
-    `UPDATE users SET 
-      current_streak = ?, 
-      highest_streak = MAX(COALESCE(highest_streak, 0), ?), 
-      current_stone = ?, 
-      last_streak_date = ? 
-     WHERE id = ?`,
-    [streakNum, streakNum, stoneName, today, userId],
-    function (err) {
-      if (err) return res.status(500).json({ error: 'Failed to update streak' });
-      res.json({
-        success: true,
-        message: `Streak set to ${streakNum} days! Active Badge: ${stoneName}`,
-        currentStreak: streakNum,
-        currentStone: stoneName,
-      });
-    }
-  );
-});
-
-// ---------------------------------------------------------------------------
-// F. Reset User Password
+// E. Quick User Management Operations
 // ---------------------------------------------------------------------------
 router.post('/users/:id/password', adminAuth, (req, res) => {
   const { password } = req.body;
@@ -388,7 +292,7 @@ router.post('/users/:id/password', adminAuth, (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters long' });
   }
 
-  bcrypt.hash(password, 10, (bErr, hash) => {
+  bcrypt.hash(password.trim(), 10, (bErr, hash) => {
     if (bErr) return res.status(500).json({ error: 'Encryption failure' });
     db.run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, req.params.id], (err) => {
       if (err) return res.status(500).json({ error: 'Failed to reset password' });
@@ -397,9 +301,6 @@ router.post('/users/:id/password', adminAuth, (req, res) => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// G. Manual Coin Balance Adjustment
-// ---------------------------------------------------------------------------
 router.post('/users/:id/coins', adminAuth, (req, res) => {
   const { amount } = req.body;
   const userId = req.params.id;
@@ -410,70 +311,47 @@ router.post('/users/:id/coins', adminAuth, (req, res) => {
 
   const coinAmount = parseInt(amount, 10);
 
-  db.serialize(() => {
-    db.run('BEGIN TRANSACTION');
-
-    db.run(
-      'UPDATE users SET balance = MAX(0, balance + ?), total_coins_earned = MAX(0, COALESCE(total_coins_earned, 0) + ?) WHERE id = ?',
-      [coinAmount, coinAmount > 0 ? coinAmount : 0, userId],
-      function (err) {
-        if (err) {
-          db.run('ROLLBACK');
-          return res.status(500).json({ error: 'Failed to adjust coins' });
-        }
-
-        db.run(
-          `INSERT INTO transactions (user_id, type, amount, reference_id) 
-           VALUES (?, 'GAME_REWARD', ?, 'MANUAL_ADMIN_ADJUSTMENT')`,
-          [userId, coinAmount],
-          (txErr) => {
-            if (txErr) {
-              db.run('ROLLBACK');
-              return res.status(500).json({ error: 'Failed to write transaction record' });
-            }
-
-            db.run('COMMIT', (commitErr) => {
-              if (commitErr) return res.status(500).json({ error: 'Transaction failed' });
-
-              if (coinAmount > 0) {
-                creditReferralCommission(userId, coinAmount, 'ADMIN_MANUAL', 'ADMIN_COIN_GRANT', 0.10);
-              }
-
-              res.json({ success: true });
-            });
-          }
-        );
-      }
-    );
-  });
+  db.run(
+    'UPDATE users SET balance = MAX(0, balance + ?) WHERE id = ?',
+    [coinAmount, userId],
+    function (err) {
+      if (err) return res.status(500).json({ error: 'Failed to adjust coins' });
+      res.json({ success: true });
+    }
+  );
 });
 
-// ---------------------------------------------------------------------------
-// H. Ban / Unban User Toggle
-// ---------------------------------------------------------------------------
 router.post('/users/:id/ban', adminAuth, (req, res) => {
   const { isBanned } = req.body;
-  const userId = req.params.id;
-
-  if (isBanned === undefined) {
-    return res.status(400).json({ error: 'Ban state is required' });
-  }
-
-  db.run('UPDATE users SET is_banned = ? WHERE id = ?', [isBanned ? 1 : 0, userId], (err) => {
+  db.run('UPDATE users SET is_banned = ? WHERE id = ?', [isBanned ? 1 : 0, req.params.id], (err) => {
     if (err) return res.status(500).json({ error: 'Failed to alter ban state' });
     res.json({ success: true });
   });
 });
 
+router.post('/users/:id/delete', adminAuth, (req, res) => {
+  const userId = req.params.id;
+
+  db.all('SELECT screenshot_path FROM task_submissions WHERE user_id = ?', [userId], (err, rows) => {
+    if (!err && rows) {
+      rows.forEach(r => deleteScreenshotFile(r.screenshot_path));
+    }
+
+    db.run('DELETE FROM users WHERE id = ?', [userId], function (delErr) {
+      if (delErr) return res.status(500).json({ error: 'Database error deleting user' });
+      res.json({ success: true, message: `User #${userId} deleted.` });
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
-// I. Payment Gateways Configuration (Admin Console)
+// F. Payment Gateways Configuration
 // ---------------------------------------------------------------------------
 router.get('/payment-methods', adminAuth, (req, res) => {
   db.get("SELECT value FROM app_config WHERE key = 'payment_methods'", (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
     try {
-      const data = row && row.value ? JSON.parse(row.value) : DEFAULT_PAYMENT_METHODS;
-      res.json(data);
+      res.json(row && row.value ? JSON.parse(row.value) : DEFAULT_PAYMENT_METHODS);
     } catch {
       res.json(DEFAULT_PAYMENT_METHODS);
     }
@@ -486,20 +364,18 @@ router.post('/payment-methods', adminAuth, (req, res) => {
     return res.status(400).json({ error: 'Array of payment methods is required' });
   }
 
-  const jsonStr = JSON.stringify(methods);
-
   db.run(
     "INSERT OR REPLACE INTO app_config (key, value) VALUES ('payment_methods', ?)",
-    [jsonStr],
+    [JSON.stringify(methods)],
     (err) => {
       if (err) return res.status(500).json({ error: 'Failed to save payment gateways' });
-      res.json({ success: true, message: 'Payment methods updated successfully!' });
+      res.json({ success: true, message: 'Payment methods updated!' });
     }
   );
 });
 
 // ---------------------------------------------------------------------------
-// J. Withdrawals Pipeline & Resolutions
+// G. Withdrawals Pipeline
 // ---------------------------------------------------------------------------
 router.get('/withdrawals', adminAuth, (req, res) => {
   db.all(
@@ -510,15 +386,12 @@ router.get('/withdrawals', adminAuth, (req, res) => {
       w.account_info,
       w.coin_amount,
       w.npr_amount,
-      w.usd_amount,
       w.status,
       w.created_at,
-      u.username,
-      u.email,
-      u.balance as user_balance
+      u.username
      FROM withdrawals w 
      LEFT JOIN users u ON w.user_id = u.id 
-     ORDER BY w.created_at DESC`,
+     ORDER BY w.id DESC LIMIT 200`,
     (err, rows) => {
       if (err) return res.status(500).json({ error: 'Database read failure' });
       res.json(rows || []);
@@ -531,80 +404,41 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
   const withdrawalId = req.params.id;
 
   if (!['APPROVED', 'REJECTED'].includes(status)) {
-    return res.status(400).json({ error: 'Invalid status. Must be APPROVED or REJECTED.' });
+    return res.status(400).json({ error: 'Invalid status' });
   }
 
   db.get('SELECT * FROM withdrawals WHERE id = ?', [withdrawalId], (err, record) => {
     if (err || !record) return res.status(404).json({ error: 'Withdrawal not found' });
-    if (record.status !== 'PENDING') return res.status(400).json({ error: 'Request already resolved' });
+    if (record.status !== 'PENDING') return res.status(400).json({ error: 'Already resolved' });
 
-    db.get('SELECT balance FROM users WHERE id = ?', [record.user_id], (uErr, user) => {
-      if (uErr || !user) return res.status(404).json({ error: 'User not found' });
+    const nowIso = new Date().toISOString();
 
-      const nowIso = new Date().toISOString();
+    if (status === 'APPROVED') {
+      db.run(
+        'UPDATE users SET balance = balance - ?, last_withdrawal_at = ? WHERE id = ?',
+        [record.coin_amount, nowIso, record.user_id],
+        (uErr) => {
+          if (uErr) return res.status(500).json({ error: 'Failed to deduct balance' });
 
-      if (status === 'APPROVED') {
-        if ((user.balance || 0) < record.coin_amount) {
-          return res.status(400).json({
-            error: `User has insufficient balance (${user.balance || 0} coins). Required: ${record.coin_amount} coins.`
-          });
+          db.run(
+            'UPDATE withdrawals SET status = ?, processed_at = ? WHERE id = ?',
+            ['APPROVED', nowIso, withdrawalId],
+            () => res.json({ success: true })
+          );
         }
-
-        db.serialize(() => {
-          db.run('BEGIN TRANSACTION');
-
-          db.run(
-            'UPDATE users SET balance = balance - ?, last_withdrawal_at = ? WHERE id = ?',
-            [record.coin_amount, nowIso, record.user_id]
-          );
-
-          db.run(
-            'UPDATE withdrawals SET status = ?, processed_at = ? WHERE id = ?',
-            ['APPROVED', nowIso, withdrawalId]
-          );
-
-          db.run(
-            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_APPROVED', ?, ?)`,
-            [record.user_id, -record.coin_amount, withdrawalId.toString()]
-          );
-
-          db.run('COMMIT', (commitErr) => {
-            if (commitErr) {
-              db.run('ROLLBACK');
-              return res.status(500).json({ error: 'Failed to approve withdrawal' });
-            }
-            res.json({ success: true, message: 'Withdrawal approved and coins deducted successfully' });
-          });
-        });
-      } else if (status === 'REJECTED') {
-        db.serialize(() => {
-          db.run('BEGIN TRANSACTION');
-
-          db.run(
-            'UPDATE withdrawals SET status = ?, processed_at = ? WHERE id = ?',
-            ['REJECTED', nowIso, withdrawalId]
-          );
-
-          db.run(
-            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_REJECTED', 0, ?)`,
-            [record.user_id, withdrawalId.toString()]
-          );
-
-          db.run('COMMIT', (commitErr) => {
-            if (commitErr) {
-              db.run('ROLLBACK');
-              return res.status(500).json({ error: 'Failed to reject withdrawal' });
-            }
-            res.json({ success: true, message: 'Withdrawal rejected successfully' });
-          });
-        });
-      }
-    });
+      );
+    } else {
+      db.run(
+        'UPDATE withdrawals SET status = ?, processed_at = ? WHERE id = ?',
+        ['REJECTED', nowIso, withdrawalId],
+        () => res.json({ success: true })
+      );
+    }
   });
 });
 
 // ---------------------------------------------------------------------------
-// K. App Config Versioning (Admin Console)
+// H. App Config & Update Settings
 // ---------------------------------------------------------------------------
 router.get('/config', adminAuth, (req, res) => {
   db.all('SELECT * FROM app_config', (err, rows) => {
@@ -632,95 +466,53 @@ router.post('/config/update', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// L. Tasks Management & Proof Verification
+// I. Tasks Management
 // ---------------------------------------------------------------------------
 router.get('/tasks', adminAuth, (req, res) => {
-  db.all(
-    `SELECT t.*, 
-      (SELECT COUNT(*) FROM task_submissions WHERE task_id = t.id AND status = 'pending') as pending_count,
-      (SELECT COUNT(*) FROM task_submissions WHERE task_id = t.id AND status = 'approved') as approved_count
-     FROM tasks t 
-     ORDER BY t.id DESC`,
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: 'Failed to retrieve tasks' });
-      res.json(rows || []);
-    }
-  );
+  db.all('SELECT * FROM tasks ORDER BY id DESC', (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Failed to retrieve tasks' });
+    res.json(rows || []);
+  });
 });
 
 router.post('/tasks/create', adminAuth, (req, res) => {
-  const { title, reward_coins, instructions, proof_type, action_url, is_active } = req.body;
+  const { title, reward_coins, instructions, proof_type, action_url } = req.body;
 
-  if (!title || !reward_coins || !instructions) {
-    return res.status(400).json({ error: 'Title, reward coins, and instructions are required' });
+  if (!title || !reward_coins) {
+    return res.status(400).json({ error: 'Title and reward coins are required' });
   }
-
-  const coins = parseInt(reward_coins, 10);
-  if (isNaN(coins) || coins <= 0) {
-    return res.status(400).json({ error: 'Reward coins must be a positive number' });
-  }
-
-  const validProof = ['text', 'screenshot', 'both'].includes(proof_type) ? proof_type : 'both';
-  const activeStatus = is_active === undefined ? 1 : (is_active ? 1 : 0);
 
   db.run(
     `INSERT INTO tasks (title, reward_coins, instructions, proof_type, action_url, is_active)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [title.trim(), coins, instructions.trim(), validProof, (action_url || '').trim(), activeStatus],
+     VALUES (?, ?, ?, ?, ?, 1)`,
+    [title.trim(), parseInt(reward_coins, 10), (instructions || '').trim(), proof_type || 'both', (action_url || '').trim()],
     function (err) {
       if (err) return res.status(500).json({ error: 'Failed to create task' });
-      res.json({ success: true, message: 'Task created successfully', taskId: this.lastID });
+      res.json({ success: true, taskId: this.lastID });
     }
   );
 });
 
 router.post('/tasks/:id/update', adminAuth, (req, res) => {
-  const taskId = req.params.id;
-  const { title, reward_coins, instructions, proof_type, action_url, is_active } = req.body;
-
-  db.run(
-    `UPDATE tasks SET
-      title = COALESCE(?, title),
-      reward_coins = COALESCE(?, reward_coins),
-      instructions = COALESCE(?, instructions),
-      proof_type = COALESCE(?, proof_type),
-      action_url = COALESCE(?, action_url),
-      is_active = COALESCE(?, is_active)
-     WHERE id = ?`,
-    [
-      title ? title.trim() : null,
-      reward_coins ? parseInt(reward_coins, 10) : null,
-      instructions ? instructions.trim() : null,
-      proof_type || null,
-      action_url !== undefined ? action_url.trim() : null,
-      is_active !== undefined ? (is_active ? 1 : 0) : null,
-      taskId
-    ],
-    function (err) {
-      if (err) return res.status(500).json({ error: 'Failed to update task' });
-      res.json({ success: true, message: 'Task updated successfully' });
-    }
-  );
-});
-
-router.post('/tasks/:id/delete', adminAuth, (req, res) => {
-  const taskId = req.params.id;
-
-  db.all('SELECT screenshot_path FROM task_submissions WHERE task_id = ?', [taskId], (err, rows) => {
-    if (!err && rows) {
-      rows.forEach(r => deleteScreenshotFile(r.screenshot_path));
-    }
-
-    db.run('DELETE FROM tasks WHERE id = ?', [taskId], function (delErr) {
-      if (delErr) return res.status(500).json({ error: 'Failed to delete task' });
-      res.json({ success: true, message: 'Task and related submissions deleted' });
-    });
+  const { is_active } = req.body;
+  db.run('UPDATE tasks SET is_active = ? WHERE id = ?', [is_active, req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: 'Failed to update task' });
+    res.json({ success: true });
   });
 });
 
+router.post('/tasks/:id/delete', adminAuth, (req, res) => {
+  db.run('DELETE FROM tasks WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: 'Failed to delete task' });
+    res.json({ success: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// J. Task Submissions & Approval / Rejection
+// ---------------------------------------------------------------------------
 router.get('/task-submissions', adminAuth, (req, res) => {
   const { status } = req.query;
-
   let sql = `
     SELECT 
       ts.id,
@@ -729,15 +521,9 @@ router.get('/task-submissions', adminAuth, (req, res) => {
       ts.proof_text,
       ts.screenshot_path,
       ts.status,
-      ts.rejection_reason,
-      ts.submitted_at,
-      ts.reviewed_at,
       t.title as task_title,
       t.reward_coins,
-      t.proof_type,
-      u.username,
-      u.email,
-      u.full_name
+      u.username
     FROM task_submissions ts
     JOIN tasks t ON ts.task_id = t.id
     JOIN users u ON ts.user_id = u.id
@@ -749,20 +535,19 @@ router.get('/task-submissions', adminAuth, (req, res) => {
     params.push(status.toLowerCase());
   }
 
-  sql += ` ORDER BY ts.submitted_at DESC`;
+  sql += ` ORDER BY ts.id DESC LIMIT 150`;
 
   db.all(sql, params, (err, rows) => {
     if (err) return res.status(500).json({ error: 'Failed to retrieve task submissions' });
 
-    const sanitizedRows = (rows || []).map(r => {
+    const formatted = (rows || []).map(r => {
       if (r.screenshot_path) {
-        const fileName = path.basename(r.screenshot_path);
-        r.screenshot_path = `/uploads/task_proofs/${fileName}`;
+        r.screenshot_path = `/uploads/task_proofs/${path.basename(r.screenshot_path)}`;
       }
       return r;
     });
 
-    res.json(sanitizedRows);
+    res.json(formatted);
   });
 });
 
@@ -777,67 +562,26 @@ router.post('/task-submissions/:id/approve', adminAuth, (req, res) => {
     [subId],
     (err, sub) => {
       if (err || !sub) return res.status(404).json({ error: 'Submission not found' });
-      if (sub.status !== 'pending') {
-        return res.status(400).json({ error: `Cannot approve submission with status: ${sub.status}` });
-      }
+      if (sub.status !== 'pending') return res.status(400).json({ error: 'Already reviewed' });
 
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+      db.run(
+        `UPDATE task_submissions SET status = 'approved', screenshot_path = NULL WHERE id = ?`,
+        [subId],
+        (uErr) => {
+          if (uErr) return res.status(500).json({ error: 'Failed to approve' });
 
-        db.run(
-          `UPDATE task_submissions SET 
-            status = 'approved', 
-            screenshot_path = NULL,
-            reviewed_at = CURRENT_TIMESTAMP 
-           WHERE id = ?`,
-          [subId],
-          function (updateErr) {
-            if (updateErr) {
-              db.run('ROLLBACK');
-              return res.status(500).json({ error: 'Failed to update submission status' });
+          db.run(
+            `UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?`,
+            [sub.reward_coins, sub.reward_coins, sub.user_id],
+            () => {
+              // Delete screenshot immediately to save VPS storage
+              deleteScreenshotFile(sub.screenshot_path);
+              creditReferralCommission(sub.user_id, sub.reward_coins, 'TASK', `TASK_SUB_${subId}`, 0.10);
+              res.json({ success: true });
             }
-
-            db.run(
-              `UPDATE users SET 
-                balance = balance + ?, 
-                total_coins_earned = total_coins_earned + ? 
-               WHERE id = ?`,
-              [sub.reward_coins, sub.reward_coins, sub.user_id],
-              function (walletErr) {
-                if (walletErr) {
-                  db.run('ROLLBACK');
-                  return res.status(500).json({ error: 'Failed to credit user wallet' });
-                }
-
-                db.run(
-                  `INSERT INTO transactions (user_id, type, amount, reference_id) 
-                   VALUES (?, 'TASK_REWARD', ?, ?)`,
-                  [sub.user_id, sub.reward_coins, `TASK_SUB_${subId}`],
-                  function (txErr) {
-                    if (txErr) {
-                      db.run('ROLLBACK');
-                      return res.status(500).json({ error: 'Failed to log transaction' });
-                    }
-
-                    db.run('COMMIT', (commitErr) => {
-                      if (commitErr) return res.status(500).json({ error: 'Transaction commit failed' });
-
-                      deleteScreenshotFile(sub.screenshot_path);
-
-                      creditReferralCommission(sub.user_id, sub.reward_coins, 'TASK', `TASK_SUB_${subId}`, 0.10);
-
-                      res.json({
-                        success: true,
-                        message: `Task submission #${subId} approved! ${sub.reward_coins} coins credited and screenshot deleted from storage.`
-                      });
-                    });
-                  }
-                );
-              }
-            );
-          }
-        );
-      });
+          );
+        }
+      );
     }
   );
 });
@@ -846,63 +590,19 @@ router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
   const subId = req.params.id;
   const { reason } = req.body;
 
-  if (!reason || reason.trim().length === 0) {
-    return res.status(400).json({ error: 'A rejection reason is required' });
-  }
-
   db.get('SELECT * FROM task_submissions WHERE id = ?', [subId], (err, sub) => {
     if (err || !sub) return res.status(404).json({ error: 'Submission not found' });
-    if (sub.status !== 'pending') {
-      return res.status(400).json({ error: `Cannot reject submission with status: ${sub.status}` });
-    }
+    if (sub.status !== 'pending') return res.status(400).json({ error: 'Already reviewed' });
 
     db.run(
-      `UPDATE task_submissions SET 
-        status = 'rejected', 
-        rejection_reason = ?, 
-        screenshot_path = NULL,
-        reviewed_at = CURRENT_TIMESTAMP 
-       WHERE id = ?`,
-      [reason.trim(), subId],
-      function (updateErr) {
-        if (updateErr) return res.status(500).json({ error: 'Failed to reject submission' });
-
+      `UPDATE task_submissions SET status = 'rejected', rejection_reason = ?, screenshot_path = NULL WHERE id = ?`,
+      [reason ? reason.trim() : 'Rejected', subId],
+      (uErr) => {
+        if (uErr) return res.status(500).json({ error: 'Failed to reject' });
         deleteScreenshotFile(sub.screenshot_path);
-
-        res.json({
-          success: true,
-          message: `Submission #${subId} rejected with reason: "${reason.trim()}". Screenshot removed from storage.`
-        });
+        res.json({ success: true });
       }
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// M. Permanent User Deletion (With VPS Screenshot Cleanup)
-// ---------------------------------------------------------------------------
-router.post('/users/:id/delete', adminAuth, (req, res) => {
-  const userId = req.params.id;
-
-  if (!userId) {
-    return res.status(400).json({ error: 'User ID is required' });
-  }
-
-  db.all('SELECT screenshot_path FROM task_submissions WHERE user_id = ?', [userId], (err, rows) => {
-    if (!err && rows) {
-      rows.forEach(r => deleteScreenshotFile(r.screenshot_path));
-    }
-
-    db.run('DELETE FROM users WHERE id = ?', [userId], function (delErr) {
-      if (delErr) return res.status(500).json({ error: 'Database error deleting user account' });
-      if (this.changes === 0) return res.status(404).json({ error: 'User account not found' });
-
-      console.log(`[Admin User Purge]: Permanently deleted user #${userId}`);
-      res.json({
-        success: true,
-        message: `User #${userId} and all related history have been permanently deleted.`
-      });
-    });
   });
 });
 
