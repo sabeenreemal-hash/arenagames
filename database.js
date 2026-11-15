@@ -13,7 +13,7 @@ db.on('error', (err) => {
 });
 
 // Safe helper to add new columns to existing tables without breaking
-function addColumnIfNotExists(table, column, type, defaultValue) {
+function addColumnIfNotExists(table, column, type, defaultValue, onReady) {
   db.all(`PRAGMA table_info(${table})`, (err, columns) => {
     if (!err && columns) {
       const exists = columns.some((col) => col.name === column);
@@ -22,10 +22,31 @@ function addColumnIfNotExists(table, column, type, defaultValue) {
         if (defaultValue !== undefined && defaultValue !== null) {
           sql += ` DEFAULT ${defaultValue}`;
         }
-        db.run(sql, () => {});
+        db.run(sql, () => {
+          if (typeof onReady === 'function') onReady();
+        });
+      } else if (typeof onReady === 'function') {
+        onReady();
       }
     }
   });
+}
+
+function getNextMondayUtcIso(fromDate = new Date()) {
+  const d = new Date(fromDate);
+  const day = d.getUTCDay();
+  const daysUntilMonday = (8 - day) % 7 || 7;
+  return new Date(
+    Date.UTC(
+      d.getUTCFullYear(),
+      d.getUTCMonth(),
+      d.getUTCDate() + daysUntilMonday,
+      0,
+      0,
+      0,
+      0
+    )
+  ).toISOString();
 }
 
 db.serialize(() => {
@@ -51,7 +72,7 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Users Table
+  // Users Table (includes weekly_coins separate from wallet balance)
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,6 +84,7 @@ db.serialize(() => {
       referred_by_id INTEGER,
       balance INTEGER DEFAULT 100,
       total_coins_earned INTEGER DEFAULT 100,
+      weekly_coins INTEGER DEFAULT 0,
       current_streak INTEGER DEFAULT 0,
       highest_streak INTEGER DEFAULT 0,
       last_check_in_date TEXT DEFAULT '',
@@ -88,6 +110,21 @@ db.serialize(() => {
 
   // Column safety migrations for Users
   addColumnIfNotExists('users', 'total_coins_earned', 'INTEGER', 100);
+  addColumnIfNotExists('users', 'weekly_coins', 'INTEGER', 0, () => {
+    // Ensure trigger + index are created ONLY after weekly_coins column exists
+    db.run(`
+      CREATE TRIGGER IF NOT EXISTS trg_sync_weekly_coins
+      AFTER UPDATE OF total_coins_earned ON users
+      WHEN NEW.total_coins_earned > COALESCE(OLD.total_coins_earned, 0)
+      BEGIN
+        UPDATE users
+        SET weekly_coins = COALESCE(weekly_coins, 0) + (NEW.total_coins_earned - COALESCE(OLD.total_coins_earned, 0))
+        WHERE id = NEW.id;
+      END;
+    `, () => {});
+
+    db.run(`CREATE INDEX IF NOT EXISTS idx_users_weekly_coins ON users(weekly_coins DESC);`, () => {});
+  });
   addColumnIfNotExists('users', 'current_streak', 'INTEGER', 0);
   addColumnIfNotExists('users', 'highest_streak', 'INTEGER', 0);
   addColumnIfNotExists('users', 'last_check_in_date', 'TEXT', "''");
@@ -105,6 +142,21 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'last_withdrawal_at', 'DATETIME', 'NULL');
   addColumnIfNotExists('users', 'last_active_at', 'DATETIME', 'NULL');
   addColumnIfNotExists('users', 'registration_ip', 'TEXT', 'NULL');
+
+  // Weekly Leaderboard Winners History Table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS leaderboard_winners (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_ending TEXT NOT NULL,
+      rank INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      weekly_coins INTEGER NOT NULL,
+      reward_coins INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, () => {});
 
   // Badges Table
   db.run(`
@@ -194,6 +246,11 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('min_version', '1.0.0')`, () => {});
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('update_url', 'https://play.google.com/store')`, () => {});
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('force_update', 'false')`, () => {});
+  db.run(
+    `INSERT OR IGNORE INTO app_config (key, value) VALUES ('leaderboard_next_reset_at', ?)`,
+    [getNextMondayUtcIso()],
+    () => {}
+  );
 
   const defaultGateways = JSON.stringify([
     { id: "eSewa", name: "eSewa (NPR)", icon: "🟢", min: 5000, currency: "NPR", label: "eSewa Mobile Number", hint: "98XXXXXXXX" },
@@ -397,10 +454,8 @@ db.serialize(() => {
   // ==========================================
   // AUTO-HEALING MIGRATIONS (Tasks & Screenshots)
   // ==========================================
-  // 1. Ensure any legacy/migrated tasks with NULL is_active become active (1)
   db.run(`UPDATE tasks SET is_active = 1 WHERE is_active IS NULL;`, () => {});
 
-  // 2. Convert old OS disk paths into clean web URLs for the Admin Panel
   db.run(`
     UPDATE task_submissions 
     SET screenshot_path = '/uploads/task_proofs/' || substr(screenshot_path, instr(screenshot_path, 'proof_'))
