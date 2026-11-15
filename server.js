@@ -46,10 +46,8 @@ const gamesRoutes = require('./routes/games');
 const referralRoutes = require('./routes/referral');
 const rewardsRoutes = require('./routes/rewards');
 const leaderboardRoutes = require('./routes/leaderboard');
-const rpsRoutes = require('./routes/rps');
 const spinWheelRoutes = require('./routes/spinWheelRoutes');
 const tasksRoutes = require('./routes/tasks');
-const tictactoeRoutes = require('./routes/tictactoe');
 const watchRoutes = require('./routes/watch');
 
 // ==========================================
@@ -62,10 +60,8 @@ app.use('/api/games', gamesRoutes);
 app.use('/api/referral', referralRoutes);
 app.use('/api/rewards', rewardsRoutes);
 app.use('/api/leaderboard', leaderboardRoutes.router);
-app.use('/api/rps', rpsRoutes);
 app.use('/api/spin', spinWheelRoutes);
 app.use('/api/tasks', tasksRoutes);
-app.use('/api/tictactoe', tictactoeRoutes);
 app.use('/api/watch', watchRoutes);
 
 // ==========================================
