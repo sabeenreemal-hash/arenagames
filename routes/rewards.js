@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
+const { getLeaderboardHandler } = require('./leaderboard');
 
 const STONE_TIERS = [
   { rank: 7, name: 'RUBY', days: 100, bonus: 500 },
@@ -157,64 +158,8 @@ router.get('/status', authenticateToken, (req, res) => {
 
 // ---------------------------------------------------------------------------
 // 2. GET /api/rewards/leaderboard
-// Ranked strictly by lifetime total_coins_earned (no profile pictures)
+// Delegates to weekly leaderboard handler in routes/leaderboard.js
 // ---------------------------------------------------------------------------
-router.get('/leaderboard', authenticateToken, (req, res) => {
-  const userId = req.user.id;
-
-  const topUsersQuery = `
-    SELECT 
-      id, 
-      username, 
-      COALESCE(current_stone, 'NONE') as current_stone, 
-      COALESCE(total_coins_earned, 0) as total_coins_earned 
-    FROM users 
-    WHERE is_banned = 0 
-    ORDER BY total_coins_earned DESC, id ASC 
-    LIMIT 50
-  `;
-
-  const userRankQuery = `
-    SELECT 
-      (SELECT COUNT(*) FROM users WHERE total_coins_earned > u.total_coins_earned AND is_banned = 0) + 1 AS rank,
-      u.username,
-      COALESCE(u.current_stone, 'NONE') as current_stone,
-      COALESCE(u.total_coins_earned, 0) as total_coins_earned
-    FROM users u
-    WHERE u.id = ?
-  `;
-
-  db.all(topUsersQuery, [], (err, topPlayers) => {
-    if (err) {
-      console.error('[LEADERBOARD DB ERROR] topUsersQuery failed:', err.message);
-      return res.status(500).json({ error: 'Leaderboard lookup failed' });
-    }
-
-    db.get(userRankQuery, [userId], (rankErr, userRankData) => {
-      if (rankErr || !userRankData) {
-        return res.json({
-          topPlayers: topPlayers || [],
-          userRank: { rank: 1, username: 'Player', stoneBadge: 'NONE', totalCoins: 0 },
-        });
-      }
-
-      res.json({
-        topPlayers: (topPlayers || []).map((p, idx) => ({
-          rank: idx + 1,
-          userId: p.id,
-          username: p.username,
-          stoneBadge: p.current_stone || 'NONE',
-          totalCoins: p.total_coins_earned || 0,
-        })),
-        userRank: {
-          rank: userRankData.rank || 1,
-          username: userRankData.username || 'You',
-          stoneBadge: userRankData.current_stone || 'NONE',
-          totalCoins: userRankData.total_coins_earned || 0,
-        },
-      });
-    });
-  });
-});
+router.get('/leaderboard', authenticateToken, getLeaderboardHandler);
 
 module.exports = router;
