@@ -45,6 +45,7 @@ const walletRoutes = require('./routes/wallet');
 const gamesRoutes = require('./routes/games');
 const referralRoutes = require('./routes/referral');
 const rewardsRoutes = require('./routes/rewards');
+const leaderboardRoutes = require('./routes/leaderboard');
 const rpsRoutes = require('./routes/rps');
 const spinWheelRoutes = require('./routes/spinWheelRoutes');
 const tasksRoutes = require('./routes/tasks');
@@ -59,6 +60,7 @@ app.use('/api/wallet', walletRoutes);
 app.use('/api/games', gamesRoutes);
 app.use('/api/referral', referralRoutes);
 app.use('/api/rewards', rewardsRoutes);
+app.use('/api/leaderboard', leaderboardRoutes.router);
 app.use('/api/rps', rpsRoutes);
 app.use('/api/spin', spinWheelRoutes);
 app.use('/api/tasks', tasksRoutes);
@@ -94,10 +96,12 @@ app.use((err, req, res, next) => {
 });
 
 // ==========================================
-// 6. Start Server
+// 6. Start Server & Weekly Leaderboard Scheduler
 // ==========================================
 app.listen(PORT, () => {
+  leaderboardRoutes.startWeeklyLeaderboardScheduler();
   console.log(`=========================================`);
   console.log(`🚀 Arena Games Server running on port ${PORT}`);
+  console.log(`🏆 Weekly Leaderboard Scheduler Active`);
   console.log(`=========================================`);
 });
