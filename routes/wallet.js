@@ -159,9 +159,7 @@ router.get('/', authenticateToken, (req, res) => {
       let currentBalance = user.balance || 0;
       let autoRefilled = false;
 
-      // =========================================================================
-      // AUTO 100 COINS ON 0 BALANCE: Only updates wallet `balance`, NOT leaderboard
-      // =========================================================================
+      // Auto refill 100 coins if balance is 0
       if (currentBalance <= 0) {
         const REFILL_COINS = 100;
         currentBalance = REFILL_COINS;
@@ -220,7 +218,6 @@ router.get('/', authenticateToken, (req, res) => {
 
           const conversions = convertCoins(currentBalance);
 
-          // Combined payload matching both legacy and new Flutter app screens
           res.json({
             balance: currentBalance,
             weekly_coins: user.weekly_coins || 0,
@@ -242,22 +239,79 @@ router.get('/', authenticateToken, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Fetch Transaction History
+// 3. Fetch Transaction History (WITH WITHDRAWAL STATUS & TASK TITLES)
 // ---------------------------------------------------------------------------
 router.get('/transactions', authenticateToken, (req, res) => {
-  db.all(
-    'SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 100',
-    [req.user.id],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: 'Query execution failed' });
-      res.json(rows || []);
+  const query = `
+    SELECT 
+      t.id,
+      t.user_id,
+      CASE 
+        WHEN t.type LIKE 'REDEEM_%' AND w.status = 'APPROVED' THEN 'REDEEM_APPROVED'
+        WHEN t.type LIKE 'REDEEM_%' AND w.status = 'REJECTED' THEN 'REDEEM_REJECTED'
+        WHEN t.type LIKE 'REDEEM_%' AND w.status = 'PENDING' THEN 'REDEEM_REQUEST'
+        ELSE t.type 
+      END AS type,
+      CASE
+        WHEN t.type LIKE 'REDEEM_%' AND w.status = 'APPROVED' AND (t.amount = 0 OR t.amount IS NULL) THEN -w.coin_amount
+        ELSE t.amount
+      END AS amount,
+      w.coin_amount,
+      t.reference_id,
+      t.created_at,
+      COALESCE(w.payment_method, 'eSewa') AS payment_method,
+      w.account_info,
+      COALESCE(w.npr_amount, (w.coin_amount / 100)) AS npr_amount,
+      COALESCE(w.status, 'COMPLETED') AS status,
+      tsk.title AS task_title
+    FROM transactions t
+    LEFT JOIN withdrawals w ON (
+      t.type LIKE 'REDEEM_%' AND 
+      (t.reference_id = CAST(w.id AS TEXT) OR t.reference_id = w.id)
+    )
+    LEFT JOIN task_submissions ts ON (
+      t.type = 'TASK_REWARD' AND 
+      (t.reference_id = 'TASK_SUB_' || ts.id OR t.reference_id = CAST(ts.id AS TEXT))
+    )
+    LEFT JOIN tasks tsk ON ts.task_id = tsk.id
+    WHERE t.user_id = ?
+    ORDER BY t.created_at DESC LIMIT 100
+  `;
+
+  db.all(query, [req.user.id], (err, rows) => {
+    if (err) {
+      db.all(
+        'SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 100',
+        [req.user.id],
+        (fbErr, fbRows) => {
+          if (fbErr) return res.status(500).json({ error: 'Query execution failed' });
+          res.json(fbRows || []);
+        }
+      );
+      return;
     }
-  );
+
+    // Deduplicate any repeated withdrawal records
+    const seenWithdrawalIds = new Set();
+    const cleanRows = [];
+
+    for (const row of rows) {
+      if (row.type && row.type.startsWith('REDEEM_') && row.reference_id) {
+        const ref = row.reference_id.toString();
+        if (seenWithdrawalIds.has(ref)) {
+          continue;
+        }
+        seenWithdrawalIds.add(ref);
+      }
+      cleanRows.push(row);
+    }
+
+    res.json(cleanRows);
+  });
 });
 
 // ---------------------------------------------------------------------------
 // 4. Offerwall Credit & Streak Counter
-// (Updating total_coins_earned automatically increments weekly_coins via SQLite trigger)
 // ---------------------------------------------------------------------------
 function handleOfferwallCredit(req, res) {
   const userId = (req.user && req.user.id) ? req.user.id : (req.body.userId || req.query.userId || req.query.user_id);
@@ -461,10 +515,8 @@ router.post('/redeem', authenticateToken, (req, res) => {
           });
         }
 
-        // Calculate USD value for legacy database column compatibility
         const usdVal = parseFloat((parsedCoins / 5000.0).toFixed(2));
 
-        // Insert using safe multi-column adapter
         insertWithdrawalRecord(
           userId,
           selectedMethod,
@@ -480,7 +532,7 @@ router.post('/redeem', authenticateToken, (req, res) => {
 
             const withdrawalId = this.lastID;
 
-            // Audit transaction record (amount = 0 while pending to preserve user balance until admin approval)
+            // Audit transaction record
             db.run(
               `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REDEEM_REQUEST', 0, ?)`,
               [userId, withdrawalId.toString()],
