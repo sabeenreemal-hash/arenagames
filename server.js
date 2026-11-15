@@ -50,6 +50,7 @@ const rpsRoutes = require('./routes/rps');
 const spinWheelRoutes = require('./routes/spinWheelRoutes');
 const tasksRoutes = require('./routes/tasks');
 const tictactoeRoutes = require('./routes/tictactoe');
+const watchRoutes = require('./routes/watch');
 
 // ==========================================
 // 3. Mount Routes
@@ -65,6 +66,7 @@ app.use('/api/rps', rpsRoutes);
 app.use('/api/spin', spinWheelRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/tictactoe', tictactoeRoutes);
+app.use('/api/watch', watchRoutes);
 
 // ==========================================
 // 4. Base & Health Check Endpoints
