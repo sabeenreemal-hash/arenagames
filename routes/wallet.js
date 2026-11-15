@@ -151,7 +151,7 @@ router.get('/payment-methods', (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/', authenticateToken, (req, res) => {
   db.get(
-    'SELECT id, balance, created_at, last_withdrawal_at FROM users WHERE id = ?',
+    'SELECT id, balance, COALESCE(weekly_coins, 0) AS weekly_coins, created_at, last_withdrawal_at FROM users WHERE id = ?',
     [req.user.id],
     (err, user) => {
       if (err || !user) return res.status(404).json({ error: 'Profile not found' });
@@ -160,7 +160,7 @@ router.get('/', authenticateToken, (req, res) => {
       let autoRefilled = false;
 
       // =========================================================================
-      // AUTO 100 COINS ON 0 BALANCE: Always give 100 coins so they can play again!
+      // AUTO 100 COINS ON 0 BALANCE: Only updates wallet `balance`, NOT leaderboard
       // =========================================================================
       if (currentBalance <= 0) {
         const REFILL_COINS = 100;
@@ -223,6 +223,7 @@ router.get('/', authenticateToken, (req, res) => {
           // Combined payload matching both legacy and new Flutter app screens
           res.json({
             balance: currentBalance,
+            weekly_coins: user.weekly_coins || 0,
             auto_refilled: autoRefilled,
             converted: conversions,
             can_withdraw: canWithdraw,
@@ -256,6 +257,7 @@ router.get('/transactions', authenticateToken, (req, res) => {
 
 // ---------------------------------------------------------------------------
 // 4. Offerwall Credit & Streak Counter
+// (Updating total_coins_earned automatically increments weekly_coins via SQLite trigger)
 // ---------------------------------------------------------------------------
 function handleOfferwallCredit(req, res) {
   const userId = (req.user && req.user.id) ? req.user.id : (req.body.userId || req.query.userId || req.query.user_id);
@@ -350,6 +352,7 @@ function handleOfferwallCredit(req, res) {
             res.json({
               success: true,
               creditedCoins: coinAmount,
+              weeklyCoins: (user.weekly_coins || 0) + coinAmount,
               dailyEligibleCoins: newEligible,
               currentStreak,
               currentStone,
