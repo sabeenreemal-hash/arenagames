@@ -96,6 +96,18 @@ db.serialize(() => {
       );
     }
   });
+
+  // Ensure ban_reason column exists on users table
+  db.all("PRAGMA table_info(users)", (tErr, cols) => {
+    if (!tErr && Array.isArray(cols) && cols.length > 0) {
+      const hasBanReason = cols.some(c => c.name === 'ban_reason');
+      if (!hasBanReason) {
+        db.run("ALTER TABLE users ADD COLUMN ban_reason TEXT", (aErr) => {
+          if (aErr) console.error('[DB Migration Error]: Failed to add ban_reason column:', aErr.message);
+        });
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -130,6 +142,40 @@ router.get('/public/payment-methods', (req, res) => {
     } catch {
       res.json(DEFAULT_PAYMENT_METHODS);
     }
+  });
+});
+
+// 3. Public User Ban Status Check for Mobile App
+router.get('/public/user-status', (req, res) => {
+  const { userId, username } = req.query;
+  if (!userId && !username) {
+    return res.json({ is_banned: false, ban_reason: '' });
+  }
+
+  const cleanId = userId && userId !== '0' ? userId : null;
+  const cleanUser = username ? String(username).trim().toLowerCase() : null;
+
+  let sql = '';
+  let params = [];
+  if (cleanId && cleanUser) {
+    sql = 'SELECT is_banned, ban_reason FROM users WHERE id = ? OR LOWER(username) = ? LIMIT 1';
+    params = [cleanId, cleanUser];
+  } else if (cleanId) {
+    sql = 'SELECT is_banned, ban_reason FROM users WHERE id = ? LIMIT 1';
+    params = [cleanId];
+  } else {
+    sql = 'SELECT is_banned, ban_reason FROM users WHERE LOWER(username) = ? LIMIT 1';
+    params = [cleanUser];
+  }
+
+  db.get(sql, params, (err, row) => {
+    if (err || !row) {
+      return res.json({ is_banned: false, ban_reason: '' });
+    }
+    res.json({
+      is_banned: row.is_banned === 1 || row.is_banned === true,
+      ban_reason: row.ban_reason || ''
+    });
   });
 });
 
@@ -199,6 +245,7 @@ router.get('/users', adminAuth, (req, res) => {
       balance, 
       COALESCE(current_streak, 0) as current_streak,
       is_banned, 
+      ban_reason,
       created_at
      FROM users
      ORDER BY id DESC LIMIT 500`,
@@ -322,11 +369,20 @@ router.post('/users/:id/coins', adminAuth, (req, res) => {
 });
 
 router.post('/users/:id/ban', adminAuth, (req, res) => {
-  const { isBanned } = req.body;
-  db.run('UPDATE users SET is_banned = ? WHERE id = ?', [isBanned ? 1 : 0, req.params.id], (err) => {
-    if (err) return res.status(500).json({ error: 'Failed to alter ban state' });
-    res.json({ success: true });
-  });
+  const { isBanned, reason } = req.body;
+  if (isBanned && (!reason || !String(reason).trim())) {
+    return res.status(400).json({ error: 'Ban reason is required' });
+  }
+  const banReason = isBanned ? String(reason).trim() : null;
+
+  db.run(
+    'UPDATE users SET is_banned = ?, ban_reason = ? WHERE id = ?',
+    [isBanned ? 1 : 0, banReason, req.params.id],
+    (err) => {
+      if (err) return res.status(500).json({ error: 'Failed to alter ban state' });
+      res.json({ success: true });
+    }
+  );
 });
 
 router.post('/users/:id/delete', adminAuth, (req, res) => {
