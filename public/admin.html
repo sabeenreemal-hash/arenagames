@@ -638,8 +638,9 @@
       let html = '';
       for (let i = 0; i < users.length; i++) {
         const u = users[i];
+        const reasonTitle = u.ban_reason ? `title="${String(u.ban_reason).replace(/"/g, '&quot;')}"` : '';
         const statusBadge = u.is_banned === 1 
-          ? `<span class="badge badge-banned">Banned</span>` 
+          ? `<span class="badge badge-banned" ${reasonTitle}>Banned</span>` 
           : `<span class="badge badge-active">Active</span>`;
 
         html += `
@@ -691,11 +692,22 @@
     }
 
     async function toggleUserBan(id, shouldBan) {
-      if (!confirm(`Confirm ${shouldBan ? "BAN" : "UNBAN"}?`)) return;
+      let reason = null;
+      if (shouldBan) {
+        reason = prompt("Enter reason for ban:");
+        if (reason === null) return;
+        reason = reason.trim();
+        if (!reason) {
+          return alert("Please enter a reason for banning this user.");
+        }
+      } else {
+        if (!confirm("Confirm UNBAN?")) return;
+      }
+
       await fetch(`${API_BASE}/users/${id}/ban`, {
         method: "POST",
         headers: getHeaders(),
-        body: JSON.stringify({ isBanned: shouldBan })
+        body: JSON.stringify({ isBanned: shouldBan, reason })
       });
       loadUsersList();
     }
