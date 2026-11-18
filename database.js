@@ -98,6 +98,7 @@ db.serialize(() => {
       youtube_claimed INTEGER DEFAULT 0,
       playstore_claimed INTEGER DEFAULT 0,
       is_banned INTEGER DEFAULT 0,
+      ban_reason TEXT DEFAULT NULL,
       creator_badge_enabled INTEGER DEFAULT 0,
       creator_badge_id INTEGER DEFAULT NULL,
       last_withdrawal_at DATETIME DEFAULT NULL,
@@ -111,7 +112,6 @@ db.serialize(() => {
   // Column safety migrations for Users
   addColumnIfNotExists('users', 'total_coins_earned', 'INTEGER', 100);
   addColumnIfNotExists('users', 'weekly_coins', 'INTEGER', 0, () => {
-    // Ensure trigger + index are created ONLY after weekly_coins column exists
     db.run(`
       CREATE TRIGGER IF NOT EXISTS trg_sync_weekly_coins
       AFTER UPDATE OF total_coins_earned ON users
@@ -137,6 +137,7 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'telegram_claimed', 'INTEGER', 0);
   addColumnIfNotExists('users', 'youtube_claimed', 'INTEGER', 0);
   addColumnIfNotExists('users', 'playstore_claimed', 'INTEGER', 0);
+  addColumnIfNotExists('users', 'ban_reason', 'TEXT', 'NULL');
   addColumnIfNotExists('users', 'creator_badge_enabled', 'INTEGER', 0);
   addColumnIfNotExists('users', 'creator_badge_id', 'INTEGER', 'NULL');
   addColumnIfNotExists('users', 'last_withdrawal_at', 'DATETIME', 'NULL');
@@ -226,6 +227,7 @@ db.serialize(() => {
       npr_amount REAL DEFAULT 0.0,
       inr_amount REAL DEFAULT 0.0,
       status TEXT CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED')) DEFAULT 'PENDING',
+      processed_at DATETIME DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -233,6 +235,7 @@ db.serialize(() => {
 
   addColumnIfNotExists('withdrawals', 'npr_amount', 'REAL', 0.0);
   addColumnIfNotExists('withdrawals', 'inr_amount', 'REAL', 0.0);
+  addColumnIfNotExists('withdrawals', 'processed_at', 'DATETIME', 'NULL');
 
   // Global Configuration Table
   db.run(`
@@ -261,14 +264,33 @@ db.serialize(() => {
   ]);
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('payment_methods', ?)`, [defaultGateways], () => {});
 
-  // Admins Table
+  // Admins Table + Online Tracking Columns
   db.run(`
     CREATE TABLE IF NOT EXISTS admins (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL
+      full_name TEXT,
+      password_hash TEXT NOT NULL,
+      is_online INTEGER DEFAULT 0,
+      online_since TEXT DEFAULT NULL,
+      last_heartbeat_at TEXT DEFAULT NULL,
+      last_login_at TEXT DEFAULT NULL,
+      total_online_seconds INTEGER DEFAULT 0,
+      daily_online_seconds INTEGER DEFAULT 0,
+      daily_online_date TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `, () => {
+    addColumnIfNotExists('admins', 'full_name', 'TEXT', 'NULL');
+    addColumnIfNotExists('admins', 'is_online', 'INTEGER', 0);
+    addColumnIfNotExists('admins', 'online_since', 'TEXT', 'NULL');
+    addColumnIfNotExists('admins', 'last_heartbeat_at', 'TEXT', 'NULL');
+    addColumnIfNotExists('admins', 'last_login_at', 'TEXT', 'NULL');
+    addColumnIfNotExists('admins', 'total_online_seconds', 'INTEGER', 0);
+    addColumnIfNotExists('admins', 'daily_online_seconds', 'INTEGER', 0);
+    addColumnIfNotExists('admins', 'daily_online_date', 'TEXT', "''");
+    addColumnIfNotExists('admins', 'created_at', 'TEXT', 'NULL');
+
     db.get('SELECT COUNT(*) as count FROM admins', (err, row) => {
       if (row && row.count === 0) {
         const defaultUser = 'admin';
@@ -276,14 +298,33 @@ db.serialize(() => {
         const hash = bcrypt.hashSync(defaultPass, 10);
 
         db.run(
-          'INSERT INTO admins (username, password_hash) VALUES (?, ?)',
-          [defaultUser, hash],
+          'INSERT INTO admins (username, full_name, password_hash) VALUES (?, ?, ?)',
+          [defaultUser, 'Master Admin', hash],
           () => {
             console.log('Default Admin Account Initialized (admin / admin123)');
           }
         );
       }
     });
+  });
+
+  // Admin Activity Logs Table (for Master Admin Audit)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS admin_activity_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      admin_id INTEGER,
+      admin_username TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      target_type TEXT DEFAULT '',
+      target_id TEXT DEFAULT '',
+      target_label TEXT DEFAULT '',
+      details TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `, () => {
+    db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_activity_logs(id DESC);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_admin ON admin_activity_logs(admin_username, id DESC);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_action ON admin_activity_logs(action_type, id DESC);`, () => {});
   });
 
   // Spin Wheel Schema
@@ -414,7 +455,7 @@ db.serialize(() => {
 
   addColumnIfNotExists('user_game_data', 'level', 'INTEGER', 1);
   addColumnIfNotExists('user_game_data', 'data', 'TEXT', "'{}'");
-  addColumnIfNotExists('user_game_data', 'updated_at', 'DATETIME', 'CURRENT_TIMESTAMP');
+  addColumnIfNotExists('user_game_data', 'updated_at', 'TEXT', 'NULL');
 
   // Register Allowed Games
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`, () => {});
@@ -436,8 +477,10 @@ db.serialize(() => {
 
   // Safe Performance Indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals(status, id DESC);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_game_sessions_user ON game_sessions(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_creator_rewards_user ON creator_rewards(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_user_spin_state_user ON user_spin_state(user_id);`, () => {});
@@ -445,7 +488,7 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(is_active);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status, id DESC);`, () => {});
   db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_game_data_unique ON user_game_data(user_id, game_id);`, () => {});
 
   // Backfill last_active_at safely
