@@ -74,26 +74,22 @@
     .btn-logout { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(255, 71, 87, 0.12); color: var(--danger); border: 1px solid rgba(255, 71, 87, 0.3); padding: 9px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
 
     /* MOBILE BACKDROP */
-    #sidebar-backdrop {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.65);
-      z-index: 999;
-    }
+    #sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); z-index: 999; }
 
     /* CONTENT WRAPPER */
     .main-wrapper { margin-left: var(--sidebar-width); flex: 1; min-width: 0; display: flex; flex-direction: column; width: calc(100% - var(--sidebar-width)); }
 
     /* TOPBAR */
     .topbar {
-      height: 60px;
+      min-height: 60px;
       background: var(--surface-1);
       border-bottom: 1px solid var(--border);
-      padding: 0 16px;
+      padding: 8px 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
       position: sticky;
       top: 0;
       z-index: 900;
@@ -112,13 +108,57 @@
       justify-content: center;
       cursor: pointer;
     }
-    .page-title { font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
-    .topbar-right { display: flex; align-items: center; gap: 8px; }
+    .page-title { font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+    .topbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* ADMIN IDENTITY & ONLINE/OFFLINE PILL */
+    .admin-identity-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 700;
+    }
+    .master-tag {
+      background: rgba(0, 176, 255, 0.16);
+      color: var(--info);
+      border: 1px solid rgba(0, 176, 255, 0.35);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 9.5px;
+      text-transform: uppercase;
+    }
+    .status-toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 11px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+    }
+    .status-toggle-btn.online {
+      background: rgba(0, 230, 118, 0.14);
+      color: var(--primary);
+      border-color: rgba(0, 230, 118, 0.4);
+    }
+    .status-toggle-btn.offline {
+      background: rgba(255, 71, 87, 0.14);
+      color: var(--danger);
+      border-color: rgba(255, 71, 87, 0.35);
+    }
 
     .content-area { padding: 16px; flex: 1; }
 
     /* METRICS */
-    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 12px; margin-bottom: 18px; }
     .metric-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
     .metric-title { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
     .metric-val { font-size: 20px; font-weight: 800; margin-top: 4px; }
@@ -130,9 +170,11 @@
     .card-header-flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
     .card-header-flex h2 { font-size: 15px; font-weight: 800; }
 
-    .search-bar { background: var(--surface-2); border: 1px solid var(--border); color: white; padding: 8px 12px; border-radius: 8px; font-size: 12.5px; width: 240px; outline: none; }
+    .filter-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .search-bar { background: var(--surface-2); border: 1px solid var(--border); color: white; padding: 8px 12px; border-radius: 8px; font-size: 12.5px; width: 220px; outline: none; }
+    .filter-select { background: var(--surface-2); border: 1px solid var(--border); color: white; padding: 8px 10px; border-radius: 8px; font-size: 12px; outline: none; }
 
-    /* TABLES (Horizontal Scroll on Mobile) */
+    /* TABLES */
     .table-container {
       overflow-x: auto;
       border: 1px solid var(--border);
@@ -140,60 +182,101 @@
       -webkit-overflow-scrolling: touch;
       margin-top: 4px;
     }
-    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; min-width: 550px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; min-width: 600px; }
     th { background: #10141D; color: var(--text-muted); font-size: 10.5px; font-weight: 700; text-transform: uppercase; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
     td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:hover td { background: rgba(255, 255, 255, 0.015); }
+
+    /* PAGINATION BAR */
+    .pagination-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .pagination-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .page-btn {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .page-btn.active { background: var(--primary); color: #080A0E; border-color: var(--primary); }
 
     /* BADGES */
-    .badge { display: inline-flex; align-items: center; padding: 3px 6px; border-radius: 5px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border-radius: 5px; font-size: 10px; font-weight: 700; text-transform: uppercase; white-space: nowrap; }
     .badge-active { background: var(--primary-glow); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
     .badge-banned, .badge-rejected { background: rgba(255, 71, 87, 0.15); color: var(--danger); border: 1px solid rgba(255, 71, 87, 0.3); }
     .badge-pending { background: rgba(255, 165, 2, 0.15); color: var(--warning); border: 1px solid rgba(255, 165, 2, 0.3); }
+    .badge-info { background: rgba(0, 176, 255, 0.15); color: var(--info); border: 1px solid rgba(0, 176, 255, 0.3); }
+    .badge-offline { background: rgba(143, 156, 174, 0.14); color: var(--text-muted); border: 1px solid var(--border); }
 
     /* BUTTONS */
     .btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 12px; border-radius: 7px; font-size: 11.5px; font-weight: 700; cursor: pointer; border: none; }
     .btn-primary { background: var(--primary); color: #080A0E; }
+    .btn-secondary { background: var(--surface-2); color: white; border: 1px solid var(--border); }
     .btn-action { padding: 5px 8px; font-size: 11px; font-weight: 700; border-radius: 5px; border: none; cursor: pointer; margin-right: 3px; margin-bottom: 3px; }
     .btn-act-coins { background: var(--primary); color: #080A0E; }
     .btn-act-pass { background: var(--info); color: white; }
     .btn-act-danger { background: var(--danger); color: white; }
     .btn-act-gray { background: #404859; color: white; }
+    .btn-act-warn { background: var(--warning); color: #080A0E; }
 
     .proof-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); }
 
-    /* LIGHTBOX MODAL */
-    #image-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.9); z-index: 10000; justify-content: center; align-items: center; padding: 14px; }
+    /* MODAL */
+    #image-modal, #referral-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      z-index: 10000;
+      justify-content: center;
+      align-items: center;
+      padding: 14px;
+    }
     #image-modal img { max-width: 95vw; max-height: 85vh; border-radius: 8px; }
+    .modal-card {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      width: 100%;
+      max-width: 900px;
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .modal-body { padding: 16px; overflow-y: auto; }
 
-    /* ============================================================ */
-    /* RESPONSIVE BREAKPOINT (MOBILE & TABLET <= 850px)             */
-    /* ============================================================ */
+    .master-only { display: none; }
+
     @media (max-width: 850px) {
-      .sidebar {
-        transform: translateX(-100%);
-      }
-      .sidebar.open {
-        transform: translateX(0);
-      }
-      .sidebar-close-btn {
-        display: block;
-      }
-      .main-wrapper {
-        margin-left: 0 !important;
-        width: 100% !important;
-      }
-      .menu-toggle-btn {
-        display: flex;
-      }
-      .metrics-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-      .search-bar {
-        width: 100%;
-      }
-      .grid-2col {
-        grid-template-columns: 1fr !important;
-      }
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-close-btn { display: block; }
+      .main-wrapper { margin-left: 0 !important; width: 100% !important; }
+      .menu-toggle-btn { display: flex; }
+      .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+      .search-bar { width: 100%; }
+      .grid-2col { grid-template-columns: 1fr !important; }
     }
   </style>
 </head>
@@ -208,6 +291,41 @@
     <img id="image-modal-src" src="" alt="Proof Preview" onclick="event.stopPropagation()">
   </div>
 
+  <!-- REFERRED USERS MODAL -->
+  <div id="referral-modal" onclick="closeReferralModal()">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h3 id="ref-modal-title" style="font-size:15px; font-weight:800;">Referred Players</h3>
+          <p id="ref-modal-subtitle" style="font-size:12px; color:var(--text-muted); margin-top:2px;"></p>
+        </div>
+        <button class="btn btn-secondary" onclick="closeReferralModal()">✕ Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="filter-toolbar" style="margin-bottom: 10px;">
+          <input type="text" id="ref-modal-search" class="search-bar" placeholder="Search referred user..." oninput="debouncedRefUsersSearch()">
+        </div>
+        <div class="table-container">
+          <table id="ref-users-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Player</th>
+                <th>Email</th>
+                <th>Coins</th>
+                <th>Streak</th>
+                <th>Status</th>
+                <th>Joined</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="pagination-bar" id="ref-users-pagination"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- 1. LOGIN OVERLAY -->
   <div id="login-overlay">
     <div class="login-box">
@@ -219,7 +337,7 @@
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input type="password" id="admin-pass" placeholder="••••••••" autocomplete="current-password">
+        <input type="password" id="admin-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter') attemptLogin()">
       </div>
       <button class="btn btn-primary" onclick="attemptLogin()" style="width: 100%; padding: 11px;">Sign In</button>
       <p id="login-error" style="color: var(--danger); text-align: center; margin-top: 12px; font-size: 12px; display: none;"></p>
@@ -258,6 +376,10 @@
           <span>👥</span><span>Users Registry</span>
           <span class="badge-pill" id="nav-users-count">0</span>
         </li>
+        <li class="nav-item" onclick="switchTab('tab-referrals', this)">
+          <span>🤝</span><span>Referrals</span>
+          <span class="badge-pill" id="nav-referrals-count" style="color: var(--info);">0</span>
+        </li>
         <li class="nav-item" onclick="switchTab('tab-withdrawals', this)">
           <span>💸</span><span>Redemptions</span>
           <span class="badge-pill" id="nav-redeem-count" style="color: var(--warning);">0</span>
@@ -270,8 +392,13 @@
         <li class="nav-item" onclick="switchTab('tab-version', this)">
           <span>⚙️</span><span>System Update</span>
         </li>
-        <li class="nav-item" onclick="switchTab('tab-admins', this)">
-          <span>🛡️</span><span>Admin Credentials</span>
+
+        <div class="nav-label master-only">Master Admin</div>
+        <li class="nav-item master-only" onclick="switchTab('tab-admins', this)">
+          <span>🛡️</span><span>Admins & Online Time</span>
+        </li>
+        <li class="nav-item master-only" onclick="switchTab('tab-activity-logs', this)">
+          <span>📜</span><span>Activity Logs</span>
         </li>
       </ul>
 
@@ -288,7 +415,17 @@
           <div class="page-title" id="current-page-title">Dashboard Overview</div>
         </div>
         <div class="topbar-right">
-          <button class="btn btn-primary" onclick="loadDashboardStats()" style="padding: 6px 10px; font-size: 11px;">🔄 Refresh</button>
+          <div class="admin-identity-pill" id="topbar-admin-badge">
+            <span>👤</span>
+            <span id="topbar-admin-name">Loading...</span>
+            <span id="topbar-admin-id" style="color: var(--text-muted);"></span>
+            <span id="topbar-master-tag" class="master-tag" style="display:none;">Master</span>
+          </div>
+          <button id="self-status-btn" class="status-toggle-btn online" onclick="toggleSelfOnlineStatus()" title="Click to toggle Online / Offline">
+            <span id="self-status-dot">🟢</span>
+            <span id="self-status-text">Online</span>
+          </button>
+          <button class="btn btn-primary" onclick="refreshCurrentView()" style="padding: 6px 10px; font-size: 11px;">🔄 Refresh</button>
         </div>
       </header>
 
@@ -304,11 +441,15 @@
             <div class="metric-val" id="stat-coins" style="color: var(--primary);">0</div>
           </div>
           <div class="metric-card">
-            <div class="metric-title">Tasks</div>
-            <div class="metric-val" id="stat-tasks" style="color: var(--info);">0</div>
+            <div class="metric-title">Referred Players</div>
+            <div class="metric-val" id="stat-referred" style="color: var(--info);">0</div>
           </div>
           <div class="metric-card">
-            <div class="metric-title">Redeem Pnd</div>
+            <div class="metric-title">Pending Tasks</div>
+            <div class="metric-val" id="stat-tasks" style="color: var(--warning);">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Redeem Pending</div>
             <div class="metric-val" id="stat-withdrawals" style="color: var(--warning);">0</div>
           </div>
         </div>
@@ -317,7 +458,9 @@
         <section id="tab-dashboard" class="tab-section active">
           <div class="card">
             <h2 style="margin-bottom: 6px;">System Ready</h2>
-            <p style="color: var(--text-muted); font-size: 12.5px;">Tap the menu icon (☰) at the top-left to manage users, task submissions, or payment gateways.</p>
+            <p style="color: var(--text-muted); font-size: 12.5px;">
+              All tables use fast server-side pagination so thousands of players and logs load smoothly without lag.
+            </p>
           </div>
         </section>
 
@@ -372,10 +515,11 @@
           <div class="card">
             <div class="card-header-flex">
               <h2>Task Submissions Review</h2>
-              <div style="display: flex; gap: 4px; flex-wrap: wrap;">
-                <button class="btn btn-primary" onclick="loadSubmissionsList('pending')" style="padding: 4px 8px; font-size: 11px;">Pending</button>
-                <button class="btn btn-action" onclick="loadSubmissionsList('approved')" style="padding: 4px 8px; font-size: 11px;">Approved</button>
-                <button class="btn btn-action" onclick="loadSubmissionsList('rejected')" style="padding: 4px 8px; font-size: 11px;">Rejected</button>
+              <div class="filter-toolbar">
+                <input type="text" id="sub-search" class="search-bar" placeholder="Search player/task..." oninput="debouncedSubSearch()">
+                <button class="btn btn-primary" id="sub-btn-pending" onclick="setSubmissionsStatus('pending')" style="padding: 6px 10px; font-size: 11px;">Pending</button>
+                <button class="btn btn-secondary" id="sub-btn-approved" onclick="setSubmissionsStatus('approved')" style="padding: 6px 10px; font-size: 11px;">Approved</button>
+                <button class="btn btn-secondary" id="sub-btn-rejected" onclick="setSubmissionsStatus('rejected')" style="padding: 6px 10px; font-size: 11px;">Rejected</button>
               </div>
             </div>
             <div class="table-container">
@@ -384,35 +528,113 @@
                 <tbody></tbody>
               </table>
             </div>
+            <div class="pagination-bar" id="submissions-pagination"></div>
           </div>
         </section>
 
-        <!-- TAB 4: USERS -->
+        <!-- TAB 4: USERS (SERVER-SIDE PAGINATED) -->
         <section id="tab-users" class="tab-section">
           <div class="card">
             <div class="card-header-flex">
-              <h2>Players Registry</h2>
-              <input type="text" id="user-search" class="search-bar" placeholder="Search username/email..." oninput="debouncedSearch()">
+              <h2>Players Registry (All Users)</h2>
+              <div class="filter-toolbar">
+                <input type="text" id="user-search" class="search-bar" placeholder="Search ID, username, email, ref code..." oninput="debouncedUserSearch()">
+                <select id="user-status-filter" class="filter-select" onchange="loadUsersList(1)">
+                  <option value="all">All Status</option>
+                  <option value="active">Active Only</option>
+                  <option value="banned">Banned Only</option>
+                </select>
+                <select id="user-limit-select" class="filter-select" onchange="loadUsersList(1)">
+                  <option value="25">25 / page</option>
+                  <option value="50">50 / page</option>
+                  <option value="100">100 / page</option>
+                </select>
+              </div>
             </div>
             <div class="table-container">
               <table id="users-table">
-                <thead><tr><th>ID</th><th>Player</th><th>Email</th><th>Coins</th><th>Streak</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Player</th>
+                    <th>Email</th>
+                    <th>Coins</th>
+                    <th>Streak</th>
+                    <th>Referred By</th>
+                    <th>Referrals</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
                 <tbody></tbody>
               </table>
             </div>
+            <div class="pagination-bar" id="users-pagination"></div>
+          </div>
+        </section>
+
+        <!-- TAB 4B: REFERRALS SECTION -->
+        <section id="tab-referrals" class="tab-section">
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>Referral Network</h2>
+                <p id="referrals-summary-text" style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+                  See who referred how many players and inspect their referred users.
+                </p>
+              </div>
+              <div class="filter-toolbar">
+                <input type="text" id="referrals-search" class="search-bar" placeholder="Search referrer username or code..." oninput="debouncedReferralsSearch()">
+                <select id="referrals-limit-select" class="filter-select" onchange="loadReferralsList(1)">
+                  <option value="25">25 / page</option>
+                  <option value="50">50 / page</option>
+                  <option value="100">100 / page</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-container">
+              <table id="referrals-table">
+                <thead>
+                  <tr>
+                    <th>Referrer ID</th>
+                    <th>Referrer</th>
+                    <th>Referral Code</th>
+                    <th>Total Referred</th>
+                    <th>Active Referred</th>
+                    <th>Referrer Balance</th>
+                    <th>Last Referral</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="pagination-bar" id="referrals-pagination"></div>
           </div>
         </section>
 
         <!-- TAB 5: REDEMPTIONS -->
         <section id="tab-withdrawals" class="tab-section">
           <div class="card">
-            <div class="card-header-flex"><h2>Pending Withdrawals</h2></div>
+            <div class="card-header-flex">
+              <h2>Withdrawals Pipeline</h2>
+              <div class="filter-toolbar">
+                <input type="text" id="wd-search" class="search-bar" placeholder="Search username/account..." oninput="debouncedWithdrawalsSearch()">
+                <select id="wd-status-filter" class="filter-select" onchange="loadWithdrawals(1)">
+                  <option value="PENDING">Pending</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="REJECTED">Rejected</option>
+                  <option value="ALL">All</option>
+                </select>
+              </div>
+            </div>
             <div class="table-container">
               <table id="withdrawals-table">
-                <thead><tr><th>User</th><th>Account</th><th>Coins</th><th>NPR</th><th>Decision</th></tr></thead>
+                <thead><tr><th>ID</th><th>User</th><th>Account</th><th>Coins</th><th>NPR</th><th>Status</th><th>Decision</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
+            <div class="pagination-bar" id="withdrawals-pagination"></div>
           </div>
         </section>
 
@@ -455,30 +677,109 @@
           </div>
         </section>
 
-        <!-- TAB 8: ADMINS -->
+        <!-- TAB 8: ADMINS & ONLINE TIME (MASTER ADMIN ONLY) -->
         <section id="tab-admins" class="tab-section">
-          <div class="card" style="max-width: 480px;">
-            <div class="card-header-flex"><h2>Create Admin</h2></div>
+          <div class="card" style="max-width: 520px;">
+            <div class="card-header-flex"><h2>Create Admin Staff</h2></div>
             <form onsubmit="handleCreateAdmin(event)">
-              <div class="form-group">
-                <label>Username</label>
-                <input type="text" id="new-admin-user" required>
+              <div class="grid-2col" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="form-group">
+                  <label>Username</label>
+                  <input type="text" id="new-admin-user" required>
+                </div>
+                <div class="form-group">
+                  <label>Full Name</label>
+                  <input type="text" id="new-admin-name" placeholder="Staff Name">
+                </div>
               </div>
               <div class="form-group">
-                <label>Password</label>
-                <input type="password" id="new-admin-pass" required>
+                <label>Password (min 6 chars)</label>
+                <input type="password" id="new-admin-pass" minlength="6" required>
               </div>
-              <button type="submit" class="btn btn-primary" style="width: 100%;">+ Create</button>
+              <button type="submit" class="btn btn-primary" style="width: 100%;">+ Create Admin</button>
             </form>
           </div>
+
           <div class="card">
-            <div class="card-header-flex"><h2>Existing Admins</h2></div>
+            <div class="card-header-flex">
+              <div>
+                <h2>Admin Credentials & Online Time</h2>
+                <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+                  Monitor each admin's online/offline status, total online time, and toggle their status.
+                </p>
+              </div>
+              <button class="btn btn-secondary" onclick="loadAdminUsersList()" style="font-size: 11px;">🔄 Reload Admins</button>
+            </div>
             <div class="table-container">
               <table id="admins-table">
-                <thead><tr><th>Username</th><th>Name</th><th>Actions</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Today Online</th>
+                    <th>Total Online</th>
+                    <th>Last Login</th>
+                    <th>Actions Done</th>
+                    <th>Controls</th>
+                  </tr>
+                </thead>
                 <tbody></tbody>
               </table>
             </div>
+          </div>
+        </section>
+
+        <!-- TAB 9: ADMIN ACTIVITY LOGS (MASTER ADMIN ONLY) -->
+        <section id="tab-activity-logs" class="tab-section">
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>Admin Activity Logs</h2>
+                <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+                  Audit every task approval/rejection, coin edit, password change, ban, withdrawal, and login.
+                </p>
+              </div>
+              <div class="filter-toolbar">
+                <input type="text" id="logs-search" class="search-bar" placeholder="Search target or details..." oninput="debouncedLogsSearch()">
+                <select id="logs-admin-filter" class="filter-select" onchange="loadActivityLogs(1)">
+                  <option value="all">All Admins</option>
+                </select>
+                <select id="logs-action-filter" class="filter-select" onchange="loadActivityLogs(1)">
+                  <option value="ALL">All Actions</option>
+                  <option value="TASK_APPROVED">Task Approved</option>
+                  <option value="TASK_REJECTED">Task Rejected</option>
+                  <option value="USER_COINS_CHANGED">Coin Changed</option>
+                  <option value="USER_PASSWORD_CHANGED">User PW Changed</option>
+                  <option value="USER_BANNED">User Banned</option>
+                  <option value="USER_UNBANNED">User Unbanned</option>
+                  <option value="USER_DELETED">User Deleted</option>
+                  <option value="WITHDRAWAL_APPROVED">Withdrawal Approved</option>
+                  <option value="WITHDRAWAL_REJECTED">Withdrawal Rejected</option>
+                  <option value="TASK_CREATED">Task Created</option>
+                  <option value="ADMIN_LOGIN">Admin Login</option>
+                  <option value="STATUS_ONLINE">Went Online</option>
+                  <option value="STATUS_OFFLINE">Went Offline</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-container">
+              <table id="activity-logs-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Time (UTC/Local)</th>
+                    <th>Admin</th>
+                    <th>Action</th>
+                    <th>Target</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="pagination-bar" id="logs-pagination"></div>
           </div>
         </section>
 
@@ -488,9 +789,59 @@
 
   <script>
     const API_BASE = "/api/admin";
-    let allUsersCache = [];
+
+    let currentAdmin = null;
+    let activeTabId = 'tab-dashboard';
     let paymentMethodsList = [];
-    let searchTimeout = null;
+    let heartbeatTimer = null;
+    let liveDurationTimer = null;
+    let adminsCache = [];
+    let adminsLoadedAt = 0;
+
+    // Pagination state
+    let currentUsersPage = 1;
+    let currentReferralsPage = 1;
+    let currentRefUsersReferrerId = null;
+    let currentRefUsersPage = 1;
+    let currentSubStatus = 'pending';
+    let currentSubPage = 1;
+    let currentWithdrawalsPage = 1;
+    let currentLogsPage = 1;
+
+    // Debounce timers
+    let userSearchTimer = null;
+    let refSearchTimer = null;
+    let refUsersSearchTimer = null;
+    let subSearchTimer = null;
+    let wdSearchTimer = null;
+    let logsSearchTimer = null;
+
+    function esc(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatDuration(totalSeconds) {
+      const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      if (h > 0) return `${h}h ${m}m ${s}s`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+    }
+
+    function formatDate(isoStr) {
+      if (!isoStr) return '—';
+      const d = new Date(isoStr.includes('T') ? isoStr : isoStr.replace(' ', 'T') + 'Z');
+      if (isNaN(d.getTime())) return esc(isoStr);
+      return d.toLocaleString();
+    }
 
     function getHeaders() {
       return {
@@ -499,7 +850,6 @@
       };
     }
 
-    // Mobile Sidebar Drawer Controller
     function toggleSidebar(open) {
       const sidebar = document.getElementById('app-sidebar');
       const backdrop = document.getElementById('sidebar-backdrop');
@@ -522,36 +872,124 @@
       document.getElementById('image-modal-src').src = '';
     }
 
-    function switchTab(tabId, element) {
-      document.querySelectorAll('.tab-section').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-
-      const target = document.getElementById(tabId);
-      if (target) target.classList.add('active');
-      if (element) {
-        element.classList.add('active');
-        document.getElementById('current-page-title').innerText = element.querySelector('span:nth-child(2)').innerText;
+    function renderPagination(containerId, page, totalPages, totalItems, onPageFnName) {
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      if (totalItems === 0) {
+        el.innerHTML = `<span>0 records</span>`;
+        return;
       }
 
-      // Auto-close drawer on mobile when tab is clicked
-      if (window.innerWidth <= 850) {
-        toggleSidebar(false);
+      const startPage = Math.max(1, page - 2);
+      const endPage = Math.min(totalPages, page + 2);
+      let pageButtons = '';
+
+      if (startPage > 1) {
+        pageButtons += `<button class="page-btn" onclick="${onPageFnName}(1)">1</button>`;
+        if (startPage > 2) pageButtons += `<span>...</span>`;
       }
 
-      // Lazy Loading
-      if (tabId === 'tab-users') loadUsersList();
-      if (tabId === 'tab-tasks') loadTasksList();
-      if (tabId === 'tab-submissions') loadSubmissionsList('pending');
-      if (tabId === 'tab-withdrawals') loadWithdrawals();
-      if (tabId === 'tab-gateways') loadPaymentMethods();
-      if (tabId === 'tab-version') loadConfig();
-      if (tabId === 'tab-admins') loadAdminUsersList();
+      for (let p = startPage; p <= endPage; p++) {
+        pageButtons += `<button class="page-btn ${p === page ? 'active' : ''}" onclick="${onPageFnName}(${p})">${p}</button>`;
+      }
+
+      if (endPage < totalPages) {
+        if (endPage < totalPages - 1) pageButtons += `<span>...</span>`;
+        pageButtons += `<button class="page-btn" onclick="${onPageFnName}(${totalPages})">${totalPages}</button>`;
+      }
+
+      el.innerHTML = `
+        <span>Page <strong>${page}</strong> of <strong>${totalPages}</strong> (${totalItems.toLocaleString()} total)</span>
+        <div class="pagination-controls">
+          <button class="page-btn" ${page <= 1 ? 'disabled' : ''} onclick="${onPageFnName}(${page - 1})">◀ Prev</button>
+          ${pageButtons}
+          <button class="page-btn" ${page >= totalPages ? 'disabled' : ''} onclick="${onPageFnName}(${page + 1})">Next ▶</button>
+        </div>
+      `;
+    }
+
+    // =========================================================================
+    // AUTHENTICATION, TOPBAR ADMIN ID & ONLINE/OFFLINE HEARTBEAT
+    // =========================================================================
+    function applyAdminIdentityUI() {
+      if (!currentAdmin) return;
+      document.getElementById('topbar-admin-name').innerText = `@${currentAdmin.username}`;
+      document.getElementById('topbar-admin-id').innerText = `(ID #${currentAdmin.id})`;
+      document.getElementById('topbar-master-tag').style.display = currentAdmin.is_master ? 'inline-block' : 'none';
+
+      document.querySelectorAll('.master-only').forEach(el => {
+        el.style.display = currentAdmin.is_master ? '' : 'none';
+      });
+
+      const btn = document.getElementById('self-status-btn');
+      const dot = document.getElementById('self-status-dot');
+      const txt = document.getElementById('self-status-text');
+
+      if (currentAdmin.is_online) {
+        btn.className = 'status-toggle-btn online';
+        dot.innerText = '🟢';
+        txt.innerText = 'Online';
+      } else {
+        btn.className = 'status-toggle-btn offline';
+        dot.innerText = '⚪';
+        txt.innerText = 'Offline';
+      }
+    }
+
+    function startHeartbeat() {
+      stopHeartbeat();
+      heartbeatTimer = setInterval(async () => {
+        if (!currentAdmin || !currentAdmin.is_online) return;
+        try {
+          const res = await fetch(`${API_BASE}/heartbeat`, {
+            method: 'POST',
+            headers: getHeaders()
+          });
+          if (res.ok) {
+            const data = await res.json();
+            currentAdmin.is_online = !!data.is_online;
+            currentAdmin.total_online_seconds = data.total_online_seconds;
+            currentAdmin.daily_online_seconds = data.daily_online_seconds;
+            applyAdminIdentityUI();
+          }
+        } catch (_) {}
+      }, 60000);
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    }
+
+    async function toggleSelfOnlineStatus() {
+      if (!currentAdmin) return;
+      const nextOnline = !currentAdmin.is_online;
+      try {
+        const res = await fetch(`${API_BASE}/status`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ is_online: nextOnline })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          currentAdmin.is_online = !!data.is_online;
+          currentAdmin.total_online_seconds = data.total_online_seconds;
+          currentAdmin.daily_online_seconds = data.daily_online_seconds;
+          applyAdminIdentityUI();
+          if (activeTabId === 'tab-admins') loadAdminUsersList();
+        }
+      } catch (_) {
+        alert('Failed to update online status');
+      }
     }
 
     async function attemptLogin() {
       const username = document.getElementById('admin-user').value.trim();
       const password = document.getElementById('admin-pass').value.trim();
       const errorMsg = document.getElementById('login-error');
+      errorMsg.style.display = 'none';
 
       try {
         const res = await fetch(`${API_BASE}/login`, {
@@ -562,6 +1000,7 @@
         const data = await res.json();
         if (res.status === 200 && data.token) {
           localStorage.setItem('admin_token', data.token);
+          currentAdmin = data.admin || null;
           checkSession();
         } else {
           errorMsg.innerText = data.error || "Login failed";
@@ -573,96 +1012,175 @@
       }
     }
 
-    function checkSession() {
+    async function checkSession() {
       const token = localStorage.getItem('admin_token');
-      if (token) {
+      if (!token) {
+        stopHeartbeat();
+        document.getElementById('login-overlay').style.display = 'flex';
+        document.getElementById('admin-content').style.display = 'none';
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/me`, { headers: getHeaders() });
+        if (res.status === 401 || res.status === 403) {
+          return clearSessionLocal();
+        }
+        currentAdmin = await res.json();
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('admin-content').style.display = 'flex';
+        applyAdminIdentityUI();
+        startHeartbeat();
+        loadDashboardStats();
+      } catch (_) {
         document.getElementById('login-overlay').style.display = 'none';
         document.getElementById('admin-content').style.display = 'flex';
         loadDashboardStats();
-      } else {
-        document.getElementById('login-overlay').style.display = 'flex';
-        document.getElementById('admin-content').style.display = 'none';
       }
     }
 
-    function logout() {
+    function clearSessionLocal() {
+      stopHeartbeat();
+      if (liveDurationTimer) clearInterval(liveDurationTimer);
       localStorage.removeItem('admin_token');
-      checkSession();
+      currentAdmin = null;
+      document.getElementById('login-overlay').style.display = 'flex';
+      document.getElementById('admin-content').style.display = 'none';
+    }
+
+    async function logout() {
+      try {
+        await fetch(`${API_BASE}/logout`, { method: 'POST', headers: getHeaders() });
+      } catch (_) {}
+      clearSessionLocal();
+    }
+
+    // =========================================================================
+    // NAVIGATION & REFRESH
+    // =========================================================================
+    function switchTab(tabId, element) {
+      activeTabId = tabId;
+      document.querySelectorAll('.tab-section').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+      const target = document.getElementById(tabId);
+      if (target) target.classList.add('active');
+      if (element) {
+        element.classList.add('active');
+        document.getElementById('current-page-title').innerText = element.querySelector('span:nth-child(2)').innerText;
+      }
+
+      if (window.innerWidth <= 850) toggleSidebar(false);
+
+      if (tabId === 'tab-users') loadUsersList(currentUsersPage);
+      if (tabId === 'tab-referrals') loadReferralsList(currentReferralsPage);
+      if (tabId === 'tab-tasks') loadTasksList();
+      if (tabId === 'tab-submissions') loadSubmissionsList(currentSubPage);
+      if (tabId === 'tab-withdrawals') loadWithdrawals(currentWithdrawalsPage);
+      if (tabId === 'tab-gateways') loadPaymentMethods();
+      if (tabId === 'tab-version') loadConfig();
+      if (tabId === 'tab-admins') loadAdminUsersList();
+      if (tabId === 'tab-activity-logs') loadActivityLogs(currentLogsPage);
+    }
+
+    function refreshCurrentView() {
+      loadDashboardStats();
+      if (activeTabId === 'tab-users') loadUsersList(currentUsersPage);
+      if (activeTabId === 'tab-referrals') loadReferralsList(currentReferralsPage);
+      if (activeTabId === 'tab-tasks') loadTasksList();
+      if (activeTabId === 'tab-submissions') loadSubmissionsList(currentSubPage);
+      if (activeTabId === 'tab-withdrawals') loadWithdrawals(currentWithdrawalsPage);
+      if (activeTabId === 'tab-gateways') loadPaymentMethods();
+      if (activeTabId === 'tab-version') loadConfig();
+      if (activeTabId === 'tab-admins') loadAdminUsersList();
+      if (activeTabId === 'tab-activity-logs') loadActivityLogs(currentLogsPage);
     }
 
     async function loadDashboardStats() {
       try {
         const res = await fetch(`${API_BASE}/dashboard`, { headers: getHeaders() });
-        if (res.status === 401 || res.status === 403) return logout();
+        if (res.status === 401 || res.status === 403) return clearSessionLocal();
         const stats = await res.json();
 
         document.getElementById('stat-users').innerText = (stats.totalUsers || 0).toLocaleString();
         document.getElementById('stat-coins').innerText = (stats.totalCoins || 0).toLocaleString();
+        document.getElementById('stat-referred').innerText = (stats.totalReferredUsers || 0).toLocaleString();
         document.getElementById('stat-withdrawals').innerText = stats.pendingWithdrawals || 0;
         document.getElementById('stat-tasks').innerText = stats.pendingTasks || 0;
 
         document.getElementById('nav-users-count').innerText = stats.totalUsers || 0;
+        document.getElementById('nav-referrals-count').innerText = stats.totalReferredUsers || 0;
+        document.getElementById('nav-tasks-count').innerText = stats.activeTasks || 0;
         document.getElementById('nav-redeem-count').innerText = stats.pendingWithdrawals || 0;
         document.getElementById('nav-sub-pending-count').innerText = stats.pendingTasks || 0;
       } catch (_) {}
     }
 
-    // High speed users list
-    async function loadUsersList() {
+    // =========================================================================
+    // USERS REGISTRY (SERVER-SIDE PAGINATION)
+    // =========================================================================
+    function debouncedUserSearch() {
+      clearTimeout(userSearchTimer);
+      userSearchTimer = setTimeout(() => loadUsersList(1), 250);
+    }
+
+    async function loadUsersList(page = 1) {
+      currentUsersPage = Math.max(1, page);
+      const search = document.getElementById('user-search').value.trim();
+      const status = document.getElementById('user-status-filter').value;
+      const limit = document.getElementById('user-limit-select').value;
+
+      const params = new URLSearchParams({ page: currentUsersPage, limit, search, status });
       try {
-        const res = await fetch(`${API_BASE}/users`, { headers: getHeaders() });
-        allUsersCache = await res.json();
-        renderUsersFast(allUsersCache);
+        const res = await fetch(`${API_BASE}/users?${params.toString()}`, { headers: getHeaders() });
+        const data = await res.json();
+        const users = data.users || [];
+        const tbody = document.querySelector("#users-table tbody");
+
+        if (users.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted);">No users found.</td></tr>`;
+          renderPagination('users-pagination', 1, 1, 0, 'loadUsersList');
+          return;
+        }
+
+        let html = '';
+        for (let i = 0; i < users.length; i++) {
+          const u = users[i];
+          const reasonTitle = u.ban_reason ? `title="${esc(u.ban_reason)}"` : '';
+          const statusBadge = u.is_banned === 1
+            ? `<span class="badge badge-banned" ${reasonTitle}>Banned</span>`
+            : `<span class="badge badge-active">Active</span>`;
+          const refBy = u.referred_by_username
+            ? `<span style="color:var(--info);">@${esc(u.referred_by_username)}</span>`
+            : `<span style="color:var(--text-muted);">Direct</span>`;
+          const refBtn = u.referral_count > 0
+            ? `<button class="btn-action btn-act-pass" onclick="openReferralModal(${u.id})">Refs (${u.referral_count})</button>`
+            : `<span style="color:var(--text-muted);">0</span>`;
+
+          html += `
+            <tr>
+              <td>#${u.id}</td>
+              <td><strong>@${esc(u.username)}</strong><br><span style="font-size:10px; color:var(--text-muted);">${esc(u.referral_code || '')}</span></td>
+              <td>${esc(u.email)}</td>
+              <td style="color:var(--primary); font-weight:800;">${(u.balance || 0).toLocaleString()}</td>
+              <td>🔥 ${u.current_streak || 0}d</td>
+              <td>${refBy}</td>
+              <td>${refBtn}</td>
+              <td>${statusBadge}</td>
+              <td style="white-space: nowrap;">
+                <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${esc(u.username)}')">Coins</button>
+                <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${esc(u.username)}')">PW</button>
+                <button class="btn-action ${u.is_banned === 1 ? 'btn-act-gray' : 'btn-act-danger'}" onclick="toggleUserBan(${u.id}, ${u.is_banned !== 1})">
+                  ${u.is_banned === 1 ? 'Unban' : 'Ban'}
+                </button>
+                <button class="btn-action btn-act-danger" style="background:#B3001E;" onclick="deleteUserPermanently(${u.id}, '${esc(u.username)}')">Del</button>
+              </td>
+            </tr>
+          `;
+        }
+        tbody.innerHTML = html;
+        renderPagination('users-pagination', data.page, data.totalPages, data.total, 'loadUsersList');
       } catch (_) {}
-    }
-
-    function debouncedSearch() {
-      clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(() => {
-        const q = document.getElementById('user-search').value.toLowerCase().trim();
-        const filtered = allUsersCache.filter(u =>
-          (u.username && u.username.toLowerCase().includes(q)) ||
-          (u.email && u.email.toLowerCase().includes(q))
-        );
-        renderUsersFast(filtered);
-      }, 200);
-    }
-
-    function renderUsersFast(users) {
-      const tbody = document.querySelector("#users-table tbody");
-      if (!users || users.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No users found.</td></tr>`;
-        return;
-      }
-
-      let html = '';
-      for (let i = 0; i < users.length; i++) {
-        const u = users[i];
-        const reasonTitle = u.ban_reason ? `title="${String(u.ban_reason).replace(/"/g, '&quot;')}"` : '';
-        const statusBadge = u.is_banned === 1 
-          ? `<span class="badge badge-banned" ${reasonTitle}>Banned</span>` 
-          : `<span class="badge badge-active">Active</span>`;
-
-        html += `
-          <tr>
-            <td>#${u.id}</td>
-            <td><strong>@${u.username}</strong></td>
-            <td>${u.email}</td>
-            <td style="color:var(--primary); font-weight:800;">${(u.balance || 0).toLocaleString()}</td>
-            <td>🔥 ${u.current_streak || 0}d</td>
-            <td>${statusBadge}</td>
-            <td style="white-space: nowrap;">
-              <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${u.username}')">Coins</button>
-              <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${u.username}')">PW</button>
-              <button class="btn-action ${u.is_banned === 1 ? 'btn-act-gray' : 'btn-act-danger'}" onclick="toggleUserBan(${u.id}, ${u.is_banned !== 1})">
-                ${u.is_banned === 1 ? 'Unban' : 'Ban'}
-              </button>
-              <button class="btn-action btn-act-danger" style="background:#B3001E;" onclick="deleteUserPermanently(${u.id}, '${u.username}')">Del</button>
-            </td>
-          </tr>
-        `;
-      }
-      tbody.innerHTML = html;
     }
 
     async function editUserCoins(id, username) {
@@ -676,7 +1194,10 @@
         headers: getHeaders(),
         body: JSON.stringify({ amount: amt })
       });
-      if ((await res.json()).success) loadUsersList();
+      if ((await res.json()).success) {
+        loadUsersList(currentUsersPage);
+        loadDashboardStats();
+      }
     }
 
     async function resetUserPassword(id, username) {
@@ -709,24 +1230,164 @@
         headers: getHeaders(),
         body: JSON.stringify({ isBanned: shouldBan, reason })
       });
-      loadUsersList();
+      loadUsersList(currentUsersPage);
     }
 
     async function deleteUserPermanently(userId, username) {
       if (prompt(`Type '${username}' to confirm permanent deletion:`) !== username) return;
       const res = await fetch(`${API_BASE}/users/${userId}/delete`, { method: "POST", headers: getHeaders() });
-      if ((await res.json()).success) loadUsersList();
+      if ((await res.json()).success) {
+        loadUsersList(currentUsersPage);
+        loadDashboardStats();
+      }
     }
 
-    // Submissions
-    async function loadSubmissionsList(status = 'pending') {
+    // =========================================================================
+    // REFERRALS SECTION (WHO REFERRED WHOM)
+    // =========================================================================
+    function debouncedReferralsSearch() {
+      clearTimeout(refSearchTimer);
+      refSearchTimer = setTimeout(() => loadReferralsList(1), 250);
+    }
+
+    async function loadReferralsList(page = 1) {
+      currentReferralsPage = Math.max(1, page);
+      const search = document.getElementById('referrals-search').value.trim();
+      const limit = document.getElementById('referrals-limit-select').value;
+      const params = new URLSearchParams({ page: currentReferralsPage, limit, search });
+
       try {
-        const res = await fetch(`${API_BASE}/task-submissions?status=${status}`, { headers: getHeaders() });
-        const list = await res.json();
+        const res = await fetch(`${API_BASE}/referrals?${params.toString()}`, { headers: getHeaders() });
+        const data = await res.json();
+        const referrers = data.referrers || [];
+        const tbody = document.querySelector("#referrals-table tbody");
+
+        document.getElementById('referrals-summary-text').innerText =
+          `${(data.total || 0).toLocaleString()} referrers • ${(data.totalReferredUsers || 0).toLocaleString()} total referred players`;
+
+        if (referrers.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No referral records found.</td></tr>`;
+          renderPagination('referrals-pagination', 1, 1, 0, 'loadReferralsList');
+          return;
+        }
+
+        let html = '';
+        for (let i = 0; i < referrers.length; i++) {
+          const r = referrers[i];
+          html += `
+            <tr>
+              <td>#${r.id}</td>
+              <td><strong>@${esc(r.username)}</strong><br><span style="font-size:10.5px; color:var(--text-muted);">${esc(r.email)}</span></td>
+              <td><span class="badge badge-info">${esc(r.referral_code)}</span></td>
+              <td style="color:var(--primary); font-weight:800;">${r.referral_count}</td>
+              <td>${r.active_referrals || 0}</td>
+              <td>${(r.balance || 0).toLocaleString()}</td>
+              <td style="font-size:11px; color:var(--text-muted);">${formatDate(r.last_referral_at)}</td>
+              <td>
+                <button class="btn-action btn-act-pass" onclick="openReferralModal(${r.id})">View Referred Users (${r.referral_count})</button>
+              </td>
+            </tr>
+          `;
+        }
+        tbody.innerHTML = html;
+        renderPagination('referrals-pagination', data.page, data.totalPages, data.total, 'loadReferralsList');
+      } catch (_) {}
+    }
+
+    function openReferralModal(referrerId) {
+      currentRefUsersReferrerId = referrerId;
+      document.getElementById('ref-modal-search').value = '';
+      document.getElementById('referral-modal').style.display = 'flex';
+      loadReferredUsers(1);
+    }
+
+    function closeReferralModal() {
+      document.getElementById('referral-modal').style.display = 'none';
+      currentRefUsersReferrerId = null;
+    }
+
+    function debouncedRefUsersSearch() {
+      clearTimeout(refUsersSearchTimer);
+      refUsersSearchTimer = setTimeout(() => loadReferredUsers(1), 250);
+    }
+
+    async function loadReferredUsers(page = 1) {
+      if (!currentRefUsersReferrerId) return;
+      currentRefUsersPage = Math.max(1, page);
+      const search = document.getElementById('ref-modal-search').value.trim();
+      const params = new URLSearchParams({ page: currentRefUsersPage, limit: 20, search });
+
+      try {
+        const res = await fetch(`${API_BASE}/referrals/${currentRefUsersReferrerId}/users?${params.toString()}`, { headers: getHeaders() });
+        const data = await res.json();
+        const ref = data.referrer || {};
+        document.getElementById('ref-modal-title').innerText = `Users Referred by @${ref.username || currentRefUsersReferrerId}`;
+        document.getElementById('ref-modal-subtitle').innerText =
+          `Referrer ID #${ref.id || currentRefUsersReferrerId} • Code: ${ref.referral_code || '—'} • Total Referred: ${data.total || 0}`;
+
+        const users = data.users || [];
+        const tbody = document.querySelector("#ref-users-table tbody");
+
+        if (users.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No referred users found.</td></tr>`;
+          renderPagination('ref-users-pagination', 1, 1, 0, 'loadReferredUsers');
+          return;
+        }
+
+        let html = '';
+        for (let i = 0; i < users.length; i++) {
+          const u = users[i];
+          const statusBadge = u.is_banned === 1
+            ? `<span class="badge badge-banned">Banned</span>`
+            : `<span class="badge badge-active">Active</span>`;
+          html += `
+            <tr>
+              <td>#${u.id}</td>
+              <td><strong>@${esc(u.username)}</strong></td>
+              <td>${esc(u.email)}</td>
+              <td style="color:var(--primary); font-weight:800;">${(u.balance || 0).toLocaleString()}</td>
+              <td>🔥 ${u.current_streak || 0}d</td>
+              <td>${statusBadge}</td>
+              <td style="font-size:11px; color:var(--text-muted);">${formatDate(u.created_at)}</td>
+            </tr>
+          `;
+        }
+        tbody.innerHTML = html;
+        renderPagination('ref-users-pagination', data.page, data.totalPages, data.total, 'loadReferredUsers');
+      } catch (_) {}
+    }
+
+    // =========================================================================
+    // SUBMISSIONS (PAGINATED)
+    // =========================================================================
+    function setSubmissionsStatus(status) {
+      currentSubStatus = status;
+      ['pending', 'approved', 'rejected'].forEach(s => {
+        const btn = document.getElementById(`sub-btn-${s}`);
+        if (btn) btn.className = s === status ? 'btn btn-primary' : 'btn btn-secondary';
+      });
+      loadSubmissionsList(1);
+    }
+
+    function debouncedSubSearch() {
+      clearTimeout(subSearchTimer);
+      subSearchTimer = setTimeout(() => loadSubmissionsList(1), 250);
+    }
+
+    async function loadSubmissionsList(page = 1) {
+      currentSubPage = Math.max(1, page);
+      const search = document.getElementById('sub-search').value.trim();
+      const params = new URLSearchParams({ status: currentSubStatus, page: currentSubPage, limit: 25, search });
+
+      try {
+        const res = await fetch(`${API_BASE}/task-submissions?${params.toString()}`, { headers: getHeaders() });
+        const data = await res.json();
+        const list = data.submissions || [];
         const tbody = document.querySelector("#submissions-table tbody");
 
-        if (!list || list.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No ${status} submissions.</td></tr>`;
+        if (list.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No ${esc(currentSubStatus)} submissions.</td></tr>`;
+          renderPagination('submissions-pagination', 1, 1, 0, 'loadSubmissionsList');
           return;
         }
 
@@ -734,34 +1395,35 @@
         for (let i = 0; i < list.length; i++) {
           const s = list[i];
           const thumb = s.screenshot_path
-            ? `<img src="${s.screenshot_path}" class="proof-thumb" onclick="openImageModal('${s.screenshot_path}')">`
+            ? `<img src="${esc(s.screenshot_path)}" class="proof-thumb" onclick="openImageModal('${esc(s.screenshot_path)}')">`
             : 'None';
 
           const action = s.status === 'pending'
             ? `<button class="btn-action btn-act-coins" onclick="approveSubmission(${s.id})">Approve</button>
                <button class="btn-action btn-act-danger" onclick="rejectSubmission(${s.id})">Reject</button>`
-            : `<span style="font-size:11px;">${s.status}</span>`;
+            : `<span style="font-size:11px; color:var(--text-muted);">${esc(s.rejection_reason || s.status)}</span>`;
 
           html += `
             <tr>
               <td>#${s.id}</td>
-              <td><strong>@${s.username}</strong></td>
-              <td>${s.task_title}</td>
-              <td>${s.proof_text || ''}</td>
+              <td><strong>@${esc(s.username)}</strong></td>
+              <td>${esc(s.task_title)}</td>
+              <td>${esc(s.proof_text || '')}</td>
               <td>${thumb}</td>
-              <td><span class="badge ${s.status === 'approved' ? 'badge-active' : (s.status === 'rejected' ? 'badge-rejected' : 'badge-pending')}">${s.status}</span></td>
+              <td><span class="badge ${s.status === 'approved' ? 'badge-active' : (s.status === 'rejected' ? 'badge-rejected' : 'badge-pending')}">${esc(s.status)}</span></td>
               <td style="white-space:nowrap;">${action}</td>
             </tr>
           `;
         }
         tbody.innerHTML = html;
+        renderPagination('submissions-pagination', data.page, data.totalPages, data.total, 'loadSubmissionsList');
       } catch (_) {}
     }
 
     async function approveSubmission(id) {
       const res = await fetch(`${API_BASE}/task-submissions/${id}/approve`, { method: "POST", headers: getHeaders() });
       if ((await res.json()).success) {
-        loadSubmissionsList('pending');
+        loadSubmissionsList(currentSubPage);
         loadDashboardStats();
       }
     }
@@ -775,41 +1437,60 @@
         body: JSON.stringify({ reason })
       });
       if ((await res.json()).success) {
-        loadSubmissionsList('pending');
+        loadSubmissionsList(currentSubPage);
         loadDashboardStats();
       }
     }
 
-    // Withdrawals
-    async function loadWithdrawals() {
-      try {
-        const res = await fetch(`${API_BASE}/withdrawals`, { headers: getHeaders() });
-        const list = await res.json();
-        const tbody = document.querySelector("#withdrawals-table tbody");
-        const pending = list.filter(w => w.status === 'PENDING');
+    // =========================================================================
+    // WITHDRAWALS (PAGINATED)
+    // =========================================================================
+    function debouncedWithdrawalsSearch() {
+      clearTimeout(wdSearchTimer);
+      wdSearchTimer = setTimeout(() => loadWithdrawals(1), 250);
+    }
 
-        if (pending.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No pending redemptions.</td></tr>`;
+    async function loadWithdrawals(page = 1) {
+      currentWithdrawalsPage = Math.max(1, page);
+      const status = document.getElementById('wd-status-filter').value;
+      const search = document.getElementById('wd-search').value.trim();
+      const params = new URLSearchParams({ status, page: currentWithdrawalsPage, limit: 25, search });
+
+      try {
+        const res = await fetch(`${API_BASE}/withdrawals?${params.toString()}`, { headers: getHeaders() });
+        const data = await res.json();
+        const list = data.withdrawals || [];
+        const tbody = document.querySelector("#withdrawals-table tbody");
+
+        if (list.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No withdrawals found.</td></tr>`;
+          renderPagination('withdrawals-pagination', 1, 1, 0, 'loadWithdrawals');
           return;
         }
 
         let html = '';
-        for (let i = 0; i < pending.length; i++) {
-          const w = pending[i];
+        for (let i = 0; i < list.length; i++) {
+          const w = list[i];
+          const badgeClass = w.status === 'APPROVED' ? 'badge-active' : (w.status === 'REJECTED' ? 'badge-rejected' : 'badge-pending');
+          const decision = w.status === 'PENDING'
+            ? `<button class="btn-action btn-act-coins" onclick="resolveWithdrawal(${w.id}, 'APPROVED')">Approve</button>
+               <button class="btn-action btn-act-danger" onclick="resolveWithdrawal(${w.id}, 'REJECTED')">Reject</button>`
+            : `<span style="font-size:11px; color:var(--text-muted);">Resolved</span>`;
+
           html += `
             <tr>
-              <td><strong>@${w.username}</strong></td>
-              <td>${w.payment_method}: ${w.account_info}</td>
-              <td style="color:var(--primary); font-weight:800;">${w.coin_amount.toLocaleString()}</td>
+              <td>#${w.id}</td>
+              <td><strong>@${esc(w.username)}</strong></td>
+              <td>${esc(w.payment_method)}: ${esc(w.account_info)}</td>
+              <td style="color:var(--primary); font-weight:800;">${(w.coin_amount || 0).toLocaleString()}</td>
               <td>रू ${w.npr_amount || 0}</td>
-              <td style="white-space:nowrap;">
-                <button class="btn-action btn-act-coins" onclick="resolveWithdrawal(${w.id}, 'APPROVED')">Approve</button>
-                <button class="btn-action btn-act-danger" onclick="resolveWithdrawal(${w.id}, 'REJECTED')">Reject</button>
-              </td>
+              <td><span class="badge ${badgeClass}">${esc(w.status)}</span></td>
+              <td style="white-space:nowrap;">${decision}</td>
             </tr>
           `;
         }
         tbody.innerHTML = html;
+        renderPagination('withdrawals-pagination', data.page, data.totalPages, data.total, 'loadWithdrawals');
       } catch (_) {}
     }
 
@@ -820,12 +1501,14 @@
         body: JSON.stringify({ status })
       });
       if ((await res.json()).success) {
-        loadWithdrawals();
+        loadWithdrawals(currentWithdrawalsPage);
         loadDashboardStats();
       }
     }
 
-    // Gateways
+    // =========================================================================
+    // GATEWAYS, TASKS & CONFIG
+    // =========================================================================
     async function loadPaymentMethods() {
       try {
         const res = await fetch(`${API_BASE}/payment-methods`, { headers: getHeaders() });
@@ -835,11 +1518,11 @@
         paymentMethodsList.forEach((m, idx) => {
           html += `
             <tr>
-              <td style="font-size:18px;">${m.icon || '🪙'}</td>
-              <td><strong>${m.id}</strong></td>
-              <td>${m.name}</td>
+              <td style="font-size:18px;">${esc(m.icon || '🪙')}</td>
+              <td><strong>${esc(m.id)}</strong></td>
+              <td>${esc(m.name)}</td>
               <td>${(m.min || 5000).toLocaleString()}</td>
-              <td>${m.label || m.name}</td>
+              <td>${esc(m.label || m.name)}</td>
               <td><button class="btn-action btn-act-danger" onclick="deleteMethod(${idx})">Del</button></td>
             </tr>
           `;
@@ -875,7 +1558,6 @@
       loadPaymentMethods();
     }
 
-    // Tasks Management
     async function loadTasksList() {
       try {
         const res = await fetch(`${API_BASE}/tasks`, { headers: getHeaders() });
@@ -886,10 +1568,10 @@
           html += `
             <tr>
               <td>#${t.id}</td>
-              <td><strong>${t.title}</strong></td>
+              <td><strong>${esc(t.title)}</strong></td>
               <td style="color:var(--primary); font-weight:800;">+${t.reward_coins}</td>
-              <td>${t.proof_type}</td>
-              <td>${t.action_url ? `<a href="${t.action_url}" target="_blank" style="color:var(--info);">Open ↗</a>` : 'None'}</td>
+              <td>${esc(t.proof_type)}</td>
+              <td>${t.action_url ? `<a href="${esc(t.action_url)}" target="_blank" style="color:var(--info);">Open ↗</a>` : 'None'}</td>
               <td><span class="badge ${t.is_active === 1 ? 'badge-active' : 'badge-banned'}">${t.is_active === 1 ? 'Active' : 'Off'}</span></td>
               <td style="white-space:nowrap;">
                 <button class="btn-action btn-act-gray" onclick="toggleTask(${t.id}, ${t.is_active === 1 ? 0 : 1})">${t.is_active === 1 ? 'Disable' : 'Enable'}</button>
@@ -918,7 +1600,9 @@
       });
       if ((await res.json()).success) {
         alert("Task published!");
+        e.target.reset();
         loadTasksList();
+        loadDashboardStats();
       }
     }
 
@@ -937,7 +1621,6 @@
       loadTasksList();
     }
 
-    // Config
     async function loadConfig() {
       try {
         const res = await fetch(`${API_BASE}/config`, { headers: getHeaders() });
@@ -961,24 +1644,76 @@
       if ((await res.json()).success) alert("Configuration saved!");
     }
 
-    // Admins
+    // =========================================================================
+    // MASTER ADMIN: ADMINS, ONLINE TIME & TOGGLE
+    // =========================================================================
     async function loadAdminUsersList() {
       try {
         const res = await fetch(`${API_BASE}/admins`, { headers: getHeaders() });
-        const admins = await res.json();
-        const tbody = document.querySelector("#admins-table tbody");
-        let html = '';
-        (admins || []).forEach(a => {
-          html += `
-            <tr>
-              <td><strong>@${a.username}</strong></td>
-              <td>${a.full_name || 'Admin'}</td>
-              <td>${a.username !== 'admin' ? `<button class="btn-action btn-act-danger" onclick="deleteAdmin('${a.username}')">Del</button>` : 'Root'}</td>
-            </tr>
-          `;
-        });
-        tbody.innerHTML = html;
+        if (!res.ok) return;
+        adminsCache = await res.json();
+        adminsLoadedAt = Date.now();
+        renderAdminsTable();
+
+        if (liveDurationTimer) clearInterval(liveDurationTimer);
+        liveDurationTimer = setInterval(() => {
+          if (activeTabId === 'tab-admins') renderAdminsTable();
+        }, 1000);
       } catch (_) {}
+    }
+
+    function renderAdminsTable() {
+      const tbody = document.querySelector("#admins-table tbody");
+      const extraSec = Math.floor((Date.now() - adminsLoadedAt) / 1000);
+      let html = '';
+
+      (adminsCache || []).forEach(a => {
+        const isOnline = a.is_online === 1;
+        const liveAdd = isOnline ? extraSec : 0;
+        const todayStr = formatDuration((a.daily_online_seconds || 0) + liveAdd);
+        const totalStr = formatDuration((a.total_online_seconds || 0) + liveAdd);
+
+        const statusBadge = isOnline
+          ? `<span class="badge badge-active">🟢 Online</span>`
+          : `<span class="badge badge-offline">⚪ Offline</span>`;
+
+        const toggleBtn = `<button class="btn-action ${isOnline ? 'btn-act-warn' : 'btn-act-coins'}" onclick="toggleOtherAdminStatus(${a.id}, ${!isOnline})">${isOnline ? 'Set Offline' : 'Set Online'}</button>`;
+        const pwBtn = `<button class="btn-action btn-act-pass" onclick="changeAdminPassword('${esc(a.username)}')">PW</button>`;
+        const delBtn = a.username !== 'admin'
+          ? `<button class="btn-action btn-act-danger" onclick="deleteAdmin('${esc(a.username)}')">Del</button>`
+          : `<span class="badge badge-info">Root</span>`;
+
+        html += `
+          <tr>
+            <td>#${a.id}</td>
+            <td><strong>@${esc(a.username)}</strong></td>
+            <td>${esc(a.full_name || 'Admin')}</td>
+            <td>${statusBadge}</td>
+            <td style="color:var(--info); font-weight:700;">${todayStr}</td>
+            <td style="color:var(--primary); font-weight:800;">${totalStr}</td>
+            <td style="font-size:11px; color:var(--text-muted);">${formatDate(a.last_login_at)}</td>
+            <td><strong>${a.action_count || 0}</strong></td>
+            <td style="white-space:nowrap;">${toggleBtn} ${pwBtn} ${delBtn}</td>
+          </tr>
+        `;
+      });
+
+      tbody.innerHTML = html || `<tr><td colspan="9" style="text-align:center;">No admins found.</td></tr>`;
+    }
+
+    async function toggleOtherAdminStatus(adminId, wantOnline) {
+      const res = await fetch(`${API_BASE}/admins/${adminId}/status`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ is_online: wantOnline })
+      });
+      if ((await res.json()).success) {
+        if (currentAdmin && currentAdmin.id === adminId) {
+          currentAdmin.is_online = wantOnline;
+          applyAdminIdentityUI();
+        }
+        loadAdminUsersList();
+      }
     }
 
     async function handleCreateAdmin(e) {
@@ -988,19 +1723,116 @@
         headers: getHeaders(),
         body: JSON.stringify({
           username: document.getElementById('new-admin-user').value.trim(),
+          full_name: document.getElementById('new-admin-name').value.trim(),
           password: document.getElementById('new-admin-pass').value.trim()
         })
       });
-      if ((await res.json()).success) {
-        alert("Admin created!");
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message || "Admin created!");
+        e.target.reset();
         loadAdminUsersList();
+      } else {
+        alert(data.error || "Failed to create admin");
       }
+    }
+
+    async function changeAdminPassword(username) {
+      const pw = prompt(`New password for admin @${username} (min 6 chars):`);
+      if (!pw || pw.trim().length < 6) return alert("Password must be at least 6 characters");
+      const res = await fetch(`${API_BASE}/admins/password`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ username, password: pw.trim() })
+      });
+      const data = await res.json();
+      if (data.success) alert(data.message || 'Password updated');
+      else alert(data.error || 'Failed');
     }
 
     async function deleteAdmin(u) {
       if (!confirm(`Delete admin @${u}?`)) return;
-      await fetch(`${API_BASE}/admins/delete`, { method: "POST", headers: getHeaders(), body: JSON.stringify({ username: u }) });
+      await fetch(`${API_BASE}/admins/delete`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ username: u })
+      });
       loadAdminUsersList();
+    }
+
+    // =========================================================================
+    // MASTER ADMIN: ACTIVITY LOGS (PAGINATED)
+    // =========================================================================
+    function debouncedLogsSearch() {
+      clearTimeout(logsSearchTimer);
+      logsSearchTimer = setTimeout(() => loadActivityLogs(1), 250);
+    }
+
+    async function loadActivityLogs(page = 1) {
+      currentLogsPage = Math.max(1, page);
+      const admin_username = document.getElementById('logs-admin-filter').value;
+      const action_type = document.getElementById('logs-action-filter').value;
+      const search = document.getElementById('logs-search').value.trim();
+
+      const params = new URLSearchParams({
+        page: currentLogsPage,
+        limit: 25,
+        admin_username,
+        action_type,
+        search
+      });
+
+      try {
+        const res = await fetch(`${API_BASE}/activity-logs?${params.toString()}`, { headers: getHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Populate admin filter dropdown once
+        const adminSelect = document.getElementById('logs-admin-filter');
+        if (Array.isArray(data.adminsList) && adminSelect.options.length <= 1) {
+          data.adminsList.forEach(uname => {
+            const opt = document.createElement('option');
+            opt.value = uname;
+            opt.textContent = `@${uname}`;
+            adminSelect.appendChild(opt);
+          });
+        }
+
+        const logs = data.logs || [];
+        const tbody = document.querySelector("#activity-logs-table tbody");
+
+        if (logs.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No activity logs match your filter.</td></tr>`;
+          renderPagination('logs-pagination', 1, 1, 0, 'loadActivityLogs');
+          return;
+        }
+
+        let html = '';
+        for (let i = 0; i < logs.length; i++) {
+          const l = logs[i];
+          let badgeCls = 'badge-info';
+          if (l.action_type.includes('APPROVED') || l.action_type.includes('ONLINE') || l.action_type.includes('CREATED')) {
+            badgeCls = 'badge-active';
+          } else if (l.action_type.includes('REJECTED') || l.action_type.includes('BANNED') || l.action_type.includes('DELETED') || l.action_type.includes('OFFLINE')) {
+            badgeCls = 'badge-banned';
+          } else if (l.action_type.includes('COINS') || l.action_type.includes('PASSWORD')) {
+            badgeCls = 'badge-pending';
+          }
+
+          html += `
+            <tr>
+              <td>#${l.id}</td>
+              <td style="font-size:11px; color:var(--text-muted); white-space:nowrap;">${formatDate(l.created_at)}</td>
+              <td><strong>@${esc(l.admin_username)}</strong> ${l.admin_id ? `<span style="color:var(--text-muted); font-size:10px;">(#${l.admin_id})</span>` : ''}</td>
+              <td><span class="badge ${badgeCls}">${esc(l.action_type)}</span></td>
+              <td>${esc(l.target_label || l.target_id || '—')}</td>
+              <td style="max-width:340px;">${esc(l.details || '')}</td>
+            </tr>
+          `;
+        }
+        tbody.innerHTML = html;
+        renderPagination('logs-pagination', data.page, data.totalPages, data.total, 'loadActivityLogs');
+      } catch (_) {}
     }
 
     checkSession();
