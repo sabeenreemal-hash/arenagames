@@ -112,6 +112,7 @@ db.serialize(() => {
   // Column safety migrations for Users
   addColumnIfNotExists('users', 'total_coins_earned', 'INTEGER', 100);
   addColumnIfNotExists('users', 'weekly_coins', 'INTEGER', 0, () => {
+    // Ensure trigger + index are created ONLY after weekly_coins column exists
     db.run(`
       CREATE TRIGGER IF NOT EXISTS trg_sync_weekly_coins
       AFTER UPDATE OF total_coins_earned ON users
@@ -171,7 +172,7 @@ db.serialize(() => {
   `, () => {});
 
   db.run(`
-    INSERT OR IGNORE INTO badges (id, name, icon_url, is_enabled) 
+    INSERT OR IGNORE INTO badges (id, name, icon_url, is_enabled)
     VALUES (1, 'Official Creator', 'https://cdn-icons-png.flaticon.com/512/7653/7653930.png', 1)
   `, () => {});
 
@@ -455,13 +456,11 @@ db.serialize(() => {
 
   addColumnIfNotExists('user_game_data', 'level', 'INTEGER', 1);
   addColumnIfNotExists('user_game_data', 'data', 'TEXT', "'{}'");
-  addColumnIfNotExists('user_game_data', 'updated_at', 'TEXT', 'NULL');
+  addColumnIfNotExists('user_game_data', 'updated_at', 'DATETIME', 'CURRENT_TIMESTAMP');
 
   // Register Allowed Games
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)`, () => {});
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('tictactoe_1v1', '1v1 Tic-Tac-Toe', 50000, 1.0, 1)`, () => {});
-  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('rps_1v1', '1v1 Rock Paper Scissors', 50000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('mines', 'Mines Puzzle', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('color_tap', 'Color Tap Challenge', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memory_match', 'Memory Match', 5000, 1.0, 1)`, () => {});
@@ -500,9 +499,9 @@ db.serialize(() => {
   db.run(`UPDATE tasks SET is_active = 1 WHERE is_active IS NULL;`, () => {});
 
   db.run(`
-    UPDATE task_submissions 
+    UPDATE task_submissions
     SET screenshot_path = '/uploads/task_proofs/' || substr(screenshot_path, instr(screenshot_path, 'proof_'))
-    WHERE screenshot_path LIKE '%proof_%' 
+    WHERE screenshot_path LIKE '%proof_%'
       AND screenshot_path NOT LIKE '/uploads/task_proofs/%';
   `, () => {});
 });
