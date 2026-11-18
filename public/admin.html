@@ -250,7 +250,7 @@
       border: 1px solid var(--border);
       border-radius: 14px;
       width: 100%;
-      max-width: 900px;
+      max-width: 960px;
       max-height: 88vh;
       display: flex;
       flex-direction: column;
@@ -299,7 +299,10 @@
           <h3 id="ref-modal-title" style="font-size:15px; font-weight:800;">Referred Players</h3>
           <p id="ref-modal-subtitle" style="font-size:12px; color:var(--text-muted); margin-top:2px;"></p>
         </div>
-        <button class="btn btn-secondary" onclick="closeReferralModal()">✕ Close</button>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="ref-modal-delete-all-btn" class="btn btn-action btn-act-danger" style="padding:7px 11px; margin:0;" onclick="deleteAllReferralsForModal()">🗑 Delete All Referrals &amp; Clawback</button>
+          <button class="btn btn-secondary" onclick="closeReferralModal()">✕ Close</button>
+        </div>
       </div>
       <div class="modal-body">
         <div class="filter-toolbar" style="margin-bottom: 10px;">
@@ -316,6 +319,7 @@
                 <th>Streak</th>
                 <th>Status</th>
                 <th>Joined</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -394,10 +398,10 @@
         </li>
 
         <div class="nav-label master-only">Master Admin</div>
-        <li class="nav-item master-only" onclick="switchTab('tab-admins', this)">
+        <li class="nav-item master-only" id="nav-tab-admins" onclick="switchTab('tab-admins', this)">
           <span>🛡️</span><span>Admins & Online Time</span>
         </li>
-        <li class="nav-item master-only" onclick="switchTab('tab-activity-logs', this)">
+        <li class="nav-item master-only" id="nav-tab-logs" onclick="switchTab('tab-activity-logs', this)">
           <span>📜</span><span>Activity Logs</span>
         </li>
       </ul>
@@ -580,7 +584,7 @@
               <div>
                 <h2>Referral Network</h2>
                 <p id="referrals-summary-text" style="font-size:12px; color:var(--text-muted); margin-top:2px;">
-                  See who referred how many players and inspect their referred users.
+                  View referred users or delete referrals and claw back commission + 100 bonus coins per referral.
                 </p>
               </div>
               <div class="filter-toolbar">
@@ -601,9 +605,10 @@
                     <th>Referral Code</th>
                     <th>Total Referred</th>
                     <th>Active Referred</th>
+                    <th>Ref Tx Coins</th>
                     <th>Referrer Balance</th>
                     <th>Last Referral</th>
-                    <th>Action</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -705,7 +710,7 @@
               <div>
                 <h2>Admin Credentials & Online Time</h2>
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">
-                  Monitor each admin's online/offline status, total online time, and toggle their status.
+                  Monitor each admin's online/offline status, online time, change passwords, or view their activity logs.
                 </p>
               </div>
               <button class="btn btn-secondary" onclick="loadAdminUsersList()" style="font-size: 11px;">🔄 Reload Admins</button>
@@ -738,7 +743,7 @@
               <div>
                 <h2>Admin Activity Logs</h2>
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">
-                  Audit every task approval/rejection, coin edit, password change, ban, withdrawal, and login.
+                  Audit every task approval/rejection, coin edit, password change, referral deletion, ban, withdrawal, and login.
                 </p>
               </div>
               <div class="filter-toolbar">
@@ -750,15 +755,25 @@
                   <option value="ALL">All Actions</option>
                   <option value="TASK_APPROVED">Task Approved</option>
                   <option value="TASK_REJECTED">Task Rejected</option>
-                  <option value="USER_COINS_CHANGED">Coin Changed</option>
+                  <option value="TASK_CREATED">Task Created</option>
+                  <option value="TASK_UPDATED">Task Updated</option>
+                  <option value="TASK_DELETED">Task Deleted</option>
+                  <option value="USER_COINS_CHANGED">User Coin Changed</option>
                   <option value="USER_PASSWORD_CHANGED">User PW Changed</option>
                   <option value="USER_BANNED">User Banned</option>
                   <option value="USER_UNBANNED">User Unbanned</option>
                   <option value="USER_DELETED">User Deleted</option>
+                  <option value="REFERRALS_PURGED">All Referrals Deleted</option>
+                  <option value="REFERRAL_USER_DELETED">Referred User Deleted</option>
                   <option value="WITHDRAWAL_APPROVED">Withdrawal Approved</option>
                   <option value="WITHDRAWAL_REJECTED">Withdrawal Rejected</option>
-                  <option value="TASK_CREATED">Task Created</option>
+                  <option value="GATEWAY_UPDATED">Gateway Updated</option>
+                  <option value="CONFIG_UPDATED">Config Updated</option>
+                  <option value="ADMIN_CREATED">Admin Created</option>
+                  <option value="ADMIN_PASSWORD_CHANGED">Admin PW Changed</option>
+                  <option value="ADMIN_DELETED">Admin Deleted</option>
                   <option value="ADMIN_LOGIN">Admin Login</option>
+                  <option value="ADMIN_LOGOUT">Admin Logout</option>
                   <option value="STATUS_ONLINE">Went Online</option>
                   <option value="STATUS_OFFLINE">Went Offline</option>
                 </select>
@@ -769,7 +784,7 @@
                 <thead>
                   <tr>
                     <th>ID</th>
-                    <th>Time (UTC/Local)</th>
+                    <th>Time</th>
                     <th>Admin</th>
                     <th>Action</th>
                     <th>Target</th>
@@ -802,6 +817,7 @@
     let currentUsersPage = 1;
     let currentReferralsPage = 1;
     let currentRefUsersReferrerId = null;
+    let currentRefUsersReferrerName = '';
     let currentRefUsersPage = 1;
     let currentSubStatus = 'pending';
     let currentSubPage = 1;
@@ -1154,7 +1170,7 @@
             ? `<span style="color:var(--info);">@${esc(u.referred_by_username)}</span>`
             : `<span style="color:var(--text-muted);">Direct</span>`;
           const refBtn = u.referral_count > 0
-            ? `<button class="btn-action btn-act-pass" onclick="openReferralModal(${u.id})">Refs (${u.referral_count})</button>`
+            ? `<button class="btn-action btn-act-pass" onclick="openReferralModal(${u.id}, '${esc(u.username)}')">Refs (${u.referral_count})</button>`
             : `<span style="color:var(--text-muted);">0</span>`;
 
           html += `
@@ -1243,7 +1259,7 @@
     }
 
     // =========================================================================
-    // REFERRALS SECTION (WHO REFERRED WHOM)
+    // REFERRALS SECTION (VIEW, DELETE ALL + CLAWBACK, DELETE SINGLE + CLAWBACK)
     // =========================================================================
     function debouncedReferralsSearch() {
       clearTimeout(refSearchTimer);
@@ -1266,7 +1282,7 @@
           `${(data.total || 0).toLocaleString()} referrers • ${(data.totalReferredUsers || 0).toLocaleString()} total referred players`;
 
         if (referrers.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No referral records found.</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted);">No referral records found.</td></tr>`;
           renderPagination('referrals-pagination', 1, 1, 0, 'loadReferralsList');
           return;
         }
@@ -1274,6 +1290,8 @@
         let html = '';
         for (let i = 0; i < referrers.length; i++) {
           const r = referrers[i];
+          const txCoins = Number(r.referral_tx_coins || 0);
+          const estBonus = Number(r.referral_count || 0) * 100;
           html += `
             <tr>
               <td>#${r.id}</td>
@@ -1281,10 +1299,12 @@
               <td><span class="badge badge-info">${esc(r.referral_code)}</span></td>
               <td style="color:var(--primary); font-weight:800;">${r.referral_count}</td>
               <td>${r.active_referrals || 0}</td>
+              <td><span style="color:var(--warning); font-weight:700;">${txCoins.toLocaleString()}</span><br><span style="font-size:10px; color:var(--text-muted);">Min Bonus: ${estBonus.toLocaleString()}</span></td>
               <td>${(r.balance || 0).toLocaleString()}</td>
               <td style="font-size:11px; color:var(--text-muted);">${formatDate(r.last_referral_at)}</td>
-              <td>
-                <button class="btn-action btn-act-pass" onclick="openReferralModal(${r.id})">View Referred Users (${r.referral_count})</button>
+              <td style="white-space:nowrap;">
+                <button class="btn-action btn-act-pass" onclick="openReferralModal(${r.id}, '${esc(r.username)}')">View (${r.referral_count})</button>
+                <button class="btn-action btn-act-danger" onclick="deleteAllReferrals(${r.id}, '${esc(r.username)}', ${r.referral_count})">Delete All</button>
               </td>
             </tr>
           `;
@@ -1294,8 +1314,45 @@
       } catch (_) {}
     }
 
-    function openReferralModal(referrerId) {
+    async function deleteAllReferrals(referrerId, username, count) {
+      const confirmInput = prompt(
+        `WARNING: This will permanently DELETE all ${count} referred users of @${username}, remove ALL their referral commission coins AND deduct ${count * 100} bonus coins (100/referral) from @${username}.\n\nType "${username}" to confirm:`
+      );
+      if (confirmInput !== username) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/referrals/${referrerId}/delete-all`, {
+          method: 'POST',
+          headers: getHeaders()
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(
+            `Done!\nDeleted Referred Users: ${data.deletedCount}\nCommission Removed: ${data.commissionRemoved} coins\nBonus Removed (100/ref): ${data.bonusRemoved} coins\nTotal Deducted from @${username}: ${data.totalClawback} coins`
+          );
+          closeReferralModal();
+          loadReferralsList(currentReferralsPage);
+          loadDashboardStats();
+          if (activeTabId === 'tab-users') loadUsersList(currentUsersPage);
+        } else {
+          alert(data.error || 'Failed to delete referrals');
+        }
+      } catch (_) {
+        alert('Server error while deleting referrals');
+      }
+    }
+
+    function deleteAllReferralsForModal() {
+      if (!currentRefUsersReferrerId) return;
+      const countText = document.getElementById('ref-modal-subtitle').innerText;
+      const m = countText.match(/Total Referred:\s*(\d+)/);
+      const count = m ? parseInt(m[1], 10) : 0;
+      deleteAllReferrals(currentRefUsersReferrerId, currentRefUsersReferrerName, count);
+    }
+
+    function openReferralModal(referrerId, referrerUsername = '') {
       currentRefUsersReferrerId = referrerId;
+      currentRefUsersReferrerName = referrerUsername;
       document.getElementById('ref-modal-search').value = '';
       document.getElementById('referral-modal').style.display = 'flex';
       loadReferredUsers(1);
@@ -1304,6 +1361,7 @@
     function closeReferralModal() {
       document.getElementById('referral-modal').style.display = 'none';
       currentRefUsersReferrerId = null;
+      currentRefUsersReferrerName = '';
     }
 
     function debouncedRefUsersSearch() {
@@ -1321,15 +1379,19 @@
         const res = await fetch(`${API_BASE}/referrals/${currentRefUsersReferrerId}/users?${params.toString()}`, { headers: getHeaders() });
         const data = await res.json();
         const ref = data.referrer || {};
+        currentRefUsersReferrerName = ref.username || currentRefUsersReferrerName;
         document.getElementById('ref-modal-title').innerText = `Users Referred by @${ref.username || currentRefUsersReferrerId}`;
         document.getElementById('ref-modal-subtitle').innerText =
-          `Referrer ID #${ref.id || currentRefUsersReferrerId} • Code: ${ref.referral_code || '—'} • Total Referred: ${data.total || 0}`;
+          `Referrer ID #${ref.id || currentRefUsersReferrerId} • Code: ${ref.referral_code || '—'} • Balance: ${(ref.balance || 0).toLocaleString()} • Total Referred: ${data.total || 0}`;
+
+        const delAllBtn = document.getElementById('ref-modal-delete-all-btn');
+        if (delAllBtn) delAllBtn.style.display = (data.total || 0) > 0 ? 'inline-flex' : 'none';
 
         const users = data.users || [];
         const tbody = document.querySelector("#ref-users-table tbody");
 
         if (users.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No referred users found.</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No referred users found.</td></tr>`;
           renderPagination('ref-users-pagination', 1, 1, 0, 'loadReferredUsers');
           return;
         }
@@ -1349,12 +1411,42 @@
               <td>🔥 ${u.current_streak || 0}d</td>
               <td>${statusBadge}</td>
               <td style="font-size:11px; color:var(--text-muted);">${formatDate(u.created_at)}</td>
+              <td style="white-space:nowrap;">
+                <button class="btn-action btn-act-danger" onclick="deleteSingleReferredUser(${u.id}, '${esc(u.username)}')">Delete + Clawback</button>
+              </td>
             </tr>
           `;
         }
         tbody.innerHTML = html;
         renderPagination('ref-users-pagination', data.page, data.totalPages, data.total, 'loadReferredUsers');
       } catch (_) {}
+    }
+
+    async function deleteSingleReferredUser(userId, username) {
+      if (!confirm(`Delete referred user @${username} and deduct 100 bonus coins + linked commission coins from @${currentRefUsersReferrerName}?`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/referrals/user/${userId}/delete`, {
+          method: 'POST',
+          headers: getHeaders()
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(
+            `Deleted @${data.deletedUsername}.\nRemoved ${data.bonusRemoved} bonus + ${data.commissionRemoved} commission = ${data.totalClawback} total coins from referrer.`
+          );
+          loadReferredUsers(currentRefUsersPage);
+          loadReferralsList(currentReferralsPage);
+          loadDashboardStats();
+          if (activeTabId === 'tab-users') loadUsersList(currentUsersPage);
+        } else {
+          alert(data.error || 'Failed to delete referred user');
+        }
+      } catch (_) {
+        alert('Server error deleting referred user');
+      }
     }
 
     // =========================================================================
@@ -1645,7 +1737,7 @@
     }
 
     // =========================================================================
-    // MASTER ADMIN: ADMINS, ONLINE TIME & TOGGLE
+    // MASTER ADMIN: ADMINS, ONLINE TIME, PASSWORD & JUMP TO ACTIVITY
     // =========================================================================
     async function loadAdminUsersList() {
       try {
@@ -1678,6 +1770,7 @@
           : `<span class="badge badge-offline">⚪ Offline</span>`;
 
         const toggleBtn = `<button class="btn-action ${isOnline ? 'btn-act-warn' : 'btn-act-coins'}" onclick="toggleOtherAdminStatus(${a.id}, ${!isOnline})">${isOnline ? 'Set Offline' : 'Set Online'}</button>`;
+        const activityBtn = `<button class="btn-action btn-act-gray" onclick="viewAdminActivity('${esc(a.username)}')">Activity</button>`;
         const pwBtn = `<button class="btn-action btn-act-pass" onclick="changeAdminPassword('${esc(a.username)}')">PW</button>`;
         const delBtn = a.username !== 'admin'
           ? `<button class="btn-action btn-act-danger" onclick="deleteAdmin('${esc(a.username)}')">Del</button>`
@@ -1693,12 +1786,31 @@
             <td style="color:var(--primary); font-weight:800;">${totalStr}</td>
             <td style="font-size:11px; color:var(--text-muted);">${formatDate(a.last_login_at)}</td>
             <td><strong>${a.action_count || 0}</strong></td>
-            <td style="white-space:nowrap;">${toggleBtn} ${pwBtn} ${delBtn}</td>
+            <td style="white-space:nowrap;">${toggleBtn} ${activityBtn} ${pwBtn} ${delBtn}</td>
           </tr>
         `;
       });
 
       tbody.innerHTML = html || `<tr><td colspan="9" style="text-align:center;">No admins found.</td></tr>`;
+    }
+
+    function viewAdminActivity(username) {
+      const navItem = document.getElementById('nav-tab-logs');
+      const select = document.getElementById('logs-admin-filter');
+      if (select) {
+        const exists = Array.from(select.options).some(o => o.value === username);
+        if (!exists) {
+          const opt = document.createElement('option');
+          opt.value = username;
+          opt.textContent = `@${username}`;
+          select.appendChild(opt);
+        }
+        select.value = username;
+      }
+      document.getElementById('logs-action-filter').value = 'ALL';
+      document.getElementById('logs-search').value = '';
+      currentLogsPage = 1;
+      switchTab('tab-activity-logs', navItem);
     }
 
     async function toggleOtherAdminStatus(adminId, wantOnline) {
@@ -1746,8 +1858,12 @@
         body: JSON.stringify({ username, password: pw.trim() })
       });
       const data = await res.json();
-      if (data.success) alert(data.message || 'Password updated');
-      else alert(data.error || 'Failed');
+      if (data.success) {
+        alert(data.message || 'Password updated');
+        loadAdminUsersList();
+      } else {
+        alert(data.error || 'Failed');
+      }
     }
 
     async function deleteAdmin(u) {
@@ -1787,15 +1903,19 @@
         if (!res.ok) return;
         const data = await res.json();
 
-        // Populate admin filter dropdown once
         const adminSelect = document.getElementById('logs-admin-filter');
-        if (Array.isArray(data.adminsList) && adminSelect.options.length <= 1) {
+        if (Array.isArray(data.adminsList)) {
+          const prevVal = adminSelect.value;
+          const existing = new Set(Array.from(adminSelect.options).map(o => o.value));
           data.adminsList.forEach(uname => {
-            const opt = document.createElement('option');
-            opt.value = uname;
-            opt.textContent = `@${uname}`;
-            adminSelect.appendChild(opt);
+            if (!existing.has(uname)) {
+              const opt = document.createElement('option');
+              opt.value = uname;
+              opt.textContent = `@${uname}`;
+              adminSelect.appendChild(opt);
+            }
           });
+          adminSelect.value = prevVal;
         }
 
         const logs = data.logs || [];
@@ -1813,7 +1933,7 @@
           let badgeCls = 'badge-info';
           if (l.action_type.includes('APPROVED') || l.action_type.includes('ONLINE') || l.action_type.includes('CREATED')) {
             badgeCls = 'badge-active';
-          } else if (l.action_type.includes('REJECTED') || l.action_type.includes('BANNED') || l.action_type.includes('DELETED') || l.action_type.includes('OFFLINE')) {
+          } else if (l.action_type.includes('REJECTED') || l.action_type.includes('BANNED') || l.action_type.includes('DELETED') || l.action_type.includes('PURGED') || l.action_type.includes('OFFLINE')) {
             badgeCls = 'badge-banned';
           } else if (l.action_type.includes('COINS') || l.action_type.includes('PASSWORD')) {
             badgeCls = 'badge-pending';
