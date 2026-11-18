@@ -11,8 +11,9 @@ const adminAuth = require('../middleware/adminAuth');
 const { creditReferralCommission } = require('../services/referralService');
 
 const JWT_ADMIN_SECRET = 'ARENA_GAMES_ADMIN_SECRET_KEY';
-const STALE_HEARTBEAT_MS = 5 * 60 * 1000; // 5 minutes without heartbeat -> auto-offline
-const MAX_HEARTBEAT_DELTA_SEC = 150; // cap per-interval accrual so sleep/idle isn't overcounted
+const STALE_HEARTBEAT_MS = 5 * 60 * 1000;
+const MAX_HEARTBEAT_DELTA_SEC = 150;
+const REFERRAL_SIGNUP_BONUS_COINS = 100;
 
 // Default payment methods seeded if none exists in database
 const DEFAULT_PAYMENT_METHODS = [
@@ -193,6 +194,12 @@ function expireStaleAdminSessions(callback) {
       );
     });
   });
+}
+
+function isSignupBonusTx(tx) {
+  const t = String(tx.type || '').toUpperCase();
+  const amt = Number(tx.amount || 0);
+  return amt === REFERRAL_SIGNUP_BONUS_COINS && (t.includes('BONUS') || t.includes('SIGNUP') || t === 'REFERRAL');
 }
 
 // ---------------------------------------------------------------------------
@@ -408,7 +415,6 @@ router.post('/login', (req, res) => {
 
     bcrypt.compare(password.trim(), storedHash, (cmpErr, isValid) => {
       if (cmpErr || !isValid) {
-        // Fallback check for plain text legacy passwords
         if (password.trim() === storedHash) {
           return completeAdminLogin(admin, res);
         }
@@ -674,7 +680,7 @@ router.get('/users', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// C2. Referrals Section (Referrer Leaderboard & Referred Users Breakdown)
+// C2. Referrals Section (Referrer List, View Referred Users, Delete & Clawback)
 // ---------------------------------------------------------------------------
 router.get('/referrals', adminAuth, (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -726,7 +732,13 @@ router.get('/referrals', adminAuth, (req, res) => {
           r.is_banned,
           COUNT(u.id) as referral_count,
           SUM(CASE WHEN u.is_banned = 0 THEN 1 ELSE 0 END) as active_referrals,
-          MAX(u.created_at) as last_referral_at
+          MAX(u.created_at) as last_referral_at,
+          (
+            SELECT COALESCE(SUM(t.amount), 0)
+            FROM transactions t
+            WHERE t.user_id = r.id
+              AND (UPPER(t.type) LIKE '%REFERRAL%' OR UPPER(t.type) LIKE '%COMMISSION%')
+          ) as referral_tx_coins
         FROM users r
         INNER JOIN users u ON u.referred_by_id = r.id
         ${whereSql}
@@ -803,6 +815,269 @@ router.get('/referrals/:referrerId/users', adminAuth, (req, res) => {
       });
     }
   );
+});
+
+// Delete ALL referred users of a referrer + remove all referral commission & 100-coin/referral bonus
+router.post('/referrals/:referrerId/delete-all', adminAuth, (req, res) => {
+  const referrerId = parseInt(req.params.referrerId, 10);
+  if (!referrerId) return res.status(400).json({ error: 'Invalid referrer ID' });
+
+  db.get('SELECT id, username, balance FROM users WHERE id = ?', [referrerId], (rErr, referrer) => {
+    if (rErr || !referrer) return res.status(404).json({ error: 'Referrer not found' });
+
+    db.all('SELECT id, username FROM users WHERE referred_by_id = ?', [referrerId], (uErr, referredUsers) => {
+      if (uErr) return res.status(500).json({ error: 'Failed to fetch referred users' });
+
+      const deletedCount = (referredUsers || []).length;
+      if (deletedCount === 0) {
+        return res.status(400).json({ error: 'This user has no referred users to delete' });
+      }
+
+      const referredIds = referredUsers.map(u => u.id);
+      const placeholders = referredIds.map(() => '?').join(',');
+
+      // Collect screenshots of referred users before deletion
+      db.all(
+        `SELECT screenshot_path FROM task_submissions WHERE user_id IN (${placeholders}) AND screenshot_path IS NOT NULL`,
+        referredIds,
+        (sErr, shotRows) => {
+          // Fetch all referral/commission transactions for the referrer
+          db.all(
+            `SELECT id, type, amount FROM transactions
+             WHERE user_id = ?
+               AND (UPPER(type) LIKE '%REFERRAL%' OR UPPER(type) LIKE '%COMMISSION%')`,
+            [referrerId],
+            (tErr, txRows) => {
+              if (tErr) return res.status(500).json({ error: 'Failed to read referral transactions' });
+
+              let bonusTxCoins = 0;
+              let commissionCoins = 0;
+              (txRows || []).forEach(tx => {
+                const amt = Math.max(0, Number(tx.amount || 0));
+                if (isSignupBonusTx(tx)) {
+                  bonusTxCoins += amt;
+                } else {
+                  commissionCoins += amt;
+                }
+              });
+
+              const perReferralBonus = deletedCount * REFERRAL_SIGNUP_BONUS_COINS;
+              const bonusRemoved = Math.max(perReferralBonus, bonusTxCoins);
+              const totalClawback = commissionCoins + bonusRemoved;
+
+              db.serialize(() => {
+                db.run('BEGIN TRANSACTION');
+
+                db.run(
+                  `DELETE FROM users WHERE referred_by_id = ?`,
+                  [referrerId],
+                  function (delErr) {
+                    if (delErr) {
+                      db.run('ROLLBACK');
+                      return res.status(500).json({ error: 'Failed to delete referred users' });
+                    }
+
+                    db.run(
+                      `DELETE FROM transactions
+                       WHERE user_id = ?
+                         AND (UPPER(type) LIKE '%REFERRAL%' OR UPPER(type) LIKE '%COMMISSION%')`,
+                      [referrerId],
+                      (txDelErr) => {
+                        if (txDelErr) {
+                          db.run('ROLLBACK');
+                          return res.status(500).json({ error: 'Failed to remove referral transactions' });
+                        }
+
+                        db.run(
+                          `UPDATE users
+                           SET balance = MAX(0, balance - ?),
+                               total_coins_earned = MAX(0, COALESCE(total_coins_earned, 0) - ?),
+                               weekly_coins = MAX(0, COALESCE(weekly_coins, 0) - ?)
+                           WHERE id = ?`,
+                          [totalClawback, totalClawback, totalClawback, referrerId],
+                          (balErr) => {
+                            if (balErr) {
+                              db.run('ROLLBACK');
+                              return res.status(500).json({ error: 'Failed to deduct referral coins from referrer' });
+                            }
+
+                            db.run('COMMIT', (cErr) => {
+                              if (cErr) {
+                                db.run('ROLLBACK');
+                                return res.status(500).json({ error: 'Transaction commit failed' });
+                              }
+
+                              if (Array.isArray(shotRows)) {
+                                shotRows.forEach(r => deleteScreenshotFile(r.screenshot_path));
+                              }
+
+                              logAdminActivity(
+                                req,
+                                'REFERRALS_PURGED',
+                                'referrer',
+                                referrerId,
+                                `@${referrer.username}`,
+                                `Deleted ${deletedCount} referred users; removed ${commissionCoins} commission + ${bonusRemoved} bonus = ${totalClawback} coins from @${referrer.username}`
+                              );
+
+                              res.json({
+                                success: true,
+                                deletedCount,
+                                commissionRemoved: commissionCoins,
+                                bonusRemoved,
+                                totalClawback
+                              });
+                            });
+                          }
+                        );
+                      }
+                    );
+                  }
+                );
+              });
+            }
+          );
+        }
+      );
+    });
+  });
+});
+
+// Delete a SINGLE referred user from View Referred Users + clawback 100 bonus & linked commissions from referrer
+router.post('/referrals/user/:userId/delete', adminAuth, (req, res) => {
+  const userId = parseInt(req.params.userId, 10);
+  if (!userId) return res.status(400).json({ error: 'Invalid user ID' });
+
+  db.get('SELECT id, username, email, referred_by_id FROM users WHERE id = ?', [userId], (uErr, targetUser) => {
+    if (uErr || !targetUser) return res.status(404).json({ error: 'Referred user not found' });
+
+    const referrerId = targetUser.referred_by_id;
+
+    db.all('SELECT id, screenshot_path FROM task_submissions WHERE user_id = ?', [userId], (sErr, subRows) => {
+      const subRefs = (subRows || []).map(r => `TASK_SUB_${r.id}`);
+      const shotPaths = (subRows || []).map(r => r.screenshot_path).filter(Boolean);
+
+      if (!referrerId) {
+        // User has no referrer; delete cleanly
+        return db.run('DELETE FROM users WHERE id = ?', [userId], (delErr) => {
+          if (delErr) return res.status(500).json({ error: 'Failed to delete user' });
+          shotPaths.forEach(deleteScreenshotFile);
+          logAdminActivity(req, 'REFERRAL_USER_DELETED', 'user', userId, `@${targetUser.username}`, 'Deleted user (no referrer)');
+          res.json({ success: true, deletedUsername: targetUser.username, commissionRemoved: 0, bonusRemoved: 0, totalClawback: 0 });
+        });
+      }
+
+      db.get('SELECT id, username FROM users WHERE id = ?', [referrerId], (rErr, referrer) => {
+        db.all(
+          `SELECT id, type, amount, reference_id FROM transactions
+           WHERE user_id = ?
+             AND (UPPER(type) LIKE '%REFERRAL%' OR UPPER(type) LIKE '%COMMISSION%')`,
+          [referrerId],
+          (tErr, txRows) => {
+            if (tErr) return res.status(500).json({ error: 'Failed to inspect referral transactions' });
+
+            const matchedCommissionTxIds = [];
+            let commissionRemoved = 0;
+            let singleBonusTxId = null;
+
+            const unameLower = String(targetUser.username || '').toLowerCase();
+            (txRows || []).forEach(tx => {
+              const ref = String(tx.reference_id || '');
+              const refLower = ref.toLowerCase();
+              const isLinkedToUser =
+                subRefs.includes(ref) ||
+                ref === String(userId) ||
+                refLower.includes(`user_${userId}`) ||
+                refLower.includes(`ref_${userId}`) ||
+                (unameLower && refLower.includes(unameLower));
+
+              if (isSignupBonusTx(tx)) {
+                if (!singleBonusTxId && (isLinkedToUser || !ref)) {
+                  singleBonusTxId = tx.id;
+                }
+              } else if (isLinkedToUser) {
+                matchedCommissionTxIds.push(tx.id);
+                commissionRemoved += Math.max(0, Number(tx.amount || 0));
+              }
+            });
+
+            const txIdsToDelete = [...matchedCommissionTxIds];
+            if (singleBonusTxId) txIdsToDelete.push(singleBonusTxId);
+
+            const bonusRemoved = REFERRAL_SIGNUP_BONUS_COINS;
+            const totalClawback = bonusRemoved + commissionRemoved;
+
+            db.serialize(() => {
+              db.run('BEGIN TRANSACTION');
+
+              db.run('DELETE FROM users WHERE id = ?', [userId], (delErr) => {
+                if (delErr) {
+                  db.run('ROLLBACK');
+                  return res.status(500).json({ error: 'Failed to delete referred user' });
+                }
+
+                const finishDeduction = () => {
+                  db.run(
+                    `UPDATE users
+                     SET balance = MAX(0, balance - ?),
+                         total_coins_earned = MAX(0, COALESCE(total_coins_earned, 0) - ?),
+                         weekly_coins = MAX(0, COALESCE(weekly_coins, 0) - ?)
+                     WHERE id = ?`,
+                    [totalClawback, totalClawback, totalClawback, referrerId],
+                    (balErr) => {
+                      if (balErr) {
+                        db.run('ROLLBACK');
+                        return res.status(500).json({ error: 'Failed to deduct coins from referrer' });
+                      }
+
+                      db.run('COMMIT', (cErr) => {
+                        if (cErr) {
+                          db.run('ROLLBACK');
+                          return res.status(500).json({ error: 'Transaction commit failed' });
+                        }
+
+                        shotPaths.forEach(deleteScreenshotFile);
+                        const refName = referrer ? `@${referrer.username}` : `Referrer #${referrerId}`;
+                        logAdminActivity(
+                          req,
+                          'REFERRAL_USER_DELETED',
+                          'user',
+                          userId,
+                          `@${targetUser.username}`,
+                          `Deleted referred user @${targetUser.username}; deducted ${bonusRemoved} bonus + ${commissionRemoved} commission = ${totalClawback} coins from ${refName}`
+                        );
+
+                        res.json({
+                          success: true,
+                          deletedUsername: targetUser.username,
+                          commissionRemoved,
+                          bonusRemoved,
+                          totalClawback
+                        });
+                      });
+                    }
+                  );
+                };
+
+                if (txIdsToDelete.length > 0) {
+                  const txPh = txIdsToDelete.map(() => '?').join(',');
+                  db.run(`DELETE FROM transactions WHERE id IN (${txPh})`, txIdsToDelete, (txDelErr) => {
+                    if (txDelErr) {
+                      db.run('ROLLBACK');
+                      return res.status(500).json({ error: 'Failed to remove referral transactions' });
+                    }
+                    finishDeduction();
+                  });
+                } else {
+                  finishDeduction();
+                }
+              });
+            });
+          }
+        );
+      });
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
