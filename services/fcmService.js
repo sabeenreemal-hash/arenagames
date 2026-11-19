@@ -2,14 +2,42 @@
 
 const fs = require('fs');
 const path = require('path');
-const admin = require('firebase-admin');
+const { initializeApp, getApps, cert } = require('firebase-admin/app');
 const { getMessaging } = require('firebase-admin/messaging');
 const db = require('../database');
 
 let isFcmInitialized = false;
 
+function getAdminSdkVersion() {
+  try {
+    return require('firebase-admin/package.json').version || '0.0.0';
+  } catch {
+    try {
+      return require('firebase-admin').SDK_VERSION || '0.0.0';
+    } catch {
+      return '0.0.0';
+    }
+  }
+}
+
+function supportsFidTargetField() {
+  try {
+    const parts = String(getAdminSdkVersion()).split('.');
+    const major = parseInt(parts[0], 10) || 0;
+    const minor = parseInt(parts[1], 10) || 0;
+    return major > 14 || (major === 14 && minor >= 1);
+  } catch {
+    return false;
+  }
+}
+
+function isFidString(val = '') {
+  const s = String(val).trim();
+  return s.length > 0 && !s.includes(':') && s.length <= 40;
+}
+
 function initFirebaseAdmin() {
-  if (isFcmInitialized || admin.apps.length > 0) {
+  if (isFcmInitialized || getApps().length > 0) {
     isFcmInitialized = true;
     return true;
   }
@@ -31,12 +59,12 @@ function initFirebaseAdmin() {
       return false;
     }
 
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+    initializeApp({
+      credential: cert(serviceAccount),
     });
 
     isFcmInitialized = true;
-    console.log('✅ [FCM] Firebase Admin SDK initialized successfully.');
+    console.log(`✅ [FCM] Firebase Admin SDK v${getAdminSdkVersion()} initialized.`);
     return true;
   } catch (err) {
     console.error('❌ [FCM] Failed to initialize Firebase Admin SDK:', err.message);
@@ -44,12 +72,12 @@ function initFirebaseAdmin() {
   }
 }
 
-// Initialize on module load
 initFirebaseAdmin();
 
 function isInvalidTokenError(code = '') {
   return (
     code === 'messaging/registration-token-not-registered' ||
+    code === 'messaging/installation-id-not-registered' ||
     code === 'messaging/invalid-registration-token' ||
     code === 'messaging/invalid-argument'
   );
@@ -62,7 +90,7 @@ function clearInvalidTokens(tokens = []) {
     `UPDATE users SET fcm_token = NULL WHERE fcm_token IN (${placeholders})`,
     tokens,
     (err) => {
-      if (err) console.error('[FCM] Failed clearing stale tokens:', err.message);
+      if (err) console.error('[FCM] Failed clearing stale tokens/FIDs:', err.message);
     }
   );
 }
@@ -77,9 +105,6 @@ function sanitizeDataPayload(data = {}) {
   return out;
 }
 
-/**
- * Send push notification to a single user by userId
- */
 async function sendToUser(userId, { title, body, data = {} }) {
   if (!initFirebaseAdmin()) {
     return { success: false, error: 'Firebase Admin SDK is not configured on server.' };
@@ -96,13 +121,15 @@ async function sendToUser(userId, { title, body, data = {} }) {
         if (!user.fcm_token || !user.fcm_token.trim()) {
           return resolve({
             success: false,
-            error: `User @${user.username} does not have an FCM token yet (user has not opened the updated app or denied notifications).`
+            error: `User @${user.username} does not have an FCM ID yet (user has not opened the updated app or denied notifications).`
           });
         }
 
-        const token = user.fcm_token.trim();
+        const targetId = user.fcm_token.trim();
+        const useFid = supportsFidTargetField() && isFidString(targetId);
+
         const message = {
-          token,
+          ...(useFid ? { fid: targetId } : { token: targetId }),
           notification: {
             title: String(title),
             body: String(body),
@@ -135,7 +162,7 @@ async function sendToUser(userId, { title, body, data = {} }) {
         } catch (sendErr) {
           const errCode = sendErr?.errorInfo?.code || sendErr?.code || '';
           if (isInvalidTokenError(errCode)) {
-            clearInvalidTokens([token]);
+            clearInvalidTokens([targetId]);
           }
           resolve({
             success: false,
@@ -150,10 +177,6 @@ async function sendToUser(userId, { title, body, data = {} }) {
   });
 }
 
-/**
- * Send push notification to multiple users based on audience filter
- * audience: 'all' | 'active_24h' | 'inactive_3d' | 'inactive_7d' | 'inactive_30d'
- */
 async function sendToAudience({ title, body, data = {}, audience = 'all' }) {
   if (!initFirebaseAdmin()) {
     return { success: false, error: 'Firebase Admin SDK is not configured on server.' };
@@ -183,14 +206,14 @@ async function sendToAudience({ title, body, data = {}, audience = 'all' }) {
           return resolve({ success: false, error: 'Database query failed' });
         }
 
-        const uniqueTokens = Array.from(
+        const uniqueIds = Array.from(
           new Set((rows || []).map((r) => r.fcm_token.trim()).filter(Boolean))
         );
 
-        if (uniqueTokens.length === 0) {
+        if (uniqueIds.length === 0) {
           return resolve({
             success: false,
-            error: 'No reachable users with valid FCM tokens match this audience.',
+            error: 'No reachable users with valid FCM IDs match this audience.',
             targetedCount: 0,
             successCount: 0,
             failureCount: 0,
@@ -199,35 +222,42 @@ async function sendToAudience({ title, body, data = {}, audience = 'all' }) {
 
         const messaging = getMessaging();
         const cleanData = sanitizeDataPayload(data);
-        const invalidTokens = [];
+        const canUseFidsField = supportsFidTargetField();
+        const invalidIds = [];
         let successCount = 0;
         let failureCount = 0;
 
-        // FCM sendEachForMulticast supports max 500 tokens per batch
         const BATCH_SIZE = 500;
-        for (let i = 0; i < uniqueTokens.length; i += BATCH_SIZE) {
-          const batch = uniqueTokens.slice(i, i + BATCH_SIZE);
-          try {
-            const response = await messaging.sendEachForMulticast({
-              tokens: batch,
+        for (let i = 0; i < uniqueIds.length; i += BATCH_SIZE) {
+          const batch = uniqueIds.slice(i, i + BATCH_SIZE);
+          const fidsBatch = canUseFidsField ? batch.filter(isFidString) : [];
+          const tokensBatch = canUseFidsField ? batch.filter((x) => !isFidString(x)) : batch;
+
+          const orderedTargets = [...tokensBatch, ...fidsBatch];
+          const payload = {
+            ...(tokensBatch.length > 0 ? { tokens: tokensBatch } : {}),
+            ...(fidsBatch.length > 0 ? { fids: fidsBatch } : {}),
+            notification: {
+              title: String(title),
+              body: String(body),
+            },
+            data: cleanData,
+            android: {
+              priority: 'high',
               notification: {
-                title: String(title),
-                body: String(body),
+                channelId: 'arena_games_high_importance',
+                sound: 'default',
               },
-              data: cleanData,
-              android: {
-                priority: 'high',
-                notification: {
-                  channelId: 'arena_games_high_importance',
-                  sound: 'default',
-                },
+            },
+            apns: {
+              payload: {
+                aps: { sound: 'default' },
               },
-              apns: {
-                payload: {
-                  aps: { sound: 'default' },
-                },
-              },
-            });
+            },
+          };
+
+          try {
+            const response = await messaging.sendEachForMulticast(payload);
 
             successCount += response.successCount || 0;
             failureCount += response.failureCount || 0;
@@ -236,7 +266,7 @@ async function sendToAudience({ title, body, data = {}, audience = 'all' }) {
               if (!resp.success && resp.error) {
                 const code = resp.error.code || '';
                 if (isInvalidTokenError(code)) {
-                  invalidTokens.push(batch[idx]);
+                  invalidIds.push(orderedTargets[idx]);
                 }
               }
             });
@@ -246,16 +276,16 @@ async function sendToAudience({ title, body, data = {}, audience = 'all' }) {
           }
         }
 
-        if (invalidTokens.length > 0) {
-          clearInvalidTokens(invalidTokens);
+        if (invalidIds.length > 0) {
+          clearInvalidTokens(invalidIds);
         }
 
         resolve({
           success: true,
-          targetedCount: uniqueTokens.length,
+          targetedCount: uniqueIds.length,
           successCount,
           failureCount,
-          cleanedInvalidTokens: invalidTokens.length,
+          cleanedInvalidTokens: invalidIds.length,
         });
       }
     );
