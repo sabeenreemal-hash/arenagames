@@ -882,12 +882,10 @@ router.post('/referrals/:referrerId/delete-all', adminAuth, (req, res) => {
       const referredIds = referredUsers.map(u => u.id);
       const placeholders = referredIds.map(() => '?').join(',');
 
-      // Collect screenshots of referred users before deletion
       db.all(
         `SELECT screenshot_path FROM task_submissions WHERE user_id IN (${placeholders}) AND screenshot_path IS NOT NULL`,
         referredIds,
         (sErr, shotRows) => {
-          // Fetch all referral/commission transactions for the referrer
           db.all(
             `SELECT id, type, amount FROM transactions
              WHERE user_id = ?
@@ -1941,7 +1939,7 @@ router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// K. Firebase Push Notifications (Stats, Send to Specific User, Send to All)
+// K. Firebase Push Notifications (Stats, FCM Users List, Send User & Broadcast)
 // ---------------------------------------------------------------------------
 router.get('/notifications/stats', adminAuth, (req, res) => {
   db.get(
@@ -1956,12 +1954,26 @@ router.get('/notifications/stats', adminAuth, (req, res) => {
       if (err) return res.status(500).json({ error: 'Failed to read notification stats' });
 
       db.all(
-        `SELECT * FROM push_notifications ORDER BY id DESC LIMIT 30`,
-        (hErr, history) => {
-          res.json({
-            stats: stats || { totalUsers: 0, fcmUsers: 0, active24h: 0, inactive3d: 0, inactive7d: 0 },
-            history: history || []
-          });
+        `SELECT id, username, full_name, email,
+                COALESCE(last_active_at, created_at) as last_active_at,
+                fcm_updated_at
+         FROM users
+         WHERE is_banned = 0
+           AND fcm_token IS NOT NULL
+           AND TRIM(fcm_token) != ''
+         ORDER BY datetime(COALESCE(fcm_updated_at, last_active_at, created_at)) DESC, id DESC
+         LIMIT 500`,
+        (uErr, fcmUsersList) => {
+          db.all(
+            `SELECT * FROM push_notifications ORDER BY id DESC LIMIT 30`,
+            (hErr, history) => {
+              res.json({
+                stats: stats || { totalUsers: 0, fcmUsers: 0, active24h: 0, inactive3d: 0, inactive7d: 0 },
+                fcmUsersList: fcmUsersList || [],
+                history: history || []
+              });
+            }
+          );
         }
       );
     }
@@ -2094,7 +2106,7 @@ router.post('/notifications/send-all', adminAuth, async (req, res) => {
 
   res.json({
     success: true,
-    message: `Sent to ${result.successCount} of ${result.targetedCount} devices (${result.failureCount} failed).`,
+    message: `Sent to ${result.successCount} of ${result.targetedCount} devices (${result.failureCount} failed).${result.firstError ? '\n\nReason: ' + result.firstError : ''}`,
     ...result
   });
 });
