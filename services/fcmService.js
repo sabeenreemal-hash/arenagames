@@ -2,27 +2,19 @@
 
 const fs = require('fs');
 const path = require('path');
-const { initializeApp, getApps, cert } = require('firebase-admin/app');
+const { initializeApp, getApps, cert, SDK_VERSION } = require('firebase-admin/app');
 const { getMessaging } = require('firebase-admin/messaging');
 const db = require('../database');
 
 let isFcmInitialized = false;
 
 function getAdminSdkVersion() {
-  try {
-    return require('firebase-admin/package.json').version || '0.0.0';
-  } catch {
-    try {
-      return require('firebase-admin').SDK_VERSION || '0.0.0';
-    } catch {
-      return '0.0.0';
-    }
-  }
+  return String(SDK_VERSION || '0.0.0');
 }
 
 function supportsFidTargetField() {
   try {
-    const parts = String(getAdminSdkVersion()).split('.');
+    const parts = getAdminSdkVersion().split('.');
     const major = parseInt(parts[0], 10) || 0;
     const minor = parseInt(parts[1], 10) || 0;
     return major > 14 || (major === 14 && minor >= 1);
@@ -64,7 +56,7 @@ function initFirebaseAdmin() {
     });
 
     isFcmInitialized = true;
-    console.log(`✅ [FCM] Firebase Admin SDK v${getAdminSdkVersion()} initialized.`);
+    console.log(`✅ [FCM] Firebase Admin SDK v${getAdminSdkVersion()} initialized (FID support: ${supportsFidTargetField()}).`);
     return true;
   } catch (err) {
     console.error('❌ [FCM] Failed to initialize Firebase Admin SDK:', err.message);
@@ -138,7 +130,6 @@ async function sendToUser(userId, { title, body, data = {} }) {
           android: {
             priority: 'high',
             notification: {
-              channelId: 'arena_games_high_importance',
               sound: 'default',
             },
           },
@@ -161,12 +152,14 @@ async function sendToUser(userId, { title, body, data = {} }) {
           });
         } catch (sendErr) {
           const errCode = sendErr?.errorInfo?.code || sendErr?.code || '';
+          const errMsg = sendErr?.errorInfo?.message || sendErr?.message || 'Failed to send FCM message';
+          console.error(`❌ [FCM sendToUser error] (${useFid ? 'fid' : 'token'}) [${errCode}]: ${errMsg}`);
           if (isInvalidTokenError(errCode)) {
             clearInvalidTokens([targetId]);
           }
           resolve({
             success: false,
-            error: sendErr.message || 'Failed to send FCM message',
+            error: `[${errCode}] ${errMsg}`,
             targetedCount: 1,
             successCount: 0,
             failureCount: 1,
@@ -226,6 +219,7 @@ async function sendToAudience({ title, body, data = {}, audience = 'all' }) {
         const invalidIds = [];
         let successCount = 0;
         let failureCount = 0;
+        let firstError = '';
 
         const BATCH_SIZE = 500;
         for (let i = 0; i < uniqueIds.length; i += BATCH_SIZE) {
@@ -245,7 +239,6 @@ async function sendToAudience({ title, body, data = {}, audience = 'all' }) {
             android: {
               priority: 'high',
               notification: {
-                channelId: 'arena_games_high_importance',
                 sound: 'default',
               },
             },
@@ -265,13 +258,17 @@ async function sendToAudience({ title, body, data = {}, audience = 'all' }) {
             (response.responses || []).forEach((resp, idx) => {
               if (!resp.success && resp.error) {
                 const code = resp.error.code || '';
+                const msg = resp.error.message || '';
+                console.error(`❌ [FCM multicast item error] [${code}]: ${msg}`);
+                if (!firstError) firstError = `[${code}] ${msg}`;
                 if (isInvalidTokenError(code)) {
                   invalidIds.push(orderedTargets[idx]);
                 }
               }
             });
           } catch (batchErr) {
-            console.error('[FCM] Batch multicast error:', batchErr.message);
+            console.error('❌ [FCM] Batch multicast error:', batchErr.message);
+            if (!firstError) firstError = batchErr.message;
             failureCount += batch.length;
           }
         }
@@ -285,6 +282,7 @@ async function sendToAudience({ title, body, data = {}, audience = 'all' }) {
           targetedCount: uniqueIds.length,
           successCount,
           failureCount,
+          firstError,
           cleanedInvalidTokens: invalidIds.length,
         });
       }
