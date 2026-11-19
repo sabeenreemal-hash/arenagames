@@ -4,9 +4,10 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
+const { getCommissionTier } = require('../services/referralService');
 
 // ---------------------------------------------------------------------------
-// 1. GET /api/referral - Fetch user stats, status, and referred list
+// 1. GET /api/referral - Fetch user stats, tier info, status, and referred list
 // ---------------------------------------------------------------------------
 router.get('/', authenticateToken, (req, res) => {
   const userId = req.user.id;
@@ -26,7 +27,6 @@ router.get('/', authenticateToken, (req, res) => {
         u.username, 
         u.full_name, 
         u.created_at,
-        COALESCE(u.total_coins_earned, 0) AS total_coins_earned,
         COALESCE((
           SELECT SUM(amount) 
           FROM transactions 
@@ -51,27 +51,29 @@ router.get('/', authenticateToken, (req, res) => {
          WHERE user_id = ? AND type = 'REFERRAL_COMMISSION'`,
         [userId],
         (commErr, commRow) => {
+          if (commErr) {
+            return res.status(500).json({ error: 'Failed to retrieve commission totals' });
+          }
+
           const totalComm = commRow ? commRow.total_commission : 0;
+          const tier = getCommissionTier(totalComm);
 
-          const referredUsers = (rows || []).map((r) => {
-            const calculatedComm = r.commission_earned > 0 
-              ? r.commission_earned 
-              : Math.floor(r.total_coins_earned * 0.10);
-
-            return {
-              id: r.id,
-              username: r.username,
-              fullName: r.full_name,
-              joinedAt: r.created_at,
-              commissionEarned: calculatedComm,
-            };
-          });
+          const referredUsers = (rows || []).map((r) => ({
+            id: r.id,
+            username: r.username,
+            fullName: r.full_name,
+            joinedAt: r.created_at,
+            commissionEarned: r.commission_earned || 0,
+          }));
 
           res.json({
             referralCode: user.referral_code,
-            hasReferrer: hasReferrer, // <-- Tells Flutter whether to hide the input box
+            hasReferrer: hasReferrer,
             totalReferred: referredUsers.length,
             totalCommission: totalComm,
+            commissionRate: tier.ratePercent,   // 10, 15, or 20
+            nextTierCoins: tier.nextTierCoins,  // 10000, 25000, or null
+            nextTierRate: tier.nextTierRate,    // 15, 20, or null
             referredUsers: referredUsers,
           });
         }
@@ -113,12 +115,12 @@ router.post('/apply', authenticateToken, (req, res) => {
         return res.status(404).json({ success: false, message: 'Invalid referral code' });
       }
 
-      const BONUS_COINS = 100; // Sign-up bonus
+      const BONUS_COINS = 100; // Sign-up bonus for the new user only
 
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        // Set referred_by_id and give 100 bonus coins to the new user
+        // Set referred_by_id and give 100 bonus coins ONLY to the new user (User 2)
         db.run(
           `UPDATE users 
            SET referred_by_id = ?, 
@@ -132,40 +134,30 @@ router.post('/apply', authenticateToken, (req, res) => {
               return res.status(500).json({ success: false, message: 'Failed to bind referral' });
             }
 
-            // Record transaction for current user
+            // Record transaction for current user (User 2)
             db.run(
               `INSERT INTO transactions (user_id, type, amount, reference_id) 
                VALUES (?, 'REFERRAL_BONUS', ?, ?)`,
-              [userId, BONUS_COINS, `REFERRED_BY_${referrer.id}`]
-            );
+              [userId, BONUS_COINS, `REFERRED_BY_${referrer.id}`],
+              (txErr) => {
+                if (txErr) {
+                  db.run('ROLLBACK');
+                  return res.status(500).json({ success: false, message: 'Failed to log bonus transaction' });
+                }
 
-            // Give 100 bonus coins to the referrer as well
-            db.run(
-              `UPDATE users 
-               SET balance = balance + ?, 
-                   total_coins_earned = COALESCE(total_coins_earned, 0) + ? 
-               WHERE id = ?`,
-              [BONUS_COINS, BONUS_COINS, referrer.id]
-            );
+                db.run('COMMIT', (commitErr) => {
+                  if (commitErr) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ success: false, message: 'Transaction error' });
+                  }
 
-            // Record transaction for referrer
-            db.run(
-              `INSERT INTO transactions (user_id, type, amount, reference_id) 
-               VALUES (?, 'REFERRAL_COMMISSION', ?, ?)`,
-              [referrer.id, BONUS_COINS, `USER_${userId}_SIGNUP`]
-            );
-
-            db.run('COMMIT', (commitErr) => {
-              if (commitErr) {
-                db.run('ROLLBACK');
-                return res.status(500).json({ success: false, message: 'Transaction error' });
+                  res.json({
+                    success: true,
+                    message: `Referral applied! +${BONUS_COINS} coins added to your wallet!`,
+                  });
+                });
               }
-
-              res.json({
-                success: true,
-                message: `Referral applied! +${BONUS_COINS} coins added to your wallet!`,
-              });
-            });
+            );
           }
         );
       });
