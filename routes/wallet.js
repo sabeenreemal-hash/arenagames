@@ -8,6 +8,7 @@ const { creditReferralCommission } = require('../services/referralService');
 
 // 7-day cooldown in milliseconds
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Conversion base for legacy support
 const CONVERSION_RATES = {
@@ -54,6 +55,18 @@ db.serialize(() => {
   db.run("ALTER TABLE withdrawals ADD COLUMN processed_at DATETIME", () => {});
   db.run("ALTER TABLE users ADD COLUMN last_withdrawal_at TEXT", () => {});
 });
+
+// Parse SQLite CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS") safely as UTC
+function parseDateUtc(val) {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
+    return new Date(s.replace(' ', 'T') + 'Z');
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
 
 // Helper: Safely insert withdrawal record regardless of older SQLite schema variations
 function insertWithdrawalRecord(userId, paymentMethod, accountInfo, coinAmount, nprAmount, usdAmount, callback) {
@@ -147,7 +160,7 @@ router.get('/payment-methods', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Fetch User Wallet Balance & Auto 100 Coins if 0 (Unlimited)
+// 2. Fetch User Wallet Balance & 7-Day Eligibility / Cooldown Timers
 // ---------------------------------------------------------------------------
 router.get('/', authenticateToken, (req, res) => {
   db.get(
@@ -186,21 +199,33 @@ router.get('/', authenticateToken, (req, res) => {
           let nextAvailableWithdrawal = null;
           let remainingMs = 0;
 
-          // Rule 1: Account age must be at least 7 days
-          if (user.created_at) {
-            const joinTime = new Date(user.created_at).getTime();
+          // Rule 1: Account age must be at least 7 days for first withdrawal
+          const joinDate = parseDateUtc(user.created_at);
+          let accountAgeMs = 0;
+          let isAccountAgeMet = true;
+          let firstWithdrawalUnlockAt = null;
+          let accountAgeRemainingMs = 0;
+
+          if (joinDate) {
+            const joinTime = joinDate.getTime();
+            accountAgeMs = Math.max(0, now - joinTime);
             const minAllowedTime = joinTime + SEVEN_DAYS_MS;
+            firstWithdrawalUnlockAt = new Date(minAllowedTime).toISOString();
+
             if (now < minAllowedTime) {
               canWithdraw = false;
-              remainingMs = minAllowedTime - now;
-              nextAvailableWithdrawal = new Date(minAllowedTime).toISOString();
+              isAccountAgeMet = false;
+              accountAgeRemainingMs = minAllowedTime - now;
+              remainingMs = accountAgeRemainingMs;
+              nextAvailableWithdrawal = firstWithdrawalUnlockAt;
               lockReason = 'ACCOUNT_AGE_RESTRICTION';
             }
           }
 
-          // Rule 2: 7-day cooldown from previous successful redemption
-          if (canWithdraw && user.last_withdrawal_at) {
-            const lastTime = new Date(user.last_withdrawal_at).getTime();
+          // Rule 2: 7-day cooldown from previous approved withdrawal
+          const lastWithdrawalDate = parseDateUtc(user.last_withdrawal_at);
+          if (canWithdraw && lastWithdrawalDate) {
+            const lastTime = lastWithdrawalDate.getTime();
             const nextUnlockTime = lastTime + SEVEN_DAYS_MS;
             if (now < nextUnlockTime) {
               canWithdraw = false;
@@ -217,6 +242,7 @@ router.get('/', authenticateToken, (req, res) => {
           }
 
           const conversions = convertCoins(currentBalance);
+          const accountAgeDays = Math.min(7, Math.floor(accountAgeMs / DAY_MS));
 
           res.json({
             balance: currentBalance,
@@ -227,7 +253,13 @@ router.get('/', authenticateToken, (req, res) => {
             has_pending: hasPending,
             pending_withdrawal: pendingWithdrawal || null,
             lock_reason: lockReason,
-            last_withdrawal_at: user.last_withdrawal_at,
+            created_at: joinDate ? joinDate.toISOString() : user.created_at,
+            account_age_days: accountAgeDays,
+            required_account_days: 7,
+            is_account_age_met: isAccountAgeMet,
+            first_withdrawal_unlock_at: firstWithdrawalUnlockAt,
+            account_age_remaining_ms: accountAgeRemainingMs,
+            last_withdrawal_at: lastWithdrawalDate ? lastWithdrawalDate.toISOString() : user.last_withdrawal_at,
             next_withdrawal_date: nextAvailableWithdrawal,
             cooldown_remaining_ms: remainingMs,
             tiers: REDEMPTION_TIERS
@@ -475,19 +507,21 @@ router.post('/redeem', authenticateToken, (req, res) => {
     const now = Date.now();
 
     // Account age check: at least 7 days
-    if (user.created_at) {
-      const joinTime = new Date(user.created_at).getTime();
+    const joinDate = parseDateUtc(user.created_at);
+    if (joinDate) {
+      const joinTime = joinDate.getTime();
       if (now - joinTime < SEVEN_DAYS_MS) {
-        const remainingDays = Math.ceil((joinTime + SEVEN_DAYS_MS - now) / (1000 * 60 * 60 * 24));
+        const remainingDays = Math.ceil((joinTime + SEVEN_DAYS_MS - now) / DAY_MS);
         return res.status(403).json({
           error: `New accounts must wait 7 days before making their first redemption. Available in ${remainingDays} day(s).`
         });
       }
     }
 
-    // Weekly cooldown check: at least 7 days from last successful redemption
-    if (user.last_withdrawal_at) {
-      const lastTime = new Date(user.last_withdrawal_at).getTime();
+    // Weekly cooldown check: at least 7 days from last approved redemption
+    const lastDate = parseDateUtc(user.last_withdrawal_at);
+    if (lastDate) {
+      const lastTime = lastDate.getTime();
       if (now - lastTime < SEVEN_DAYS_MS) {
         const remainingHours = Math.ceil((lastTime + SEVEN_DAYS_MS - now) / (1000 * 60 * 60));
         const remainingDays = Math.floor(remainingHours / 24);
