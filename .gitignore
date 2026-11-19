@@ -4,3 +4,4 @@ node_modules/
 *.db-wal
 *.backup
 uploads/
+firebase-service-account.json
