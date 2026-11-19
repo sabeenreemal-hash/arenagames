@@ -49,6 +49,7 @@ const leaderboardRoutes = require('./routes/leaderboard');
 const spinWheelRoutes = require('./routes/spinWheelRoutes');
 const tasksRoutes = require('./routes/tasks');
 const watchRoutes = require('./routes/watch');
+const html5Routes = require('./routes/html5Routes');
 
 // ==========================================
 // 3. Mount Routes
@@ -63,6 +64,7 @@ app.use('/api/leaderboard', leaderboardRoutes.router);
 app.use('/api/spin', spinWheelRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/watch', watchRoutes);
+app.use('/api/html5', html5Routes);
 
 // ==========================================
 // 4. Base & Health Check Endpoints
