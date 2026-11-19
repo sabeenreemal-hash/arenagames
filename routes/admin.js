@@ -9,6 +9,7 @@ const path = require('path');
 const db = require('../database');
 const adminAuth = require('../middleware/adminAuth');
 const { creditReferralCommission } = require('../services/referralService');
+const fcmService = require('../services/fcmService');
 
 const JWT_ADMIN_SECRET = 'ARENA_GAMES_ADMIN_SECRET_KEY';
 const STALE_HEARTBEAT_MS = 5 * 60 * 1000;
@@ -247,6 +248,23 @@ db.serialize(() => {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS push_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      admin_username TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_user_id INTEGER DEFAULT NULL,
+      target_label TEXT DEFAULT '',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      screen TEXT DEFAULT '',
+      targeted_count INTEGER DEFAULT 0,
+      success_count INTEGER DEFAULT 0,
+      failure_count INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_activity_logs(id DESC)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_admin ON admin_activity_logs(admin_username, id DESC)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_action ON admin_activity_logs(action_type, id DESC)`);
@@ -275,8 +293,11 @@ db.serialize(() => {
     }
   });
 
-  // Ensure ban_reason column exists on users table
+  // Ensure user ban, FCM, and activity columns exist
   addColumnSafe('users', 'ban_reason', 'TEXT', 'NULL');
+  addColumnSafe('users', 'fcm_token', 'TEXT', 'NULL');
+  addColumnSafe('users', 'fcm_updated_at', 'DATETIME', 'NULL');
+  addColumnSafe('users', 'last_active_at', 'DATETIME', 'NULL');
 });
 
 // ---------------------------------------------------------------------------
@@ -608,7 +629,7 @@ router.get('/dashboard', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// C. Users Registry (Server-Side Paginated for ALL Users)
+// C. Users Registry (Server-Side Paginated + Activity & FCM Status)
 // ---------------------------------------------------------------------------
 router.get('/users', adminAuth, (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -616,6 +637,8 @@ router.get('/users', adminAuth, (req, res) => {
   const offset = (page - 1) * limit;
   const search = (req.query.search || '').trim().toLowerCase();
   const statusFilter = (req.query.status || 'all').trim().toLowerCase();
+  const activityFilter = (req.query.activity || 'all').trim().toLowerCase();
+  const sortMode = (req.query.sort || 'newest').trim().toLowerCase();
 
   const whereParts = [];
   const params = [];
@@ -624,6 +647,20 @@ router.get('/users', adminAuth, (req, res) => {
     whereParts.push('u.is_banned = 0');
   } else if (statusFilter === 'banned') {
     whereParts.push('u.is_banned = 1');
+  }
+
+  if (activityFilter === 'online_now') {
+    whereParts.push(`datetime(COALESCE(u.last_active_at, u.created_at)) >= datetime('now', '-5 minutes')`);
+  } else if (activityFilter === 'active_24h') {
+    whereParts.push(`datetime(COALESCE(u.last_active_at, u.created_at)) >= datetime('now', '-1 day')`);
+  } else if (activityFilter === 'inactive_3d') {
+    whereParts.push(`datetime(COALESCE(u.last_active_at, u.created_at)) <= datetime('now', '-3 days')`);
+  } else if (activityFilter === 'inactive_7d') {
+    whereParts.push(`datetime(COALESCE(u.last_active_at, u.created_at)) <= datetime('now', '-7 days')`);
+  } else if (activityFilter === 'inactive_30d') {
+    whereParts.push(`datetime(COALESCE(u.last_active_at, u.created_at)) <= datetime('now', '-30 days')`);
+  } else if (activityFilter === 'fcm_ready') {
+    whereParts.push(`u.fcm_token IS NOT NULL AND TRIM(u.fcm_token) != ''`);
   }
 
   if (search) {
@@ -635,6 +672,13 @@ router.get('/users', adminAuth, (req, res) => {
       whereParts.push('(LOWER(u.username) LIKE ? OR LOWER(u.email) LIKE ? OR LOWER(u.full_name) LIKE ? OR LOWER(u.referral_code) LIKE ?)');
       params.push(like, like, like, like);
     }
+  }
+
+  let orderBySql = 'u.id DESC';
+  if (sortMode === 'most_inactive') {
+    orderBySql = 'datetime(COALESCE(u.last_active_at, u.created_at)) ASC, u.id DESC';
+  } else if (sortMode === 'recently_active') {
+    orderBySql = 'datetime(COALESCE(u.last_active_at, u.created_at)) DESC, u.id DESC';
   }
 
   const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
@@ -658,11 +702,13 @@ router.get('/users', adminAuth, (req, res) => {
         COALESCE(u.current_streak, 0) as current_streak,
         u.is_banned,
         u.ban_reason,
+        COALESCE(u.last_active_at, u.created_at) as last_active_at,
+        CASE WHEN u.fcm_token IS NOT NULL AND TRIM(u.fcm_token) != '' THEN 1 ELSE 0 END as has_fcm,
         u.created_at
       FROM users u
       LEFT JOIN users ref ON u.referred_by_id = ref.id
       ${whereSql}
-      ORDER BY u.id DESC
+      ORDER BY ${orderBySql}
       LIMIT ? OFFSET ?
     `;
 
@@ -958,7 +1004,6 @@ router.post('/referrals/user/:userId/delete', adminAuth, (req, res) => {
       const shotPaths = (subRows || []).map(r => r.screenshot_path).filter(Boolean);
 
       if (!referrerId) {
-        // User has no referrer; delete cleanly
         return db.run('DELETE FROM users WHERE id = ?', [userId], (delErr) => {
           if (delErr) return res.status(500).json({ error: 'Failed to delete user' });
           shotPaths.forEach(deleteScreenshotFile);
@@ -1893,6 +1938,165 @@ router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
       );
     }
   );
+});
+
+// ---------------------------------------------------------------------------
+// K. Firebase Push Notifications (Stats, Send to Specific User, Send to All)
+// ---------------------------------------------------------------------------
+router.get('/notifications/stats', adminAuth, (req, res) => {
+  db.get(
+    `SELECT
+       COUNT(*) as totalUsers,
+       SUM(CASE WHEN fcm_token IS NOT NULL AND TRIM(fcm_token) != '' AND is_banned = 0 THEN 1 ELSE 0 END) as fcmUsers,
+       SUM(CASE WHEN datetime(COALESCE(last_active_at, created_at)) >= datetime('now', '-1 day') THEN 1 ELSE 0 END) as active24h,
+       SUM(CASE WHEN datetime(COALESCE(last_active_at, created_at)) <= datetime('now', '-3 days') THEN 1 ELSE 0 END) as inactive3d,
+       SUM(CASE WHEN datetime(COALESCE(last_active_at, created_at)) <= datetime('now', '-7 days') THEN 1 ELSE 0 END) as inactive7d
+     FROM users`,
+    (err, stats) => {
+      if (err) return res.status(500).json({ error: 'Failed to read notification stats' });
+
+      db.all(
+        `SELECT * FROM push_notifications ORDER BY id DESC LIMIT 30`,
+        (hErr, history) => {
+          res.json({
+            stats: stats || { totalUsers: 0, fcmUsers: 0, active24h: 0, inactive3d: 0, inactive7d: 0 },
+            history: history || []
+          });
+        }
+      );
+    }
+  );
+});
+
+// Send FCM notification to a specific user (by ID or @username)
+router.post('/notifications/send-user', adminAuth, async (req, res) => {
+  const { userId, usernameOrId, title, body, screen } = req.body;
+
+  if (!title || !String(title).trim() || !body || !String(body).trim()) {
+    return res.status(400).json({ error: 'Notification title and message body are required' });
+  }
+
+  const lookupInput = String(userId || usernameOrId || '').trim().replace(/^@/, '');
+  if (!lookupInput) {
+    return res.status(400).json({ error: 'Target User ID or Username is required' });
+  }
+
+  const isNumeric = /^\d+$/.test(lookupInput);
+  const query = isNumeric
+    ? 'SELECT id, username FROM users WHERE id = ? LIMIT 1'
+    : 'SELECT id, username FROM users WHERE LOWER(username) = ? LIMIT 1';
+  const param = isNumeric ? parseInt(lookupInput, 10) : lookupInput.toLowerCase();
+
+  db.get(query, [param], async (err, user) => {
+    if (err || !user) {
+      return res.status(404).json({ error: `User "${lookupInput}" not found` });
+    }
+
+    const cleanTitle = String(title).trim();
+    const cleanBody = String(body).trim();
+    const cleanScreen = screen ? String(screen).trim() : '';
+    const actor = extractAdmin(req);
+
+    const result = await fcmService.sendToUser(user.id, {
+      title: cleanTitle,
+      body: cleanBody,
+      data: cleanScreen ? { screen: cleanScreen } : {}
+    });
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error || 'Failed to send notification' });
+    }
+
+    db.run(
+      `INSERT INTO push_notifications
+         (admin_username, target_type, target_user_id, target_label, title, body, screen, targeted_count, success_count, failure_count)
+       VALUES (?, 'USER', ?, ?, ?, ?, ?, 1, 1, 0)`,
+      [actor.username, user.id, `@${user.username} (#${user.id})`, cleanTitle, cleanBody, cleanScreen]
+    );
+
+    logAdminActivity(
+      req,
+      'NOTIFICATION_SENT_USER',
+      'user',
+      user.id,
+      `@${user.username}`,
+      `Sent FCM push: "${cleanTitle}"`
+    );
+
+    res.json({
+      success: true,
+      message: `Notification sent to @${user.username}!`,
+      result
+    });
+  });
+});
+
+// Send FCM notification to all users (or filtered by activity)
+router.post('/notifications/send-all', adminAuth, async (req, res) => {
+  const { title, body, screen, audience } = req.body;
+
+  if (!title || !String(title).trim() || !body || !String(body).trim()) {
+    return res.status(400).json({ error: 'Notification title and message body are required' });
+  }
+
+  const cleanTitle = String(title).trim();
+  const cleanBody = String(body).trim();
+  const cleanScreen = screen ? String(screen).trim() : '';
+  const cleanAudience = ['all', 'active_24h', 'inactive_3d', 'inactive_7d', 'inactive_30d'].includes(audience)
+    ? audience
+    : 'all';
+
+  const actor = extractAdmin(req);
+  const result = await fcmService.sendToAudience({
+    title: cleanTitle,
+    body: cleanBody,
+    data: cleanScreen ? { screen: cleanScreen } : {},
+    audience: cleanAudience
+  });
+
+  if (!result.success) {
+    return res.status(400).json({ error: result.error || 'Failed to send broadcast notification' });
+  }
+
+  const audienceLabels = {
+    all: 'All Users',
+    active_24h: 'Active (Last 24h)',
+    inactive_3d: 'Inactive 3+ Days',
+    inactive_7d: 'Inactive 7+ Days',
+    inactive_30d: 'Inactive 30+ Days'
+  };
+
+  db.run(
+    `INSERT INTO push_notifications
+       (admin_username, target_type, target_user_id, target_label, title, body, screen, targeted_count, success_count, failure_count)
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      actor.username,
+      cleanAudience.toUpperCase(),
+      audienceLabels[cleanAudience] || 'All Users',
+      cleanTitle,
+      cleanBody,
+      cleanScreen,
+      result.targetedCount,
+      result.successCount,
+      result.failureCount
+    ]
+  );
+
+  logAdminActivity(
+    req,
+    'NOTIFICATION_SENT_ALL',
+    'notification',
+    cleanAudience,
+    audienceLabels[cleanAudience],
+    `Broadcast "${cleanTitle}" → ${result.successCount}/${result.targetedCount} delivered`
+  );
+
+  res.json({
+    success: true,
+    message: `Sent to ${result.successCount} of ${result.targetedCount} devices (${result.failureCount} failed).`,
+    ...result
+  });
 });
 
 module.exports = router;
