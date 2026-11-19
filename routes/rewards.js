@@ -6,6 +6,16 @@ const db = require('../database');
 const authenticateToken = require('../middleware/auth');
 const { getLeaderboardHandler } = require('./leaderboard');
 
+// Ensure last_bonus_claim_date column exists in users table
+db.run(
+  "ALTER TABLE users ADD COLUMN last_bonus_claim_date TEXT DEFAULT ''",
+  (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('[REWARDS DB INIT]', err.message);
+    }
+  }
+);
+
 const STONE_TIERS = [
   { rank: 7, name: 'RUBY', days: 100, bonus: 500 },
   { rank: 6, name: 'DIAMOND', days: 75, bonus: 400 },
@@ -138,10 +148,12 @@ router.get('/status', authenticateToken, (req, res) => {
         return res.status(500).json({ error: 'Streak calculation failed' });
       }
 
+      const today = getTodayStr();
       const currentStreak = updatedUser.current_streak || 0;
       const isStreakProtectedToday = (updatedUser.eligible_daily_coins || 0) >= 100;
       const activeStone = getStoneBadge(currentStreak);
       const nextStone = getNextStoneBadge(currentStreak);
+      const isDailyBonusClaimed = updatedUser.last_bonus_claim_date === today;
 
       res.json({
         currentStreak,
@@ -151,13 +163,100 @@ router.get('/status', authenticateToken, (req, res) => {
         nextStone,
         dailyEligibleCoins: updatedUser.eligible_daily_coins || 0,
         isStreakProtectedToday,
+        isDailyBonusClaimed,
       });
     });
   });
 });
 
 // ---------------------------------------------------------------------------
-// 2. GET /api/rewards/leaderboard
+// 2. POST /api/rewards/claim-daily-bonus
+// Credits today's Stone Badge daily streak bonus to the user's wallet
+// ---------------------------------------------------------------------------
+router.post('/claim-daily-bonus', authenticateToken, (req, res) => {
+  const userId = req.user && req.user.id ? req.user.id : null;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized: User identity missing' });
+  }
+
+  db.get('SELECT * FROM users WHERE id = ?', [userId], (err, user) => {
+    if (err) {
+      console.error('[REWARDS DB ERROR] Claim query failed:', err.message);
+      return res.status(500).json({ error: 'Database query failed' });
+    }
+    if (!user) {
+      return res.status(404).json({ error: 'User profile not found' });
+    }
+
+    evaluateAndSyncUserStreak(user, (evalErr, updatedUser) => {
+      if (evalErr) {
+        return res.status(500).json({ error: 'Streak calculation failed' });
+      }
+
+      const today = getTodayStr();
+      const currentStreak = updatedUser.current_streak || 0;
+      const activeStone = getStoneBadge(currentStreak);
+      const isStreakProtectedToday = (updatedUser.eligible_daily_coins || 0) >= 100;
+
+      if (activeStone.bonus <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Reach at least a 5-day streak (AGATE) to unlock daily streak bonuses.',
+        });
+      }
+
+      if (!isStreakProtectedToday) {
+        return res.status(400).json({
+          success: false,
+          error: 'Complete today\'s 100 game coins requirement first to claim your daily bonus.',
+        });
+      }
+
+      if (updatedUser.last_bonus_claim_date === today) {
+        return res.status(400).json({
+          success: false,
+          error: 'Today\'s daily streak bonus has already been claimed.',
+        });
+      }
+
+      const bonusAmount = activeStone.bonus;
+
+      // NOTE: Verify `coins` matches your wallet column name in the `users` table
+      db.run(
+        `UPDATE users
+         SET coins = COALESCE(coins, 0) + ?,
+             last_bonus_claim_date = ?
+         WHERE id = ? AND (last_bonus_claim_date IS NULL OR last_bonus_claim_date != ?)`,
+        [bonusAmount, today, userId, today],
+        function (updateErr) {
+          if (updateErr) {
+            console.error('[REWARDS DB ERROR] Failed to credit daily bonus:', updateErr.message);
+            return res.status(500).json({ error: 'Failed to credit bonus to wallet' });
+          }
+
+          if (this.changes === 0) {
+            return res.status(400).json({
+              success: false,
+              error: 'Today\'s daily streak bonus has already been claimed.',
+            });
+          }
+
+          res.json({
+            success: true,
+            message: `+${bonusAmount} coins added to your wallet!`,
+            claimedBonus: bonusAmount,
+            currentStone: activeStone.name,
+            isDailyBonusClaimed: true,
+          });
+        }
+      );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. GET /api/rewards/leaderboard
 // Delegates to weekly leaderboard handler in routes/leaderboard.js
 // ---------------------------------------------------------------------------
 router.get('/leaderboard', authenticateToken, getLeaderboardHandler);
