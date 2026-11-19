@@ -749,8 +749,9 @@
               </div>
 
               <div class="form-group" id="notif-specific-user-group" style="display:none;">
-                <label>User ID or Username</label>
-                <input type="text" id="notif-specific-user" placeholder="e.g. 42 or @john">
+                <label>User ID or Username (Select from list or type)</label>
+                <input type="text" id="notif-specific-user" list="fcm-users-datalist" placeholder="e.g. 42 or @john">
+                <datalist id="fcm-users-datalist"></datalist>
               </div>
 
               <div class="form-group">
@@ -763,6 +764,36 @@
               </div>
               <button type="submit" id="notif-send-btn" class="btn btn-primary" style="width:100%;">🚀 Send Push Notification</button>
             </form>
+          </div>
+
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>🔔 Users With Push Notifications Enabled (FCM)</h2>
+                <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+                  Click <strong>🎯 Target</strong> to fill the form above, or <strong>🔔 Notify</strong> to send immediately.
+                </p>
+              </div>
+              <div class="filter-toolbar">
+                <input type="text" id="fcm-users-search" class="search-bar" placeholder="Filter by @username, name, ID..." oninput="renderFcmUsersTable()">
+                <button class="btn btn-secondary" onclick="loadNotificationsTab()" style="font-size:11px;">🔄 Reload</button>
+              </div>
+            </div>
+            <div class="table-container" style="max-height:360px; overflow-y:auto;">
+              <table id="fcm-enabled-users-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Username &amp; Name</th>
+                    <th>Email</th>
+                    <th>Last Active / Inactive</th>
+                    <th>FCM Registered</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
 
           <div class="card">
@@ -959,6 +990,7 @@
     let liveDurationTimer = null;
     let adminsCache = [];
     let adminsLoadedAt = 0;
+    let fcmUsersCache = [];
 
     // Pagination state
     let currentUsersPage = 1;
@@ -1444,7 +1476,7 @@
     }
 
     // =========================================================================
-    // PUSH NOTIFICATIONS (INDIVIDUAL & BROADCAST)
+    // PUSH NOTIFICATIONS (INDIVIDUAL, FCM USERS LIST & BROADCAST)
     // =========================================================================
     function openNotifyModal(userId, username, hasFcm) {
       document.getElementById('notify-modal-user-id').value = userId;
@@ -1501,6 +1533,55 @@
         mode === 'specific_user' ? 'block' : 'none';
     }
 
+    function selectUserForNotification(username) {
+      const modeEl = document.getElementById('notif-target-mode');
+      modeEl.value = 'specific_user';
+      toggleNotifTargetInput();
+      document.getElementById('notif-specific-user').value = `@${username}`;
+      document.getElementById('notif-title').focus();
+      document.getElementById('tab-notifications').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function renderFcmUsersTable() {
+      const q = (document.getElementById('fcm-users-search')?.value || '').trim().toLowerCase().replace(/^@/, '');
+      const tbody = document.querySelector('#fcm-enabled-users-table tbody');
+      if (!tbody) return;
+
+      const filtered = (fcmUsersCache || []).filter(u => {
+        if (!q) return true;
+        return (
+          String(u.id) === q ||
+          String(u.username || '').toLowerCase().includes(q) ||
+          String(u.full_name || '').toLowerCase().includes(q) ||
+          String(u.email || '').toLowerCase().includes(q)
+        );
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No users with FCM enabled found.</td></tr>`;
+        return;
+      }
+
+      let html = '';
+      filtered.forEach(u => {
+        const act = formatActivityStatus(u.last_active_at);
+        html += `
+          <tr>
+            <td>#${u.id}</td>
+            <td><strong>@${esc(u.username)}</strong><br><span style="font-size:11px; color:var(--text-muted);">${esc(u.full_name || '')}</span></td>
+            <td>${esc(u.email || '')}</td>
+            <td>${act.html}</td>
+            <td style="font-size:11px; color:var(--text-muted);">${formatDate(u.fcm_updated_at)}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn-action btn-act-pass" onclick="selectUserForNotification('${esc(u.username)}')">🎯 Target</button>
+              <button class="btn-action btn-act-warn" onclick="openNotifyModal(${u.id}, '${esc(u.username)}', true)">🔔 Notify</button>
+            </td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+    }
+
     async function loadNotificationsTab() {
       try {
         const res = await fetch(`${API_BASE}/notifications/stats`, { headers: getHeaders() });
@@ -1512,6 +1593,13 @@
         document.getElementById('notif-stat-active').innerText = (s.active24h || 0).toLocaleString();
         document.getElementById('notif-stat-in3').innerText = (s.inactive3d || 0).toLocaleString();
         document.getElementById('notif-stat-in7').innerText = (s.inactive7d || 0).toLocaleString();
+
+        fcmUsersCache = data.fcmUsersList || [];
+        const dl = document.getElementById('fcm-users-datalist');
+        if (dl) {
+          dl.innerHTML = fcmUsersCache.map(u => `<option value="@${esc(u.username)}">${esc(u.full_name || '')} (#${u.id})</option>`).join('');
+        }
+        renderFcmUsersTable();
 
         const tbody = document.querySelector('#notifications-history-table tbody');
         const list = data.history || [];
