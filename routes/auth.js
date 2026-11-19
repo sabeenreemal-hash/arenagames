@@ -92,15 +92,13 @@ function createUserRecord(fullName, username, email, passwordHash, code, referre
 
       const newUserId = this.lastID;
 
-      // Credit signup bonus
+      // Credit signup bonus to new user only (referrer earns tiered commission on future earnings only)
       db.run(
         `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'SIGNUP_BONUS', ?, 'SYSTEM')`,
         [newUserId, signupBonus],
-        () => {
-          if (referrerId) {
-            db.run(`UPDATE users SET balance = balance + 100 WHERE id = ?`, [referrerId], () => {
-              db.run(`INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'REFERRAL_BONUS', 100, ?)`, [referrerId, newUserId.toString()]);
-            });
+        (txErr) => {
+          if (txErr) {
+            console.error('[Signup Bonus Tx Error]:', txErr.message);
           }
           return res.status(201).json({ success: true, message: 'Account registered successfully!' });
         }
@@ -148,6 +146,7 @@ router.post('/login', (req, res) => {
         username: user.username,
         email: user.email,
         referralCode: user.referral_code,
+        referred_by_id: user.referred_by_id,
         balance: user.balance,
         currentStreak: user.current_streak || 0,
         currentStone: user.current_stone || 'NONE',
@@ -185,6 +184,7 @@ router.get('/me', authenticateToken, (req, res) => {
         username: user.username,
         email: user.email,
         referralCode: user.referral_code,
+        referred_by_id: user.referred_by_id,
         balance: user.balance,
         currentStreak: user.current_streak || 0,
         currentStone: user.current_stone || 'NONE',
