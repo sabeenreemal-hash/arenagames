@@ -3,12 +3,28 @@
 
 const HTML5_GAMES = [
   {
+    id: 'om_nom_run',
+    title: 'On Run', // Change to 'Om Nom Run' if preferred
+    url: 'https://play.famobi.com/om-nom-run',
+    thumbnailUrl: 'https://i.ibb.co/kssrK5K1/Om-Nom-Run-Teaser.jpg',
+    orientation: 'portrait',
+    status: 'active',
+  },
+  {
+    id: 'moto_x3m_pool_party',
+    title: 'Moto X3M',
+    url: 'https://play.famobi.com/moto-x3m-pool-party',
+    thumbnailUrl: 'https://i.ibb.co/ZRwCQccG/Moto-X3m-Pool-Party-Teaser.jpg',
+    orientation: 'landscape',
+    status: 'active',
+  },
+  {
     id: 'hextris',
     title: 'Hextris',
     url: 'https://hextris.github.io/hextris/',
     thumbnailUrl: 'https://hextris.github.io/hextris/images/facebook-opengraph.png',
-    orientation: 'portrait', // 'portrait' | 'landscape'
-    status: 'active',        // 'active' | 'inactive'
+    orientation: 'portrait',
+    status: 'active',
   },
   {
     id: '2048',
