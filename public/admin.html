@@ -234,7 +234,7 @@
     .proof-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); }
 
     /* MODAL */
-    #image-modal, #referral-modal {
+    #image-modal, #referral-modal, #notify-modal {
       display: none;
       position: fixed;
       inset: 0;
@@ -330,6 +330,43 @@
     </div>
   </div>
 
+  <!-- QUICK NOTIFY USER MODAL -->
+  <div id="notify-modal" onclick="closeNotifyModal()">
+    <div class="modal-card" style="max-width:460px;" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h3 id="notify-modal-title" style="font-size:15px; font-weight:800;">Send Push Notification</h3>
+          <p id="notify-modal-subtitle" style="font-size:12px; color:var(--text-muted); margin-top:2px;"></p>
+        </div>
+        <button class="btn btn-secondary" onclick="closeNotifyModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <form onsubmit="submitQuickUserNotification(event)">
+          <input type="hidden" id="notify-modal-user-id">
+          <div class="form-group">
+            <label>Notification Title</label>
+            <input type="text" id="notify-modal-input-title" placeholder="e.g. Bonus Coins Waiting!" required>
+          </div>
+          <div class="form-group">
+            <label>Message Body</label>
+            <textarea id="notify-modal-input-body" rows="3" placeholder="Write your message..." required></textarea>
+          </div>
+          <div class="form-group">
+            <label>Open Screen on Tap (Optional)</label>
+            <select id="notify-modal-input-screen">
+              <option value="">Default (Home)</option>
+              <option value="home">Home</option>
+              <option value="wallet">Wallet</option>
+              <option value="referrals">Referrals</option>
+              <option value="profile">Profile</option>
+            </select>
+          </div>
+          <button type="submit" id="notify-modal-submit-btn" class="btn btn-primary" style="width:100%;">🔔 Send Notification</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- 1. LOGIN OVERLAY -->
   <div id="login-overlay">
     <div class="login-box">
@@ -387,6 +424,9 @@
         <li class="nav-item" onclick="switchTab('tab-withdrawals', this)">
           <span>💸</span><span>Redemptions</span>
           <span class="badge-pill" id="nav-redeem-count" style="color: var(--warning);">0</span>
+        </li>
+        <li class="nav-item" onclick="switchTab('tab-notifications', this)">
+          <span>🔔</span><span>Push Notifications</span>
         </li>
 
         <div class="nav-label">Settings</div>
@@ -536,7 +576,7 @@
           </div>
         </section>
 
-        <!-- TAB 4: USERS (SERVER-SIDE PAGINATED) -->
+        <!-- TAB 4: USERS (SERVER-SIDE PAGINATED + ACTIVITY & NOTIFY) -->
         <section id="tab-users" class="tab-section">
           <div class="card">
             <div class="card-header-flex">
@@ -547,6 +587,20 @@
                   <option value="all">All Status</option>
                   <option value="active">Active Only</option>
                   <option value="banned">Banned Only</option>
+                </select>
+                <select id="user-activity-filter" class="filter-select" onchange="loadUsersList(1)">
+                  <option value="all">All Activity</option>
+                  <option value="online_now">Active Now (&lt;5m)</option>
+                  <option value="active_24h">Active Last 24h</option>
+                  <option value="inactive_3d">Inactive 3+ Days</option>
+                  <option value="inactive_7d">Inactive 7+ Days</option>
+                  <option value="inactive_30d">Inactive 30+ Days</option>
+                  <option value="fcm_ready">Push Enabled (FCM)</option>
+                </select>
+                <select id="user-sort-select" class="filter-select" onchange="loadUsersList(1)">
+                  <option value="newest">Sort: Newest</option>
+                  <option value="recently_active">Sort: Recently Active</option>
+                  <option value="most_inactive">Sort: Most Inactive</option>
                 </select>
                 <select id="user-limit-select" class="filter-select" onchange="loadUsersList(1)">
                   <option value="25">25 / page</option>
@@ -564,6 +618,7 @@
                     <th>Email</th>
                     <th>Coins</th>
                     <th>Streak</th>
+                    <th>Last Active / Inactive</th>
                     <th>Referred By</th>
                     <th>Referrals</th>
                     <th>Status</th>
@@ -640,6 +695,96 @@
               </table>
             </div>
             <div class="pagination-bar" id="withdrawals-pagination"></div>
+          </div>
+        </section>
+
+        <!-- TAB 5B: PUSH NOTIFICATIONS -->
+        <section id="tab-notifications" class="tab-section">
+          <div class="metrics-grid" style="margin-bottom:16px;">
+            <div class="metric-card">
+              <div class="metric-title">FCM Reachable Users</div>
+              <div class="metric-val" id="notif-stat-fcm" style="color:var(--primary);">0</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-title">Active (24h)</div>
+              <div class="metric-val" id="notif-stat-active" style="color:var(--info);">0</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-title">Inactive 3+ Days</div>
+              <div class="metric-val" id="notif-stat-in3" style="color:var(--warning);">0</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-title">Inactive 7+ Days</div>
+              <div class="metric-val" id="notif-stat-in7" style="color:var(--danger);">0</div>
+            </div>
+          </div>
+
+          <div class="card" style="max-width:680px;">
+            <div class="card-header-flex">
+              <h2>🔔 Send Firebase Push Notification</h2>
+            </div>
+            <form onsubmit="handleSendPushNotification(event)">
+              <div class="grid-2col" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div class="form-group">
+                  <label>Target Audience</label>
+                  <select id="notif-target-mode" onchange="toggleNotifTargetInput()">
+                    <option value="all">All Users (with FCM)</option>
+                    <option value="inactive_3d">Inactive Users (3+ Days)</option>
+                    <option value="inactive_7d">Inactive Users (7+ Days)</option>
+                    <option value="inactive_30d">Inactive Users (30+ Days)</option>
+                    <option value="active_24h">Active Users (Last 24h)</option>
+                    <option value="specific_user">Specific User (ID or @username)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Open Screen on Tap</label>
+                  <select id="notif-screen">
+                    <option value="">Default (Home)</option>
+                    <option value="home">Home</option>
+                    <option value="wallet">Wallet</option>
+                    <option value="referrals">Referrals</option>
+                    <option value="profile">Profile</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group" id="notif-specific-user-group" style="display:none;">
+                <label>User ID or Username</label>
+                <input type="text" id="notif-specific-user" placeholder="e.g. 42 or @john">
+              </div>
+
+              <div class="form-group">
+                <label>Notification Title</label>
+                <input type="text" id="notif-title" placeholder="e.g. Claim Today's Rewards!" required>
+              </div>
+              <div class="form-group">
+                <label>Message Body</label>
+                <textarea id="notif-body" rows="3" placeholder="Enter your notification message..." required></textarea>
+              </div>
+              <button type="submit" id="notif-send-btn" class="btn btn-primary" style="width:100%;">🚀 Send Push Notification</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-header-flex">
+              <h2>Recent Push Notifications</h2>
+              <button class="btn btn-secondary" onclick="loadNotificationsTab()" style="font-size:11px;">🔄 Reload</button>
+            </div>
+            <div class="table-container">
+              <table id="notifications-history-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Time</th>
+                    <th>Admin</th>
+                    <th>Target</th>
+                    <th>Title &amp; Message</th>
+                    <th>Delivered</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -743,7 +888,7 @@
               <div>
                 <h2>Admin Activity Logs</h2>
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">
-                  Audit every task approval/rejection, coin edit, password change, referral deletion, ban, withdrawal, and login.
+                  Audit every task approval/rejection, coin edit, password change, referral deletion, ban, withdrawal, notification, and login.
                 </p>
               </div>
               <div class="filter-toolbar">
@@ -763,6 +908,8 @@
                   <option value="USER_BANNED">User Banned</option>
                   <option value="USER_UNBANNED">User Unbanned</option>
                   <option value="USER_DELETED">User Deleted</option>
+                  <option value="NOTIFICATION_SENT_USER">Notification (User)</option>
+                  <option value="NOTIFICATION_SENT_ALL">Notification (Broadcast)</option>
                   <option value="REFERRALS_PURGED">All Referrals Deleted</option>
                   <option value="REFERRAL_USER_DELETED">Referred User Deleted</option>
                   <option value="WITHDRAWAL_APPROVED">Withdrawal Approved</option>
@@ -857,6 +1004,34 @@
       const d = new Date(isoStr.includes('T') ? isoStr : isoStr.replace(' ', 'T') + 'Z');
       if (isNaN(d.getTime())) return esc(isoStr);
       return d.toLocaleString();
+    }
+
+    function formatActivityStatus(isoStr) {
+      if (!isoStr) return { html: '<span class="badge badge-offline">Unknown</span>', title: '' };
+      const d = new Date(isoStr.includes('T') ? isoStr : isoStr.replace(' ', 'T') + 'Z');
+      if (isNaN(d.getTime())) return { html: esc(isoStr), title: '' };
+
+      const diffSec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+      const exactTitle = d.toLocaleString();
+
+      if (diffSec < 300) {
+        return { html: `<span class="badge badge-active" title="${esc(exactTitle)}">🟢 Active now</span>`, title: exactTitle };
+      }
+      const mins = Math.floor(diffSec / 60);
+      if (mins < 60) {
+        return { html: `<span style="color:var(--primary); font-weight:700;" title="${esc(exactTitle)}">${mins}m ago</span>`, title: exactTitle };
+      }
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) {
+        return { html: `<span style="color:var(--info); font-weight:700;" title="${esc(exactTitle)}">${hours}h ${mins % 60}m ago</span>`, title: exactTitle };
+      }
+      const days = Math.floor(hours / 24);
+      const remHours = hours % 24;
+      const color = days >= 7 ? 'var(--danger)' : 'var(--warning)';
+      return {
+        html: `<span style="color:${color}; font-weight:700;" title="${esc(exactTitle)}">Inactive ${days}d ${remHours}h</span><br><span style="font-size:10px; color:var(--text-muted);">${esc(exactTitle)}</span>`,
+        title: exactTitle
+      };
     }
 
     function getHeaders() {
@@ -1093,6 +1268,7 @@
       if (tabId === 'tab-tasks') loadTasksList();
       if (tabId === 'tab-submissions') loadSubmissionsList(currentSubPage);
       if (tabId === 'tab-withdrawals') loadWithdrawals(currentWithdrawalsPage);
+      if (tabId === 'tab-notifications') loadNotificationsTab();
       if (tabId === 'tab-gateways') loadPaymentMethods();
       if (tabId === 'tab-version') loadConfig();
       if (tabId === 'tab-admins') loadAdminUsersList();
@@ -1106,6 +1282,7 @@
       if (activeTabId === 'tab-tasks') loadTasksList();
       if (activeTabId === 'tab-submissions') loadSubmissionsList(currentSubPage);
       if (activeTabId === 'tab-withdrawals') loadWithdrawals(currentWithdrawalsPage);
+      if (activeTabId === 'tab-notifications') loadNotificationsTab();
       if (activeTabId === 'tab-gateways') loadPaymentMethods();
       if (activeTabId === 'tab-version') loadConfig();
       if (activeTabId === 'tab-admins') loadAdminUsersList();
@@ -1133,7 +1310,7 @@
     }
 
     // =========================================================================
-    // USERS REGISTRY (SERVER-SIDE PAGINATION)
+    // USERS REGISTRY (SERVER-SIDE PAGINATION + ACTIVITY & FCM)
     // =========================================================================
     function debouncedUserSearch() {
       clearTimeout(userSearchTimer);
@@ -1144,9 +1321,11 @@
       currentUsersPage = Math.max(1, page);
       const search = document.getElementById('user-search').value.trim();
       const status = document.getElementById('user-status-filter').value;
+      const activity = document.getElementById('user-activity-filter').value;
+      const sort = document.getElementById('user-sort-select').value;
       const limit = document.getElementById('user-limit-select').value;
 
-      const params = new URLSearchParams({ page: currentUsersPage, limit, search, status });
+      const params = new URLSearchParams({ page: currentUsersPage, limit, search, status, activity, sort });
       try {
         const res = await fetch(`${API_BASE}/users?${params.toString()}`, { headers: getHeaders() });
         const data = await res.json();
@@ -1154,7 +1333,7 @@
         const tbody = document.querySelector("#users-table tbody");
 
         if (users.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted);">No users found.</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--text-muted);">No users found.</td></tr>`;
           renderPagination('users-pagination', 1, 1, 0, 'loadUsersList');
           return;
         }
@@ -1172,18 +1351,24 @@
           const refBtn = u.referral_count > 0
             ? `<button class="btn-action btn-act-pass" onclick="openReferralModal(${u.id}, '${esc(u.username)}')">Refs (${u.referral_count})</button>`
             : `<span style="color:var(--text-muted);">0</span>`;
+          const fcmBadge = u.has_fcm === 1
+            ? `<span title="FCM Push Ready" style="margin-left:4px;">🔔</span>`
+            : `<span title="No FCM Token yet" style="margin-left:4px; opacity:0.4;">🔕</span>`;
+          const actInfo = formatActivityStatus(u.last_active_at || u.created_at);
 
           html += `
             <tr>
               <td>#${u.id}</td>
-              <td><strong>@${esc(u.username)}</strong><br><span style="font-size:10px; color:var(--text-muted);">${esc(u.referral_code || '')}</span></td>
+              <td><strong>@${esc(u.username)}</strong>${fcmBadge}<br><span style="font-size:10px; color:var(--text-muted);">${esc(u.referral_code || '')}</span></td>
               <td>${esc(u.email)}</td>
               <td style="color:var(--primary); font-weight:800;">${(u.balance || 0).toLocaleString()}</td>
               <td>🔥 ${u.current_streak || 0}d</td>
+              <td>${actInfo.html}</td>
               <td>${refBy}</td>
               <td>${refBtn}</td>
               <td>${statusBadge}</td>
               <td style="white-space: nowrap;">
+                <button class="btn-action btn-act-warn" onclick="openNotifyModal(${u.id}, '${esc(u.username)}', ${u.has_fcm === 1})">🔔 Notify</button>
                 <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${esc(u.username)}')">Coins</button>
                 <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${esc(u.username)}')">PW</button>
                 <button class="btn-action ${u.is_banned === 1 ? 'btn-act-gray' : 'btn-act-danger'}" onclick="toggleUserBan(${u.id}, ${u.is_banned !== 1})">
@@ -1255,6 +1440,153 @@
       if ((await res.json()).success) {
         loadUsersList(currentUsersPage);
         loadDashboardStats();
+      }
+    }
+
+    // =========================================================================
+    // PUSH NOTIFICATIONS (INDIVIDUAL & BROADCAST)
+    // =========================================================================
+    function openNotifyModal(userId, username, hasFcm) {
+      document.getElementById('notify-modal-user-id').value = userId;
+      document.getElementById('notify-modal-title').innerText = `Notify @${username}`;
+      document.getElementById('notify-modal-subtitle').innerText = hasFcm
+        ? `User #${userId} • 🔔 FCM Push Enabled`
+        : `User #${userId} • ⚠️ No FCM token registered yet`;
+      document.getElementById('notify-modal-input-title').value = '';
+      document.getElementById('notify-modal-input-body').value = '';
+      document.getElementById('notify-modal-input-screen').value = '';
+      document.getElementById('notify-modal').style.display = 'flex';
+    }
+
+    function closeNotifyModal() {
+      document.getElementById('notify-modal').style.display = 'none';
+    }
+
+    async function submitQuickUserNotification(e) {
+      e.preventDefault();
+      const btn = document.getElementById('notify-modal-submit-btn');
+      btn.disabled = true;
+      btn.innerText = 'Sending...';
+
+      try {
+        const res = await fetch(`${API_BASE}/notifications/send-user`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            userId: document.getElementById('notify-modal-user-id').value,
+            title: document.getElementById('notify-modal-input-title').value.trim(),
+            body: document.getElementById('notify-modal-input-body').value.trim(),
+            screen: document.getElementById('notify-modal-input-screen').value
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert(data.message || 'Notification sent!');
+          closeNotifyModal();
+          if (activeTabId === 'tab-notifications') loadNotificationsTab();
+        } else {
+          alert(data.error || 'Failed to send notification');
+        }
+      } catch (_) {
+        alert('Server error sending notification');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '🔔 Send Notification';
+      }
+    }
+
+    function toggleNotifTargetInput() {
+      const mode = document.getElementById('notif-target-mode').value;
+      document.getElementById('notif-specific-user-group').style.display =
+        mode === 'specific_user' ? 'block' : 'none';
+    }
+
+    async function loadNotificationsTab() {
+      try {
+        const res = await fetch(`${API_BASE}/notifications/stats`, { headers: getHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        const s = data.stats || {};
+
+        document.getElementById('notif-stat-fcm').innerText = (s.fcmUsers || 0).toLocaleString();
+        document.getElementById('notif-stat-active').innerText = (s.active24h || 0).toLocaleString();
+        document.getElementById('notif-stat-in3').innerText = (s.inactive3d || 0).toLocaleString();
+        document.getElementById('notif-stat-in7').innerText = (s.inactive7d || 0).toLocaleString();
+
+        const tbody = document.querySelector('#notifications-history-table tbody');
+        const list = data.history || [];
+        if (list.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No notifications sent yet.</td></tr>`;
+          return;
+        }
+
+        let html = '';
+        list.forEach(n => {
+          html += `
+            <tr>
+              <td>#${n.id}</td>
+              <td style="font-size:11px; color:var(--text-muted); white-space:nowrap;">${formatDate(n.created_at)}</td>
+              <td><strong>@${esc(n.admin_username)}</strong></td>
+              <td><span class="badge badge-info">${esc(n.target_label || n.target_type)}</span></td>
+              <td><strong>${esc(n.title)}</strong><br><span style="font-size:11px; color:var(--text-muted);">${esc(n.body)}</span></td>
+              <td><span style="color:var(--primary); font-weight:800;">${n.success_count}</span> / ${n.targeted_count}${n.failure_count > 0 ? ` <span style="color:var(--danger); font-size:10px;">(${n.failure_count} failed)</span>` : ''}</td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html;
+      } catch (_) {}
+    }
+
+    async function handleSendPushNotification(e) {
+      e.preventDefault();
+      const mode = document.getElementById('notif-target-mode').value;
+      const title = document.getElementById('notif-title').value.trim();
+      const body = document.getElementById('notif-body').value.trim();
+      const screen = document.getElementById('notif-screen').value;
+      const specificUser = document.getElementById('notif-specific-user').value.trim();
+
+      if (mode === 'specific_user' && !specificUser) {
+        return alert('Please enter a User ID or @username.');
+      }
+
+      if (mode !== 'specific_user') {
+        if (!confirm(`Send "${title}" to ${document.getElementById('notif-target-mode').selectedOptions[0].text}?`)) {
+          return;
+        }
+      }
+
+      const btn = document.getElementById('notif-send-btn');
+      btn.disabled = true;
+      btn.innerText = 'Sending...';
+
+      try {
+        const endpoint = mode === 'specific_user'
+          ? `${API_BASE}/notifications/send-user`
+          : `${API_BASE}/notifications/send-all`;
+
+        const payload = mode === 'specific_user'
+          ? { usernameOrId: specificUser, title, body, screen }
+          : { audience: mode, title, body, screen };
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert(data.message || 'Notification sent!');
+          e.target.reset();
+          toggleNotifTargetInput();
+          loadNotificationsTab();
+        } else {
+          alert(data.error || 'Failed to send notification');
+        }
+      } catch (_) {
+        alert('Server error sending notification');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '🚀 Send Push Notification';
       }
     }
 
@@ -1931,7 +2263,7 @@
         for (let i = 0; i < logs.length; i++) {
           const l = logs[i];
           let badgeCls = 'badge-info';
-          if (l.action_type.includes('APPROVED') || l.action_type.includes('ONLINE') || l.action_type.includes('CREATED')) {
+          if (l.action_type.includes('APPROVED') || l.action_type.includes('ONLINE') || l.action_type.includes('CREATED') || l.action_type.includes('NOTIFICATION')) {
             badgeCls = 'badge-active';
           } else if (l.action_type.includes('REJECTED') || l.action_type.includes('BANNED') || l.action_type.includes('DELETED') || l.action_type.includes('PURGED') || l.action_type.includes('OFFLINE')) {
             badgeCls = 'badge-banned';
