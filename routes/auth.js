@@ -5,29 +5,15 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../database');
+const authenticateToken = require('../middleware/auth');
 
 const JWT_SECRET = 'ARENA_GAMES_SUPER_SECRET_KEY';
-
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid or expired token' });
-    req.user = user;
-    next();
-  });
-}
 
 function generateReferralCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-// Normal User Registration (No device checks, No IP checks)
+// Normal User Registration
 router.post('/register', async (req, res) => {
   try {
     const { fullName, username, email, password, referralCode } = req.body;
@@ -41,7 +27,6 @@ router.post('/register', async (req, res) => {
     const cleanName = fullName.trim();
     const cleanRef = (referralCode || '').toString().trim().toUpperCase();
 
-    // 1. Check if username or email already exists
     db.get('SELECT id FROM users WHERE username = ? OR email = ?', [cleanUser, cleanEmail], async (err, existing) => {
       if (err) {
         return res.status(500).json({ error: 'Database error checking account' });
@@ -59,7 +44,6 @@ router.post('/register', async (req, res) => {
 
       const generatedCode = generateReferralCode();
 
-      // 2. Check referral code if provided
       if (cleanRef !== '') {
         db.get('SELECT id FROM users WHERE UPPER(TRIM(referral_code)) = ?', [cleanRef], (refErr, referrer) => {
           if (refErr || !referrer) {
@@ -81,8 +65,8 @@ function createUserRecord(fullName, username, email, passwordHash, code, referre
   const signupBonus = 100;
 
   db.run(
-    `INSERT INTO users (full_name, username, email, password_hash, referral_code, referred_by_id, balance) 
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO users (full_name, username, email, password_hash, referral_code, referred_by_id, balance, last_active_at) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
     [fullName, username, email, passwordHash, code, referrerId, signupBonus],
     function (insertErr) {
       if (insertErr) {
@@ -92,7 +76,6 @@ function createUserRecord(fullName, username, email, passwordHash, code, referre
 
       const newUserId = this.lastID;
 
-      // Credit signup bonus to new user only (referrer earns tiered commission on future earnings only)
       db.run(
         `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'SIGNUP_BONUS', ?, 'SYSTEM')`,
         [newUserId, signupBonus],
@@ -130,6 +113,8 @@ router.post('/login', (req, res) => {
 
     const isValid = await bcrypt.compare(password, user.password_hash);
     if (!isValid) return res.status(401).json({ error: 'Invalid account credentials' });
+
+    authenticateToken.touchUserActivity(user.id, true);
 
     const isCreatorActive = user.creator_badge_enabled == 1 || user.creator_badge_enabled === true;
     const badgeIcon = isCreatorActive
@@ -193,6 +178,42 @@ router.get('/me', authenticateToken, (req, res) => {
       },
     });
   });
+});
+
+// POST /api/auth/fcm-token - Register / update device FCM token
+router.post('/fcm-token', authenticateToken, (req, res) => {
+  const rawToken = req.body.fcmToken || req.body.fcm_token || '';
+  const fcmToken = String(rawToken).trim();
+
+  if (!fcmToken) {
+    return res.status(400).json({ error: 'fcmToken is required' });
+  }
+
+  db.serialize(() => {
+    // Ensure a shared device token isn't kept on another logged-out account
+    db.run(
+      'UPDATE users SET fcm_token = NULL WHERE fcm_token = ? AND id != ?',
+      [fcmToken, req.user.id],
+      () => {}
+    );
+
+    db.run(
+      'UPDATE users SET fcm_token = ?, fcm_updated_at = CURRENT_TIMESTAMP, last_active_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [fcmToken, req.user.id],
+      (err) => {
+        if (err) {
+          return res.status(500).json({ error: 'Failed to save FCM token' });
+        }
+        res.json({ success: true });
+      }
+    );
+  });
+});
+
+// POST /api/auth/ping - Lightweight activity ping on app open/resume
+router.post('/ping', authenticateToken, (req, res) => {
+  authenticateToken.touchUserActivity(req.user.id, true);
+  res.json({ success: true });
 });
 
 module.exports = router;
