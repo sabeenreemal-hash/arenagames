@@ -171,7 +171,7 @@ router.get('/status', authenticateToken, (req, res) => {
 
 // ---------------------------------------------------------------------------
 // 2. POST /api/rewards/claim-daily-bonus
-// Credits today's Stone Badge daily streak bonus to the user's wallet
+// Credits today's Stone Badge daily streak bonus to user's wallet balance
 // ---------------------------------------------------------------------------
 router.post('/claim-daily-bonus', authenticateToken, (req, res) => {
   const userId = req.user && req.user.id ? req.user.id : null;
@@ -221,14 +221,16 @@ router.post('/claim-daily-bonus', authenticateToken, (req, res) => {
       }
 
       const bonusAmount = activeStone.bonus;
+      const refId = `STONE_BONUS_${userId}_${today}`;
 
-      // NOTE: Verify `coins` matches your wallet column name in the `users` table
+      // Atomic conditional update prevents double-claims on rapid taps
       db.run(
         `UPDATE users
-         SET coins = COALESCE(coins, 0) + ?,
+         SET balance = COALESCE(balance, 0) + ?,
+             total_coins_earned = COALESCE(total_coins_earned, 0) + ?,
              last_bonus_claim_date = ?
          WHERE id = ? AND (last_bonus_claim_date IS NULL OR last_bonus_claim_date != ?)`,
-        [bonusAmount, today, userId, today],
+        [bonusAmount, bonusAmount, today, userId, today],
         function (updateErr) {
           if (updateErr) {
             console.error('[REWARDS DB ERROR] Failed to credit daily bonus:', updateErr.message);
@@ -242,13 +244,24 @@ router.post('/claim-daily-bonus', authenticateToken, (req, res) => {
             });
           }
 
-          res.json({
-            success: true,
-            message: `+${bonusAmount} coins added to your wallet!`,
-            claimedBonus: bonusAmount,
-            currentStone: activeStone.name,
-            isDailyBonusClaimed: true,
-          });
+          db.run(
+            `INSERT INTO transactions (user_id, type, amount, reference_id)
+             VALUES (?, 'STONE_BONUS', ?, ?)`,
+            [userId, bonusAmount, refId],
+            (txErr) => {
+              if (txErr) {
+                console.error('[REWARDS TX ERROR] Failed to log STONE_BONUS transaction:', txErr.message);
+              }
+
+              res.json({
+                success: true,
+                message: `+${bonusAmount} coins added to your wallet!`,
+                claimedBonus: bonusAmount,
+                currentStone: activeStone.name,
+                isDailyBonusClaimed: true,
+              });
+            }
+          );
         }
       );
     });
