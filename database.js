@@ -72,7 +72,7 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Users Table (includes weekly_coins separate from wallet balance)
+  // Users Table (includes weekly_coins + FCM & activity tracking)
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,6 +103,8 @@ db.serialize(() => {
       creator_badge_id INTEGER DEFAULT NULL,
       last_withdrawal_at DATETIME DEFAULT NULL,
       last_active_at DATETIME DEFAULT NULL,
+      fcm_token TEXT DEFAULT NULL,
+      fcm_updated_at DATETIME DEFAULT NULL,
       registration_ip TEXT DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(referred_by_id) REFERENCES users(id) ON DELETE SET NULL
@@ -143,6 +145,8 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'creator_badge_id', 'INTEGER', 'NULL');
   addColumnIfNotExists('users', 'last_withdrawal_at', 'DATETIME', 'NULL');
   addColumnIfNotExists('users', 'last_active_at', 'DATETIME', 'NULL');
+  addColumnIfNotExists('users', 'fcm_token', 'TEXT', 'NULL');
+  addColumnIfNotExists('users', 'fcm_updated_at', 'DATETIME', 'NULL');
   addColumnIfNotExists('users', 'registration_ip', 'TEXT', 'NULL');
 
   // Weekly Leaderboard Winners History Table
@@ -328,6 +332,24 @@ db.serialize(() => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_action ON admin_activity_logs(action_type, id DESC);`, () => {});
   });
 
+  // Push Notifications History Table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS push_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      admin_username TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_user_id INTEGER DEFAULT NULL,
+      target_label TEXT DEFAULT '',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      screen TEXT DEFAULT '',
+      targeted_count INTEGER DEFAULT 0,
+      success_count INTEGER DEFAULT 0,
+      failure_count INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `, () => {});
+
   // Spin Wheel Schema
   db.run(`
     CREATE TABLE IF NOT EXISTS user_spin_state (
@@ -477,6 +499,8 @@ db.serialize(() => {
   // Safe Performance Indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_users_last_active ON users(last_active_at DESC);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_users_fcm_token ON users(fcm_token);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals(status, id DESC);`, () => {});
