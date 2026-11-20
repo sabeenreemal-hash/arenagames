@@ -10,36 +10,113 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-dark: #0A0C10;
-      --surface-1: #12161F;
-      --surface-2: #1A202C;
-      --border: #232B3E;
+      --bg-dark: #07090E;
+      --surface-1: #0F141D;
+      --surface-2: #161D2A;
+      --surface-3: #1D2637;
+      --border: #232E42;
+      --border-strong: #31405B;
       --primary: #00E676;
-      --primary-hover: #19ff8c;
-      --primary-glow: rgba(0, 230, 118, 0.15);
+      --primary-hover: #1FFF92;
+      --primary-glow: rgba(0, 230, 118, 0.14);
+      --ruby: #FF3B6B;
+      --ruby-glow: rgba(255, 59, 107, 0.14);
+      --gold: #FFC857;
       --danger: #FF4757;
-      --info: #00B0FF;
+      --info: #22B8FF;
       --warning: #FFA502;
-      --text-main: #FFFFFF;
-      --text-muted: #8F9CAE;
-      --sidebar-width: 250px;
+      --text-main: #F4F7FB;
+      --text-muted: #8E9CB2;
+      --sidebar-width: 256px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg-dark); color: var(--text-main); min-height: 100vh; overflow-x: hidden; }
+
+    html, body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* SLIM CUSTOM SCROLLBARS */
+    ::-webkit-scrollbar { width: 7px; height: 7px; }
+    ::-webkit-scrollbar-track { background: var(--bg-dark); }
+    ::-webkit-scrollbar-thumb { background: #263248; border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: #364766; }
+
+    button, input, select, textarea {
+      font-family: inherit;
+      touch-action: manipulation;
+    }
 
     /* LOGIN */
-    #login-overlay { position: fixed; inset: 0; background: #0A0C10; display: flex; justify-content: center; align-items: center; z-index: 9999; padding: 16px; }
-    .login-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 26px 20px; width: 100%; max-width: 360px; }
-    .login-box h2 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
-    .login-box p { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
+    #login-overlay {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at 50% 0%, #131C2E 0%, #07090E 65%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      padding: 16px;
+    }
+    .login-box {
+      background: var(--surface-1);
+      border: 1px solid var(--border-strong);
+      border-radius: 16px;
+      padding: 28px 24px;
+      width: 100%;
+      max-width: 375px;
+      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+    }
+    .login-brand-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--primary-glow);
+      color: var(--primary);
+      border: 1px solid rgba(0, 230, 118, 0.3);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      margin-bottom: 12px;
+    }
+    .login-box h2 { font-size: 22px; font-weight: 800; letter-spacing: -0.3px; margin-bottom: 4px; }
+    .login-box p { color: var(--text-muted); font-size: 13px; margin-bottom: 22px; }
 
     .form-group { margin-bottom: 14px; text-align: left; }
-    .form-group label { display: block; font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 5px; text-transform: uppercase; }
-    .form-group input, .form-group select, .form-group textarea {
-      width: 100%; background: var(--surface-2); border: 1px solid var(--border); color: white; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none;
+    .form-group label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
     }
-    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--primary); }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      padding: 10px 12px;
+      border-radius: 9px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      border-color: var(--primary);
+      background: var(--surface-3);
+    }
 
     /* LAYOUT */
     .app-layout { display: flex; min-height: 100vh; position: relative; }
@@ -56,35 +133,119 @@
       bottom: 0;
       left: 0;
       z-index: 1000;
-      transition: transform 0.25s ease;
+      transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+      will-change: transform;
     }
-    .sidebar-header { padding: 18px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
-    .sidebar-brand h2 { font-size: 16px; font-weight: 800; }
-    .sidebar-brand span { font-size: 10px; color: var(--primary); font-weight: 700; text-transform: uppercase; }
-    .sidebar-close-btn { display: none; background: transparent; border: none; color: white; font-size: 20px; cursor: pointer; }
+    .sidebar-header {
+      padding: 18px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-brand { display: flex; align-items: center; gap: 10px; }
+    .brand-logo-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(0, 230, 118, 0.2), rgba(34, 184, 255, 0.2));
+      border: 1px solid rgba(0, 230, 118, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .sidebar-brand h2 { font-size: 15.5px; font-weight: 800; letter-spacing: -0.2px; }
+    .sidebar-brand span { font-size: 10px; color: var(--primary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
+    .sidebar-close-btn { display: none; background: transparent; border: none; color: white; font-size: 22px; cursor: pointer; line-height: 1; }
 
-    .nav-list { list-style: none; padding: 12px 8px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
-    .nav-label { font-size: 10px; font-weight: 700; color: #53627A; text-transform: uppercase; padding: 10px 8px 4px; }
-    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; color: var(--text-muted); cursor: pointer; font-size: 13px; font-weight: 600; }
+    .nav-list { list-style: none; padding: 12px 10px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+    .nav-label {
+      font-size: 10px;
+      font-weight: 800;
+      color: #5C6D88;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      padding: 12px 10px 4px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9.5px 12px;
+      border-radius: 9px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid transparent;
+      transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+    }
     .nav-item:hover { background: var(--surface-2); color: #FFF; }
-    .nav-item.active { background: var(--primary-glow); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
-    .nav-item .badge-pill { margin-left: auto; background: var(--surface-2); border: 1px solid var(--border); padding: 2px 7px; border-radius: 10px; font-size: 11px; }
+    .nav-item.active {
+      background: var(--primary-glow);
+      color: var(--primary);
+      border-color: rgba(0, 230, 118, 0.32);
+    }
+    .nav-item .badge-pill {
+      margin-left: auto;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      padding: 2px 7px;
+      border-radius: 99px;
+      font-size: 10.5px;
+      font-weight: 700;
+    }
+    .nav-item.active .badge-pill {
+      background: rgba(0, 230, 118, 0.15);
+      border-color: rgba(0, 230, 118, 0.35);
+    }
 
     .sidebar-footer { padding: 12px; border-top: 1px solid var(--border); }
-    .btn-logout { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(255, 71, 87, 0.12); color: var(--danger); border: 1px solid rgba(255, 71, 87, 0.3); padding: 9px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .btn-logout {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      background: rgba(255, 71, 87, 0.1);
+      color: var(--danger);
+      border: 1px solid rgba(255, 71, 87, 0.28);
+      padding: 9.5px;
+      border-radius: 9px;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 0.14s ease;
+    }
+    .btn-logout:hover { background: rgba(255, 71, 87, 0.2); }
 
     /* MOBILE BACKDROP */
-    #sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); z-index: 999; }
+    #sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 6, 10, 0.72);
+      z-index: 999;
+    }
 
     /* CONTENT WRAPPER */
-    .main-wrapper { margin-left: var(--sidebar-width); flex: 1; min-width: 0; display: flex; flex-direction: column; width: calc(100% - var(--sidebar-width)); }
+    .main-wrapper {
+      margin-left: var(--sidebar-width);
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      width: calc(100% - var(--sidebar-width));
+    }
 
     /* TOPBAR */
     .topbar {
-      min-height: 60px;
+      min-height: 62px;
       background: var(--surface-1);
       border-bottom: 1px solid var(--border);
-      padding: 8px 16px;
+      padding: 8px 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -103,12 +264,20 @@
       font-size: 18px;
       width: 36px;
       height: 36px;
-      border-radius: 8px;
+      border-radius: 9px;
       align-items: center;
       justify-content: center;
       cursor: pointer;
     }
-    .page-title { font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+    .page-title {
+      font-size: 15.5px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 240px;
+    }
     .topbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
     /* ADMIN IDENTITY & ONLINE/OFFLINE PILL */
@@ -118,74 +287,303 @@
       gap: 6px;
       background: var(--surface-2);
       border: 1px solid var(--border);
-      padding: 5px 10px;
-      border-radius: 8px;
+      padding: 6px 11px;
+      border-radius: 9px;
       font-size: 11.5px;
       font-weight: 700;
     }
     .master-tag {
-      background: rgba(0, 176, 255, 0.16);
+      background: rgba(34, 184, 255, 0.14);
       color: var(--info);
-      border: 1px solid rgba(0, 176, 255, 0.35);
-      padding: 1px 5px;
-      border-radius: 4px;
+      border: 1px solid rgba(34, 184, 255, 0.32);
+      padding: 1px 6px;
+      border-radius: 5px;
       font-size: 9.5px;
       text-transform: uppercase;
+      letter-spacing: 0.4px;
     }
     .status-toggle-btn {
       display: inline-flex;
       align-items: center;
       gap: 6px;
       padding: 6px 11px;
-      border-radius: 8px;
+      border-radius: 9px;
       font-size: 11.5px;
       font-weight: 700;
       cursor: pointer;
       border: 1px solid transparent;
-      transition: all 0.15s ease;
+      transition: background-color 0.14s ease, border-color 0.14s ease;
     }
     .status-toggle-btn.online {
-      background: rgba(0, 230, 118, 0.14);
+      background: rgba(0, 230, 118, 0.12);
       color: var(--primary);
-      border-color: rgba(0, 230, 118, 0.4);
+      border-color: rgba(0, 230, 118, 0.36);
     }
     .status-toggle-btn.offline {
-      background: rgba(255, 71, 87, 0.14);
+      background: rgba(255, 71, 87, 0.12);
       color: var(--danger);
-      border-color: rgba(255, 71, 87, 0.35);
+      border-color: rgba(255, 71, 87, 0.34);
     }
 
-    .content-area { padding: 16px; flex: 1; }
+    .content-area { padding: 18px 20px; flex: 1; }
 
     /* METRICS */
-    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 12px; margin-bottom: 18px; }
-    .metric-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
-    .metric-title { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
-    .metric-val { font-size: 20px; font-weight: 800; margin-top: 4px; }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .metric-card {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-top: 2px solid var(--border-strong);
+      border-radius: 12px;
+      padding: 14px 16px;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .metric-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-strong);
+    }
+    .metric-card.accent-green { border-top-color: var(--primary); }
+    .metric-card.accent-info { border-top-color: var(--info); }
+    .metric-card.accent-warn { border-top-color: var(--warning); }
+    .metric-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .metric-title { font-size: 10.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-icon { font-size: 14px; opacity: 0.9; }
+    .metric-val { font-size: 22px; font-weight: 800; letter-spacing: -0.4px; }
+
+    /* RUBY LUNE DASHBOARD BANNER */
+    .ruby-banner {
+      position: relative;
+      background: linear-gradient(120deg, rgba(255, 59, 107, 0.11) 0%, rgba(15, 20, 29, 1) 48%, rgba(0, 230, 118, 0.08) 100%);
+      border: 1px solid rgba(255, 59, 107, 0.34);
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+    .ruby-banner-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+    .ruby-emblem {
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(255, 59, 107, 0.25), rgba(255, 200, 87, 0.16));
+      border: 1px solid rgba(255, 59, 107, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+    .ruby-kicker {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--ruby);
+      margin-bottom: 4px;
+    }
+    .ruby-title {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+      color: #FFFFFF;
+      line-height: 1.35;
+    }
+    .ruby-title .owners-highlight {
+      color: var(--gold);
+      font-weight: 800;
+    }
+    .ruby-owner-chips {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+    }
+    .owner-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 11px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 200, 87, 0.35);
+      color: var(--gold);
+    }
+
+    /* DASHBOARD QUICK ACTIONS */
+    .quick-actions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .quick-action-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 13px 14px;
+      cursor: pointer;
+      text-align: left;
+      color: var(--text-main);
+      transition: border-color 0.14s ease, transform 0.14s ease, background-color 0.14s ease;
+    }
+    .quick-action-card:hover {
+      border-color: var(--primary);
+      background: var(--surface-3);
+      transform: translateY(-1px);
+    }
+    .quick-action-title { font-size: 13px; font-weight: 700; margin-bottom: 3px; display: flex; align-items: center; gap: 7px; }
+    .quick-action-desc { font-size: 11.5px; color: var(--text-muted); }
 
     /* CARDS & FORMS */
     .tab-section { display: none; }
-    .tab-section.active { display: block; }
-    .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-    .card-header-flex { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
-    .card-header-flex h2 { font-size: 15px; font-weight: 800; }
+    .tab-section.active { display: block; animation: fadeTab 0.14s ease-out; }
+    @keyframes fadeTab {
+      from { opacity: 0.6; transform: translateY(3px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 16px 18px;
+      margin-bottom: 16px;
+    }
+    .card-header-flex {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .card-header-flex h2 { font-size: 15.5px; font-weight: 800; letter-spacing: -0.2px; }
 
     .filter-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .search-bar { background: var(--surface-2); border: 1px solid var(--border); color: white; padding: 8px 12px; border-radius: 8px; font-size: 12.5px; width: 220px; outline: none; }
-    .filter-select { background: var(--surface-2); border: 1px solid var(--border); color: white; padding: 8px 10px; border-radius: 8px; font-size: 12px; outline: none; }
+    .search-bar {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 9px;
+      font-size: 12.5px;
+      width: 230px;
+      outline: none;
+      transition: border-color 0.14s ease;
+    }
+    .search-bar:focus { border-color: var(--primary); }
+    .filter-select {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: white;
+      padding: 8px 10px;
+      border-radius: 9px;
+      font-size: 12px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.14s ease;
+    }
+    .filter-select:focus { border-color: var(--primary); }
+
+    /* COIN QUICK FILTER BAR (USERS REGISTRY) */
+    .coin-filter-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 12px;
+      margin-bottom: 12px;
+    }
+    .coin-pills-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .coin-strip-label {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-right: 4px;
+    }
+    .coin-pill-btn {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 6px 11px;
+      border-radius: 99px;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+    }
+    .coin-pill-btn:hover {
+      border-color: var(--gold);
+      color: #FFF;
+    }
+    .coin-pill-btn.active {
+      background: rgba(255, 200, 87, 0.16);
+      border-color: rgba(255, 200, 87, 0.55);
+      color: var(--gold);
+    }
+    .coin-filter-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
 
     /* TABLES */
     .table-container {
       overflow-x: auto;
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 10px;
       -webkit-overflow-scrolling: touch;
       margin-top: 4px;
+      background: #0C1018;
     }
-    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; min-width: 600px; }
-    th { background: #10141D; color: var(--text-muted); font-size: 10.5px; font-weight: 700; text-transform: uppercase; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-    td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-    tr:hover td { background: rgba(255, 255, 255, 0.015); }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; min-width: 640px; }
+    th {
+      background: #111723;
+      color: var(--text-muted);
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td { padding: 10px 12px; border-bottom: 1px solid rgba(35, 46, 66, 0.72); vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: rgba(255, 255, 255, 0.025); }
 
     /* PAGINATION BAR */
     .pagination-bar {
@@ -204,57 +602,97 @@
       border: 1px solid var(--border);
       color: white;
       padding: 5px 10px;
-      border-radius: 6px;
+      border-radius: 7px;
       font-size: 11.5px;
       font-weight: 700;
       cursor: pointer;
+      transition: background-color 0.12s ease, border-color 0.12s ease;
     }
+    .page-btn:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-3); }
     .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .page-btn.active { background: var(--primary); color: #080A0E; border-color: var(--primary); }
+    .page-btn.active { background: var(--primary); color: #07090E; border-color: var(--primary); }
 
     /* BADGES */
-    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border-radius: 5px; font-size: 10px; font-weight: 700; text-transform: uppercase; white-space: nowrap; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
     .badge-active { background: var(--primary-glow); color: var(--primary); border: 1px solid rgba(0, 230, 118, 0.3); }
-    .badge-banned, .badge-rejected { background: rgba(255, 71, 87, 0.15); color: var(--danger); border: 1px solid rgba(255, 71, 87, 0.3); }
-    .badge-pending { background: rgba(255, 165, 2, 0.15); color: var(--warning); border: 1px solid rgba(255, 165, 2, 0.3); }
-    .badge-info { background: rgba(0, 176, 255, 0.15); color: var(--info); border: 1px solid rgba(0, 176, 255, 0.3); }
-    .badge-offline { background: rgba(143, 156, 174, 0.14); color: var(--text-muted); border: 1px solid var(--border); }
+    .badge-banned, .badge-rejected { background: rgba(255, 71, 87, 0.14); color: var(--danger); border: 1px solid rgba(255, 71, 87, 0.3); }
+    .badge-pending { background: rgba(255, 165, 2, 0.14); color: var(--warning); border: 1px solid rgba(255, 165, 2, 0.3); }
+    .badge-info { background: rgba(34, 184, 255, 0.14); color: var(--info); border: 1px solid rgba(34, 184, 255, 0.3); }
+    .badge-offline { background: rgba(142, 156, 178, 0.12); color: var(--text-muted); border: 1px solid var(--border); }
 
     /* BUTTONS */
-    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 12px; border-radius: 7px; font-size: 11.5px; font-weight: 700; cursor: pointer; border: none; }
-    .btn-primary { background: var(--primary); color: #080A0E; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 8px 13px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.14s ease, background-color 0.14s ease, transform 0.1s ease;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: var(--primary); color: #07090E; }
+    .btn-primary:hover { background: var(--primary-hover); }
     .btn-secondary { background: var(--surface-2); color: white; border: 1px solid var(--border); }
-    .btn-action { padding: 5px 8px; font-size: 11px; font-weight: 700; border-radius: 5px; border: none; cursor: pointer; margin-right: 3px; margin-bottom: 3px; }
-    .btn-act-coins { background: var(--primary); color: #080A0E; }
-    .btn-act-pass { background: var(--info); color: white; }
-    .btn-act-danger { background: var(--danger); color: white; }
-    .btn-act-gray { background: #404859; color: white; }
-    .btn-act-warn { background: var(--warning); color: #080A0E; }
+    .btn-secondary:hover { background: var(--surface-3); }
 
-    .proof-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); }
+    .btn-action {
+      padding: 5px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      margin-right: 3px;
+      margin-bottom: 2px;
+      transition: opacity 0.12s ease;
+    }
+    .btn-action:hover { opacity: 0.88; }
+    .btn-act-coins { background: var(--primary); color: #07090E; }
+    .btn-act-pass { background: var(--info); color: #071018; }
+    .btn-act-danger { background: var(--danger); color: white; }
+    .btn-act-gray { background: #3B465B; color: white; }
+    .btn-act-warn { background: var(--warning); color: #07090E; }
+
+    .proof-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 7px; cursor: pointer; border: 1px solid var(--border); }
 
     /* MODAL */
     #image-modal, #referral-modal, #notify-modal {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.85);
+      background: rgba(4, 6, 10, 0.84);
       z-index: 10000;
       justify-content: center;
       align-items: center;
       padding: 14px;
     }
-    #image-modal img { max-width: 95vw; max-height: 85vh; border-radius: 8px; }
+    #image-modal img { max-width: 95vw; max-height: 85vh; border-radius: 10px; border: 1px solid var(--border-strong); }
     .modal-card {
       background: var(--surface-1);
-      border: 1px solid var(--border);
-      border-radius: 14px;
+      border: 1px solid var(--border-strong);
+      border-radius: 15px;
       width: 100%;
       max-width: 960px;
       max-height: 88vh;
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
     }
     .modal-header {
       padding: 14px 18px;
@@ -274,9 +712,13 @@
       .sidebar-close-btn { display: block; }
       .main-wrapper { margin-left: 0 !important; width: 100% !important; }
       .menu-toggle-btn { display: flex; }
+      .content-area { padding: 14px; }
+      .topbar { padding: 8px 14px; }
       .metrics-grid { grid-template-columns: repeat(2, 1fr); }
       .search-bar { width: 100%; }
       .grid-2col { grid-template-columns: 1fr !important; }
+      .ruby-banner { padding: 14px; }
+      .ruby-title { font-size: 15px; }
     }
   </style>
 </head>
@@ -370,8 +812,9 @@
   <!-- 1. LOGIN OVERLAY -->
   <div id="login-overlay">
     <div class="login-box">
-      <h2>Arena Games</h2>
-      <p>Administrator Console Login</p>
+      <div class="login-brand-pill">🎮 Arena Games Console</div>
+      <h2>Welcome Back</h2>
+      <p>Sign in to manage players, tasks &amp; payouts</p>
       <div class="form-group">
         <label>Admin Username</label>
         <input type="text" id="admin-user" placeholder="admin" autocomplete="username">
@@ -392,54 +835,57 @@
     <aside class="sidebar" id="app-sidebar">
       <div class="sidebar-header">
         <div class="sidebar-brand">
-          <h2>Arena Games</h2>
-          <span>Admin Console</span>
+          <div class="brand-logo-mark">🎮</div>
+          <div>
+            <h2>Arena Games</h2>
+            <span>Admin Console</span>
+          </div>
         </div>
         <button class="sidebar-close-btn" onclick="toggleSidebar(false)">&times;</button>
       </div>
 
       <ul class="nav-list">
         <div class="nav-label">Operations</div>
-        <li class="nav-item active" onclick="switchTab('tab-dashboard', this)">
+        <li class="nav-item active" id="nav-tab-dashboard" onclick="switchTab('tab-dashboard', this)">
           <span>📊</span><span>Dashboard</span>
         </li>
-        <li class="nav-item" onclick="switchTab('tab-tasks', this)">
+        <li class="nav-item" id="nav-tab-tasks" onclick="switchTab('tab-tasks', this)">
           <span>📋</span><span>Task Hub</span>
           <span class="badge-pill" id="nav-tasks-count">0</span>
         </li>
-        <li class="nav-item" onclick="switchTab('tab-submissions', this)">
+        <li class="nav-item" id="nav-tab-submissions" onclick="switchTab('tab-submissions', this)">
           <span>📥</span><span>Submissions</span>
           <span class="badge-pill" id="nav-sub-pending-count" style="color: var(--warning);">0</span>
         </li>
 
         <div class="nav-label">Players</div>
-        <li class="nav-item" onclick="switchTab('tab-users', this)">
+        <li class="nav-item" id="nav-tab-users" onclick="switchTab('tab-users', this)">
           <span>👥</span><span>Users Registry</span>
           <span class="badge-pill" id="nav-users-count">0</span>
         </li>
-        <li class="nav-item" onclick="switchTab('tab-referrals', this)">
+        <li class="nav-item" id="nav-tab-referrals" onclick="switchTab('tab-referrals', this)">
           <span>🤝</span><span>Referrals</span>
           <span class="badge-pill" id="nav-referrals-count" style="color: var(--info);">0</span>
         </li>
-        <li class="nav-item" onclick="switchTab('tab-withdrawals', this)">
+        <li class="nav-item" id="nav-tab-withdrawals" onclick="switchTab('tab-withdrawals', this)">
           <span>💸</span><span>Redemptions</span>
           <span class="badge-pill" id="nav-redeem-count" style="color: var(--warning);">0</span>
         </li>
-        <li class="nav-item" onclick="switchTab('tab-notifications', this)">
+        <li class="nav-item" id="nav-tab-notifications" onclick="switchTab('tab-notifications', this)">
           <span>🔔</span><span>Push Notifications</span>
         </li>
 
         <div class="nav-label">Settings</div>
-        <li class="nav-item" onclick="switchTab('tab-gateways', this)">
+        <li class="nav-item" id="nav-tab-gateways" onclick="switchTab('tab-gateways', this)">
           <span>💳</span><span>Gateways</span>
         </li>
-        <li class="nav-item" onclick="switchTab('tab-version', this)">
+        <li class="nav-item" id="nav-tab-version" onclick="switchTab('tab-version', this)">
           <span>⚙️</span><span>System Update</span>
         </li>
 
         <div class="nav-label master-only">Master Admin</div>
         <li class="nav-item master-only" id="nav-tab-admins" onclick="switchTab('tab-admins', this)">
-          <span>🛡️</span><span>Admins & Online Time</span>
+          <span>🛡️</span><span>Admins &amp; Online Time</span>
         </li>
         <li class="nav-item master-only" id="nav-tab-logs" onclick="switchTab('tab-activity-logs', this)">
           <span>📜</span><span>Activity Logs</span>
@@ -469,7 +915,7 @@
             <span id="self-status-dot">🟢</span>
             <span id="self-status-text">Online</span>
           </button>
-          <button class="btn btn-primary" onclick="refreshCurrentView()" style="padding: 6px 10px; font-size: 11px;">🔄 Refresh</button>
+          <button class="btn btn-primary" onclick="refreshCurrentView()" style="padding: 6px 11px; font-size: 11.5px;">🔄 Refresh</button>
         </div>
       </header>
 
@@ -477,34 +923,87 @@
         <!-- METRICS -->
         <div class="metrics-grid">
           <div class="metric-card">
-            <div class="metric-title">Players</div>
+            <div class="metric-head">
+              <div class="metric-title">Players</div>
+              <span class="metric-icon">👥</span>
+            </div>
             <div class="metric-val" id="stat-users">0</div>
           </div>
-          <div class="metric-card">
-            <div class="metric-title">Coins Pool</div>
+          <div class="metric-card accent-green">
+            <div class="metric-head">
+              <div class="metric-title">Coins Pool</div>
+              <span class="metric-icon">🪙</span>
+            </div>
             <div class="metric-val" id="stat-coins" style="color: var(--primary);">0</div>
           </div>
-          <div class="metric-card">
-            <div class="metric-title">Referred Players</div>
+          <div class="metric-card accent-info">
+            <div class="metric-head">
+              <div class="metric-title">Referred Players</div>
+              <span class="metric-icon">🤝</span>
+            </div>
             <div class="metric-val" id="stat-referred" style="color: var(--info);">0</div>
           </div>
-          <div class="metric-card">
-            <div class="metric-title">Pending Tasks</div>
+          <div class="metric-card accent-warn">
+            <div class="metric-head">
+              <div class="metric-title">Pending Tasks</div>
+              <span class="metric-icon">📥</span>
+            </div>
             <div class="metric-val" id="stat-tasks" style="color: var(--warning);">0</div>
           </div>
-          <div class="metric-card">
-            <div class="metric-title">Redeem Pending</div>
+          <div class="metric-card accent-warn">
+            <div class="metric-head">
+              <div class="metric-title">Redeem Pending</div>
+              <span class="metric-icon">💸</span>
+            </div>
             <div class="metric-val" id="stat-withdrawals" style="color: var(--warning);">0</div>
           </div>
         </div>
 
         <!-- TAB 1: DASHBOARD -->
         <section id="tab-dashboard" class="tab-section active">
+          <!-- RUBY LUNE OWNERS BANNER -->
+          <div class="ruby-banner">
+            <div class="ruby-banner-left">
+              <div class="ruby-emblem">💎</div>
+              <div>
+                <div class="ruby-kicker">Official Management</div>
+                <div class="ruby-title">Ruby Lune : Owners <span class="owners-highlight">SABEEN RUBY SUBASH</span></div>
+              </div>
+            </div>
+            <div class="ruby-owner-chips">
+              <span class="owner-chip">👑 SABEEN</span>
+              <span class="owner-chip">💎 RUBY</span>
+              <span class="owner-chip">⚡ SUBASH</span>
+            </div>
+          </div>
+
           <div class="card">
-            <h2 style="margin-bottom: 6px;">System Ready</h2>
+            <div class="card-header-flex" style="margin-bottom: 8px;">
+              <h2>System Ready</h2>
+              <span class="badge badge-active">⚡ Fast Pagination Active</span>
+            </div>
             <p style="color: var(--text-muted); font-size: 12.5px;">
-              All tables use fast server-side pagination so thousands of players and logs load smoothly without lag.
+              All tables use fast server-side pagination and request cancellation so thousands of players and logs load smoothly without lag.
             </p>
+
+            <div class="quick-actions-grid">
+              <button class="quick-action-card" onclick="switchTab('tab-users', document.getElementById('nav-tab-users'))">
+                <div class="quick-action-title">👥 Users Registry</div>
+                <div class="quick-action-desc">Search players &amp; filter 5k / 10k / 20k coins</div>
+              </button>
+              <button class="quick-action-card" onclick="switchTab('tab-submissions', document.getElementById('nav-tab-submissions'))">
+                <div class="quick-action-title">📥 Task Submissions</div>
+                <div class="quick-action-desc">Review pending task screenshots &amp; proofs</div>
+              </button>
+              <button class="quick-action-card" onclick="switchTab('tab-withdrawals', document.getElementById('nav-tab-withdrawals'))">
+                <div class="quick-action-title">💸 Redemptions</div>
+                <div class="quick-action-desc">Approve or reject withdrawal requests</div>
+              </button>
+              <button class="quick-action-card" onclick="switchTab('tab-notifications', document.getElementById('nav-tab-notifications'))">
+                <div class="quick-action-title">🔔 Push Notifications</div>
+                <div class="quick-action-desc">Send targeted or broadcast FCM alerts</div>
+              </button>
+            </div>
           </div>
         </section>
 
@@ -525,7 +1024,7 @@
                 <div class="form-group">
                   <label>Proof Type</label>
                   <select id="task-proof-type">
-                    <option value="both">Both Screenshot & Text</option>
+                    <option value="both">Both Screenshot &amp; Text</option>
                     <option value="screenshot">Screenshot Only</option>
                     <option value="text">Text Only</option>
                   </select>
@@ -576,19 +1075,25 @@
           </div>
         </section>
 
-        <!-- TAB 4: USERS (SERVER-SIDE PAGINATED + ACTIVITY & NOTIFY) -->
+        <!-- TAB 4: USERS (SERVER-SIDE PAGINATED + COINS TIER FILTER + ACTIVITY & NOTIFY) -->
         <section id="tab-users" class="tab-section">
           <div class="card">
             <div class="card-header-flex">
               <h2>Players Registry (All Users)</h2>
               <div class="filter-toolbar">
                 <input type="text" id="user-search" class="search-bar" placeholder="Search ID, username, email, ref code..." oninput="debouncedUserSearch()">
-                <select id="user-status-filter" class="filter-select" onchange="loadUsersList(1)">
+                <select id="user-coins-filter" class="filter-select" onchange="onCoinsDropdownChange()">
+                  <option value="all">Coins: All</option>
+                  <option value="5000">Coins: 5,000+</option>
+                  <option value="10000">Coins: 10,000+</option>
+                  <option value="20000">Coins: 20,000+</option>
+                </select>
+                <select id="user-status-filter" class="filter-select" onchange="invalidateCoinsCacheAndLoad(1)">
                   <option value="all">All Status</option>
                   <option value="active">Active Only</option>
                   <option value="banned">Banned Only</option>
                 </select>
-                <select id="user-activity-filter" class="filter-select" onchange="loadUsersList(1)">
+                <select id="user-activity-filter" class="filter-select" onchange="invalidateCoinsCacheAndLoad(1)">
                   <option value="all">All Activity</option>
                   <option value="online_now">Active Now (&lt;5m)</option>
                   <option value="active_24h">Active Last 24h</option>
@@ -597,7 +1102,7 @@
                   <option value="inactive_30d">Inactive 30+ Days</option>
                   <option value="fcm_ready">Push Enabled (FCM)</option>
                 </select>
-                <select id="user-sort-select" class="filter-select" onchange="loadUsersList(1)">
+                <select id="user-sort-select" class="filter-select" onchange="invalidateCoinsCacheAndLoad(1)">
                   <option value="newest">Sort: Newest</option>
                   <option value="recently_active">Sort: Recently Active</option>
                   <option value="most_inactive">Sort: Most Inactive</option>
@@ -609,6 +1114,25 @@
                 </select>
               </div>
             </div>
+
+            <!-- QUICK COIN SEARCH PILLS -->
+            <div class="coin-filter-strip">
+              <div class="coin-pills-group">
+                <span class="coin-strip-label">🪙 Coins Search:</span>
+                <button type="button" class="coin-pill-btn active" data-coins="all" onclick="setCoinsFilter('all')">All Coins</button>
+                <button type="button" class="coin-pill-btn" data-coins="5000" onclick="setCoinsFilter('5000')">🪙 5,000 Coins</button>
+                <button type="button" class="coin-pill-btn" data-coins="10000" onclick="setCoinsFilter('10000')">🪙 10,000 Coins</button>
+                <button type="button" class="coin-pill-btn" data-coins="20000" onclick="setCoinsFilter('20000')">🪙 20,000 Coins</button>
+              </div>
+              <div class="coin-filter-meta">
+                <span id="coin-filter-status-text">Showing all coin balances</span>
+                <select id="user-coins-match-mode" class="filter-select" style="padding:5px 8px; font-size:11px;" onchange="invalidateCoinsCacheAndLoad(1)">
+                  <option value="gte">At least (≥)</option>
+                  <option value="exact">Exact (=)</option>
+                </select>
+              </div>
+            </div>
+
             <div class="table-container">
               <table id="users-table">
                 <thead>
@@ -701,20 +1225,20 @@
         <!-- TAB 5B: PUSH NOTIFICATIONS -->
         <section id="tab-notifications" class="tab-section">
           <div class="metrics-grid" style="margin-bottom:16px;">
-            <div class="metric-card">
-              <div class="metric-title">FCM Reachable Users</div>
+            <div class="metric-card accent-green">
+              <div class="metric-head"><div class="metric-title">FCM Reachable Users</div><span class="metric-icon">🔔</span></div>
               <div class="metric-val" id="notif-stat-fcm" style="color:var(--primary);">0</div>
             </div>
-            <div class="metric-card">
-              <div class="metric-title">Active (24h)</div>
+            <div class="metric-card accent-info">
+              <div class="metric-head"><div class="metric-title">Active (24h)</div><span class="metric-icon">🟢</span></div>
               <div class="metric-val" id="notif-stat-active" style="color:var(--info);">0</div>
             </div>
-            <div class="metric-card">
-              <div class="metric-title">Inactive 3+ Days</div>
+            <div class="metric-card accent-warn">
+              <div class="metric-head"><div class="metric-title">Inactive 3+ Days</div><span class="metric-icon">⏳</span></div>
               <div class="metric-val" id="notif-stat-in3" style="color:var(--warning);">0</div>
             </div>
             <div class="metric-card">
-              <div class="metric-title">Inactive 7+ Days</div>
+              <div class="metric-head"><div class="metric-title">Inactive 7+ Days</div><span class="metric-icon">⚠️</span></div>
               <div class="metric-val" id="notif-stat-in7" style="color:var(--danger);">0</div>
             </div>
           </div>
@@ -884,7 +1408,7 @@
           <div class="card">
             <div class="card-header-flex">
               <div>
-                <h2>Admin Credentials & Online Time</h2>
+                <h2>Admin Credentials &amp; Online Time</h2>
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;">
                   Monitor each admin's online/offline status, online time, change passwords, or view their activity logs.
                 </p>
@@ -992,7 +1516,7 @@
     let adminsLoadedAt = 0;
     let fcmUsersCache = [];
 
-    // Pagination state
+    // Pagination & filter state
     let currentUsersPage = 1;
     let currentReferralsPage = 1;
     let currentRefUsersReferrerId = null;
@@ -1002,6 +1526,10 @@
     let currentSubPage = 1;
     let currentWithdrawalsPage = 1;
     let currentLogsPage = 1;
+
+    // Coin-filtered user cache + abort controller for zero-lag filtering
+    let usersAbortController = null;
+    let coinsFilterCache = { key: null, users: [] };
 
     // Debounce timers
     let userSearchTimer = null;
@@ -1290,7 +1818,8 @@
       if (target) target.classList.add('active');
       if (element) {
         element.classList.add('active');
-        document.getElementById('current-page-title').innerText = element.querySelector('span:nth-child(2)').innerText;
+        const label = element.querySelector('span:nth-child(2)');
+        if (label) document.getElementById('current-page-title').innerText = label.innerText;
       }
 
       if (window.innerWidth <= 850) toggleSidebar(false);
@@ -1309,6 +1838,7 @@
 
     function refreshCurrentView() {
       loadDashboardStats();
+      coinsFilterCache = { key: null, users: [] };
       if (activeTabId === 'tab-users') loadUsersList(currentUsersPage);
       if (activeTabId === 'tab-referrals') loadReferralsList(currentReferralsPage);
       if (activeTabId === 'tab-tasks') loadTasksList();
@@ -1342,11 +1872,111 @@
     }
 
     // =========================================================================
-    // USERS REGISTRY (SERVER-SIDE PAGINATION + ACTIVITY & FCM)
+    // USERS REGISTRY (SERVER-SIDE PAGINATION + COINS TIER FILTER + ACTIVITY & FCM)
     // =========================================================================
+    function syncCoinsFilterUI(val) {
+      const selectEl = document.getElementById('user-coins-filter');
+      if (selectEl) selectEl.value = val;
+
+      document.querySelectorAll('.coin-pill-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.coins === String(val));
+      });
+
+      const matchMode = document.getElementById('user-coins-match-mode')?.value || 'gte';
+      const statusText = document.getElementById('coin-filter-status-text');
+      if (statusText) {
+        if (val === 'all') {
+          statusText.innerHTML = 'Showing all coin balances';
+        } else {
+          const numStr = Number(val).toLocaleString();
+          statusText.innerHTML = matchMode === 'exact'
+            ? `Showing users with <strong style="color:var(--gold);">exactly ${numStr} coins</strong>`
+            : `Showing users with <strong style="color:var(--gold);">${numStr}+ coins</strong>`;
+        }
+      }
+    }
+
+    function setCoinsFilter(val) {
+      syncCoinsFilterUI(val);
+      invalidateCoinsCacheAndLoad(1);
+    }
+
+    function onCoinsDropdownChange() {
+      const val = document.getElementById('user-coins-filter').value;
+      syncCoinsFilterUI(val);
+      invalidateCoinsCacheAndLoad(1);
+    }
+
+    function invalidateCoinsCacheAndLoad(page = 1) {
+      coinsFilterCache = { key: null, users: [] };
+      loadUsersList(page);
+    }
+
     function debouncedUserSearch() {
       clearTimeout(userSearchTimer);
-      userSearchTimer = setTimeout(() => loadUsersList(1), 250);
+      userSearchTimer = setTimeout(() => invalidateCoinsCacheAndLoad(1), 250);
+    }
+
+    function matchesCoinsFilter(user, coinsVal, matchMode) {
+      if (coinsVal === 'all') return true;
+      const target = Number(coinsVal);
+      const bal = Number(user.balance || 0);
+      return matchMode === 'exact' ? bal === target : bal >= target;
+    }
+
+    function renderUsersRows(users, page, totalPages, totalItems) {
+      const tbody = document.querySelector("#users-table tbody");
+
+      if (!users || users.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:20px;">No users found matching your filters.</td></tr>`;
+        renderPagination('users-pagination', 1, 1, 0, 'loadUsersList');
+        return;
+      }
+
+      const rows = [];
+      for (let i = 0; i < users.length; i++) {
+        const u = users[i];
+        const reasonTitle = u.ban_reason ? `title="${esc(u.ban_reason)}"` : '';
+        const statusBadge = u.is_banned === 1
+          ? `<span class="badge badge-banned" ${reasonTitle}>Banned</span>`
+          : `<span class="badge badge-active">Active</span>`;
+        const refBy = u.referred_by_username
+          ? `<span style="color:var(--info);">@${esc(u.referred_by_username)}</span>`
+          : `<span style="color:var(--text-muted);">Direct</span>`;
+        const refBtn = u.referral_count > 0
+          ? `<button class="btn-action btn-act-pass" onclick="openReferralModal(${u.id}, '${esc(u.username)}')">Refs (${u.referral_count})</button>`
+          : `<span style="color:var(--text-muted);">0</span>`;
+        const fcmBadge = u.has_fcm === 1
+          ? `<span title="FCM Push Ready" style="margin-left:4px;">🔔</span>`
+          : `<span title="No FCM Token yet" style="margin-left:4px; opacity:0.4;">🔕</span>`;
+        const actInfo = formatActivityStatus(u.last_active_at || u.created_at);
+
+        rows.push(`
+          <tr>
+            <td>#${u.id}</td>
+            <td><strong>@${esc(u.username)}</strong>${fcmBadge}<br><span style="font-size:10px; color:var(--text-muted);">${esc(u.referral_code || '')}</span></td>
+            <td>${esc(u.email)}</td>
+            <td style="color:var(--primary); font-weight:800;">${(u.balance || 0).toLocaleString()}</td>
+            <td>🔥 ${u.current_streak || 0}d</td>
+            <td>${actInfo.html}</td>
+            <td>${refBy}</td>
+            <td>${refBtn}</td>
+            <td>${statusBadge}</td>
+            <td style="white-space: nowrap;">
+              <button class="btn-action btn-act-warn" onclick="openNotifyModal(${u.id}, '${esc(u.username)}', ${u.has_fcm === 1})">🔔 Notify</button>
+              <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${esc(u.username)}')">Coins</button>
+              <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${esc(u.username)}')">PW</button>
+              <button class="btn-action ${u.is_banned === 1 ? 'btn-act-gray' : 'btn-act-danger'}" onclick="toggleUserBan(${u.id}, ${u.is_banned !== 1})">
+                ${u.is_banned === 1 ? 'Unban' : 'Ban'}
+              </button>
+              <button class="btn-action btn-act-danger" style="background:#B3001E;" onclick="deleteUserPermanently(${u.id}, '${esc(u.username)}')">Del</button>
+            </td>
+          </tr>
+        `);
+      }
+
+      tbody.innerHTML = rows.join('');
+      renderPagination('users-pagination', page, totalPages, totalItems, 'loadUsersList');
     }
 
     async function loadUsersList(page = 1) {
@@ -1355,65 +1985,125 @@
       const status = document.getElementById('user-status-filter').value;
       const activity = document.getElementById('user-activity-filter').value;
       const sort = document.getElementById('user-sort-select').value;
-      const limit = document.getElementById('user-limit-select').value;
+      const limit = parseInt(document.getElementById('user-limit-select').value, 10) || 25;
+      const coinsFilter = document.getElementById('user-coins-filter').value;
+      const matchMode = document.getElementById('user-coins-match-mode')?.value || 'gte';
 
-      const params = new URLSearchParams({ page: currentUsersPage, limit, search, status, activity, sort });
+      syncCoinsFilterUI(coinsFilter);
+
+      if (usersAbortController) usersAbortController.abort();
+      usersAbortController = new AbortController();
+      const signal = usersAbortController.signal;
+
+      // Fast path: no coin filter -> pure server-side pagination
+      if (coinsFilter === 'all') {
+        const params = new URLSearchParams({ page: currentUsersPage, limit, search, status, activity, sort });
+        try {
+          const res = await fetch(`${API_BASE}/users?${params.toString()}`, { headers: getHeaders(), signal });
+          const data = await res.json();
+          renderUsersRows(data.users || [], data.page || 1, data.totalPages || 1, data.total || 0);
+        } catch (err) {
+          if (err.name !== 'AbortError') {}
+        }
+        return;
+      }
+
+      // Coin-filtered path (5,000 / 10,000 / 20,000)
+      const cacheKey = `${search}|${status}|${activity}|${sort}|${coinsFilter}|${matchMode}`;
+      if (coinsFilterCache.key === cacheKey) {
+        const total = coinsFilterCache.users.length;
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+        const safePage = Math.min(currentUsersPage, totalPages);
+        currentUsersPage = safePage;
+        const start = (safePage - 1) * limit;
+        renderUsersRows(coinsFilterCache.users.slice(start, start + limit), safePage, totalPages, total);
+        return;
+      }
+
+      const tbody = document.querySelector("#users-table tbody");
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--gold); padding:18px;">🪙 Finding users with ${Number(coinsFilter).toLocaleString()} coins...</td></tr>`;
+
       try {
-        const res = await fetch(`${API_BASE}/users?${params.toString()}`, { headers: getHeaders() });
-        const data = await res.json();
-        const users = data.users || [];
-        const tbody = document.querySelector("#users-table tbody");
+        const firstParams = new URLSearchParams({
+          page: 1,
+          limit: 100,
+          search,
+          status,
+          activity,
+          sort,
+          min_coins: coinsFilter,
+          coins_mode: matchMode
+        });
 
-        if (users.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--text-muted);">No users found.</td></tr>`;
-          renderPagination('users-pagination', 1, 1, 0, 'loadUsersList');
+        const firstRes = await fetch(`${API_BASE}/users?${firstParams.toString()}`, { headers: getHeaders(), signal });
+        const firstData = await firstRes.json();
+
+        // If backend natively supports min_coins filtering and returned a flag
+        if (firstData.coinFilterApplied === true) {
+          const serverParams = new URLSearchParams({
+            page: currentUsersPage,
+            limit,
+            search,
+            status,
+            activity,
+            sort,
+            min_coins: coinsFilter,
+            coins_mode: matchMode
+          });
+          const pageRes = currentUsersPage === 1 && limit === 100
+            ? firstData
+            : await (await fetch(`${API_BASE}/users?${serverParams.toString()}`, { headers: getHeaders(), signal })).json();
+          renderUsersRows(pageRes.users || [], pageRes.page || 1, pageRes.totalPages || 1, pageRes.total || 0);
           return;
         }
 
-        let html = '';
-        for (let i = 0; i < users.length; i++) {
-          const u = users[i];
-          const reasonTitle = u.ban_reason ? `title="${esc(u.ban_reason)}"` : '';
-          const statusBadge = u.is_banned === 1
-            ? `<span class="badge badge-banned" ${reasonTitle}>Banned</span>`
-            : `<span class="badge badge-active">Active</span>`;
-          const refBy = u.referred_by_username
-            ? `<span style="color:var(--info);">@${esc(u.referred_by_username)}</span>`
-            : `<span style="color:var(--text-muted);">Direct</span>`;
-          const refBtn = u.referral_count > 0
-            ? `<button class="btn-action btn-act-pass" onclick="openReferralModal(${u.id}, '${esc(u.username)}')">Refs (${u.referral_count})</button>`
-            : `<span style="color:var(--text-muted);">0</span>`;
-          const fcmBadge = u.has_fcm === 1
-            ? `<span title="FCM Push Ready" style="margin-left:4px;">🔔</span>`
-            : `<span title="No FCM Token yet" style="margin-left:4px; opacity:0.4;">🔕</span>`;
-          const actInfo = formatActivityStatus(u.last_active_at || u.created_at);
+        // Otherwise, gather all pages cleanly in parallel batches so no matching user is missed
+        let allMatched = (firstData.users || []).filter(u => matchesCoinsFilter(u, coinsFilter, matchMode));
+        const totalServerPages = firstData.totalPages || 1;
 
-          html += `
-            <tr>
-              <td>#${u.id}</td>
-              <td><strong>@${esc(u.username)}</strong>${fcmBadge}<br><span style="font-size:10px; color:var(--text-muted);">${esc(u.referral_code || '')}</span></td>
-              <td>${esc(u.email)}</td>
-              <td style="color:var(--primary); font-weight:800;">${(u.balance || 0).toLocaleString()}</td>
-              <td>🔥 ${u.current_streak || 0}d</td>
-              <td>${actInfo.html}</td>
-              <td>${refBy}</td>
-              <td>${refBtn}</td>
-              <td>${statusBadge}</td>
-              <td style="white-space: nowrap;">
-                <button class="btn-action btn-act-warn" onclick="openNotifyModal(${u.id}, '${esc(u.username)}', ${u.has_fcm === 1})">🔔 Notify</button>
-                <button class="btn-action btn-act-coins" onclick="editUserCoins(${u.id}, '${esc(u.username)}')">Coins</button>
-                <button class="btn-action btn-act-pass" onclick="resetUserPassword(${u.id}, '${esc(u.username)}')">PW</button>
-                <button class="btn-action ${u.is_banned === 1 ? 'btn-act-gray' : 'btn-act-danger'}" onclick="toggleUserBan(${u.id}, ${u.is_banned !== 1})">
-                  ${u.is_banned === 1 ? 'Unban' : 'Ban'}
-                </button>
-                <button class="btn-action btn-act-danger" style="background:#B3001E;" onclick="deleteUserPermanently(${u.id}, '${esc(u.username)}')">Del</button>
-              </td>
-            </tr>
-          `;
+        if (totalServerPages > 1) {
+          const batchSize = 5;
+          for (let pStart = 2; pStart <= totalServerPages; pStart += batchSize) {
+            const batchPromises = [];
+            for (let p = pStart; p < Math.min(pStart + batchSize, totalServerPages + 1); p++) {
+              const pParams = new URLSearchParams({ page: p, limit: 100, search, status, activity, sort });
+              batchPromises.push(
+                fetch(`${API_BASE}/users?${pParams.toString()}`, { headers: getHeaders(), signal }).then(r => r.json())
+              );
+            }
+            const batchResults = await Promise.all(batchPromises);
+            for (let b = 0; b < batchResults.length; b++) {
+              const pageUsers = batchResults[b].users || [];
+              for (let j = 0; j < pageUsers.length; j++) {
+                if (matchesCoinsFilter(pageUsers[j], coinsFilter, matchMode)) {
+                  allMatched.push(pageUsers[j]);
+                }
+              }
+            }
+          }
         }
-        tbody.innerHTML = html;
-        renderPagination('users-pagination', data.page, data.totalPages, data.total, 'loadUsersList');
-      } catch (_) {}
+
+        coinsFilterCache = { key: cacheKey, users: allMatched };
+
+        const statusText = document.getElementById('coin-filter-status-text');
+        if (statusText) {
+          const numStr = Number(coinsFilter).toLocaleString();
+          statusText.innerHTML = matchMode === 'exact'
+            ? `Found <strong style="color:var(--primary);">${allMatched.length.toLocaleString()}</strong> user(s) with <strong style="color:var(--gold);">exactly ${numStr} coins</strong>`
+            : `Found <strong style="color:var(--primary);">${allMatched.length.toLocaleString()}</strong> user(s) with <strong style="color:var(--gold);">${numStr}+ coins</strong>`;
+        }
+
+        const total = allMatched.length;
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+        const safePage = Math.min(currentUsersPage, totalPages);
+        currentUsersPage = safePage;
+        const start = (safePage - 1) * limit;
+        renderUsersRows(allMatched.slice(start, start + limit), safePage, totalPages, total);
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--danger);">Failed to load users.</td></tr>`;
+        }
+      }
     }
 
     async function editUserCoins(id, username) {
@@ -1428,7 +2118,7 @@
         body: JSON.stringify({ amount: amt })
       });
       if ((await res.json()).success) {
-        loadUsersList(currentUsersPage);
+        invalidateCoinsCacheAndLoad(currentUsersPage);
         loadDashboardStats();
       }
     }
@@ -1463,14 +2153,14 @@
         headers: getHeaders(),
         body: JSON.stringify({ isBanned: shouldBan, reason })
       });
-      loadUsersList(currentUsersPage);
+      invalidateCoinsCacheAndLoad(currentUsersPage);
     }
 
     async function deleteUserPermanently(userId, username) {
       if (prompt(`Type '${username}' to confirm permanent deletion:`) !== username) return;
       const res = await fetch(`${API_BASE}/users/${userId}/delete`, { method: "POST", headers: getHeaders() });
       if ((await res.json()).success) {
-        loadUsersList(currentUsersPage);
+        invalidateCoinsCacheAndLoad(currentUsersPage);
         loadDashboardStats();
       }
     }
@@ -1562,10 +2252,11 @@
         return;
       }
 
-      let html = '';
-      filtered.forEach(u => {
+      const rows = [];
+      for (let i = 0; i < filtered.length; i++) {
+        const u = filtered[i];
         const act = formatActivityStatus(u.last_active_at);
-        html += `
+        rows.push(`
           <tr>
             <td>#${u.id}</td>
             <td><strong>@${esc(u.username)}</strong><br><span style="font-size:11px; color:var(--text-muted);">${esc(u.full_name || '')}</span></td>
@@ -1577,9 +2268,9 @@
               <button class="btn-action btn-act-warn" onclick="openNotifyModal(${u.id}, '${esc(u.username)}', true)">🔔 Notify</button>
             </td>
           </tr>
-        `;
-      });
-      tbody.innerHTML = html;
+        `);
+      }
+      tbody.innerHTML = rows.join('');
     }
 
     async function loadNotificationsTab() {
@@ -1608,9 +2299,9 @@
           return;
         }
 
-        let html = '';
+        const rows = [];
         list.forEach(n => {
-          html += `
+          rows.push(`
             <tr>
               <td>#${n.id}</td>
               <td style="font-size:11px; color:var(--text-muted); white-space:nowrap;">${formatDate(n.created_at)}</td>
@@ -1619,9 +2310,9 @@
               <td><strong>${esc(n.title)}</strong><br><span style="font-size:11px; color:var(--text-muted);">${esc(n.body)}</span></td>
               <td><span style="color:var(--primary); font-weight:800;">${n.success_count}</span> / ${n.targeted_count}${n.failure_count > 0 ? ` <span style="color:var(--danger); font-size:10px;">(${n.failure_count} failed)</span>` : ''}</td>
             </tr>
-          `;
+          `);
         });
-        tbody.innerHTML = html;
+        tbody.innerHTML = rows.join('');
       } catch (_) {}
     }
 
@@ -1707,12 +2398,12 @@
           return;
         }
 
-        let html = '';
+        const rows = [];
         for (let i = 0; i < referrers.length; i++) {
           const r = referrers[i];
           const txCoins = Number(r.referral_tx_coins || 0);
           const estBonus = Number(r.referral_count || 0) * 100;
-          html += `
+          rows.push(`
             <tr>
               <td>#${r.id}</td>
               <td><strong>@${esc(r.username)}</strong><br><span style="font-size:10.5px; color:var(--text-muted);">${esc(r.email)}</span></td>
@@ -1727,9 +2418,9 @@
                 <button class="btn-action btn-act-danger" onclick="deleteAllReferrals(${r.id}, '${esc(r.username)}', ${r.referral_count})">Delete All</button>
               </td>
             </tr>
-          `;
+          `);
         }
-        tbody.innerHTML = html;
+        tbody.innerHTML = rows.join('');
         renderPagination('referrals-pagination', data.page, data.totalPages, data.total, 'loadReferralsList');
       } catch (_) {}
     }
@@ -1753,7 +2444,7 @@
           closeReferralModal();
           loadReferralsList(currentReferralsPage);
           loadDashboardStats();
-          if (activeTabId === 'tab-users') loadUsersList(currentUsersPage);
+          if (activeTabId === 'tab-users') invalidateCoinsCacheAndLoad(currentUsersPage);
         } else {
           alert(data.error || 'Failed to delete referrals');
         }
@@ -1816,13 +2507,13 @@
           return;
         }
 
-        let html = '';
+        const rows = [];
         for (let i = 0; i < users.length; i++) {
           const u = users[i];
           const statusBadge = u.is_banned === 1
             ? `<span class="badge badge-banned">Banned</span>`
             : `<span class="badge badge-active">Active</span>`;
-          html += `
+          rows.push(`
             <tr>
               <td>#${u.id}</td>
               <td><strong>@${esc(u.username)}</strong></td>
@@ -1835,9 +2526,9 @@
                 <button class="btn-action btn-act-danger" onclick="deleteSingleReferredUser(${u.id}, '${esc(u.username)}')">Delete + Clawback</button>
               </td>
             </tr>
-          `;
+          `);
         }
-        tbody.innerHTML = html;
+        tbody.innerHTML = rows.join('');
         renderPagination('ref-users-pagination', data.page, data.totalPages, data.total, 'loadReferredUsers');
       } catch (_) {}
     }
@@ -1860,7 +2551,7 @@
           loadReferredUsers(currentRefUsersPage);
           loadReferralsList(currentReferralsPage);
           loadDashboardStats();
-          if (activeTabId === 'tab-users') loadUsersList(currentUsersPage);
+          if (activeTabId === 'tab-users') invalidateCoinsCacheAndLoad(currentUsersPage);
         } else {
           alert(data.error || 'Failed to delete referred user');
         }
@@ -1903,11 +2594,11 @@
           return;
         }
 
-        let html = '';
+        const rows = [];
         for (let i = 0; i < list.length; i++) {
           const s = list[i];
           const thumb = s.screenshot_path
-            ? `<img src="${esc(s.screenshot_path)}" class="proof-thumb" onclick="openImageModal('${esc(s.screenshot_path)}')">`
+            ? `<img src="${esc(s.screenshot_path)}" class="proof-thumb" loading="lazy" onclick="openImageModal('${esc(s.screenshot_path)}')">`
             : 'None';
 
           const action = s.status === 'pending'
@@ -1915,7 +2606,7 @@
                <button class="btn-action btn-act-danger" onclick="rejectSubmission(${s.id})">Reject</button>`
             : `<span style="font-size:11px; color:var(--text-muted);">${esc(s.rejection_reason || s.status)}</span>`;
 
-          html += `
+          rows.push(`
             <tr>
               <td>#${s.id}</td>
               <td><strong>@${esc(s.username)}</strong></td>
@@ -1925,9 +2616,9 @@
               <td><span class="badge ${s.status === 'approved' ? 'badge-active' : (s.status === 'rejected' ? 'badge-rejected' : 'badge-pending')}">${esc(s.status)}</span></td>
               <td style="white-space:nowrap;">${action}</td>
             </tr>
-          `;
+          `);
         }
-        tbody.innerHTML = html;
+        tbody.innerHTML = rows.join('');
         renderPagination('submissions-pagination', data.page, data.totalPages, data.total, 'loadSubmissionsList');
       } catch (_) {}
     }
@@ -1980,7 +2671,7 @@
           return;
         }
 
-        let html = '';
+        const rows = [];
         for (let i = 0; i < list.length; i++) {
           const w = list[i];
           const badgeClass = w.status === 'APPROVED' ? 'badge-active' : (w.status === 'REJECTED' ? 'badge-rejected' : 'badge-pending');
@@ -1989,7 +2680,7 @@
                <button class="btn-action btn-act-danger" onclick="resolveWithdrawal(${w.id}, 'REJECTED')">Reject</button>`
             : `<span style="font-size:11px; color:var(--text-muted);">Resolved</span>`;
 
-          html += `
+          rows.push(`
             <tr>
               <td>#${w.id}</td>
               <td><strong>@${esc(w.username)}</strong></td>
@@ -1999,9 +2690,9 @@
               <td><span class="badge ${badgeClass}">${esc(w.status)}</span></td>
               <td style="white-space:nowrap;">${decision}</td>
             </tr>
-          `;
+          `);
         }
-        tbody.innerHTML = html;
+        tbody.innerHTML = rows.join('');
         renderPagination('withdrawals-pagination', data.page, data.totalPages, data.total, 'loadWithdrawals');
       } catch (_) {}
     }
@@ -2026,9 +2717,9 @@
         const res = await fetch(`${API_BASE}/payment-methods`, { headers: getHeaders() });
         paymentMethodsList = await res.json();
         const tbody = document.querySelector("#methods-table tbody");
-        let html = '';
+        const rows = [];
         paymentMethodsList.forEach((m, idx) => {
-          html += `
+          rows.push(`
             <tr>
               <td style="font-size:18px;">${esc(m.icon || '🪙')}</td>
               <td><strong>${esc(m.id)}</strong></td>
@@ -2037,9 +2728,9 @@
               <td>${esc(m.label || m.name)}</td>
               <td><button class="btn-action btn-act-danger" onclick="deleteMethod(${idx})">Del</button></td>
             </tr>
-          `;
+          `);
         });
-        tbody.innerHTML = html || `<tr><td colspan="6" style="text-align:center;">No gateways.</td></tr>`;
+        tbody.innerHTML = rows.join('') || `<tr><td colspan="6" style="text-align:center;">No gateways.</td></tr>`;
       } catch (_) {}
     }
 
@@ -2075,9 +2766,9 @@
         const res = await fetch(`${API_BASE}/tasks`, { headers: getHeaders() });
         const tasks = await res.json();
         const tbody = document.querySelector("#tasks-table tbody");
-        let html = '';
+        const rows = [];
         (tasks || []).forEach(t => {
-          html += `
+          rows.push(`
             <tr>
               <td>#${t.id}</td>
               <td><strong>${esc(t.title)}</strong></td>
@@ -2090,9 +2781,9 @@
                 <button class="btn-action btn-act-danger" onclick="deleteTask(${t.id})">Del</button>
               </td>
             </tr>
-          `;
+          `);
         });
-        tbody.innerHTML = html || `<tr><td colspan="7" style="text-align:center;">No tasks.</td></tr>`;
+        tbody.innerHTML = rows.join('') || `<tr><td colspan="7" style="text-align:center;">No tasks.</td></tr>`;
       } catch (_) {}
     }
 
@@ -2177,7 +2868,7 @@
     function renderAdminsTable() {
       const tbody = document.querySelector("#admins-table tbody");
       const extraSec = Math.floor((Date.now() - adminsLoadedAt) / 1000);
-      let html = '';
+      const rows = [];
 
       (adminsCache || []).forEach(a => {
         const isOnline = a.is_online === 1;
@@ -2196,7 +2887,7 @@
           ? `<button class="btn-action btn-act-danger" onclick="deleteAdmin('${esc(a.username)}')">Del</button>`
           : `<span class="badge badge-info">Root</span>`;
 
-        html += `
+        rows.push(`
           <tr>
             <td>#${a.id}</td>
             <td><strong>@${esc(a.username)}</strong></td>
@@ -2208,10 +2899,10 @@
             <td><strong>${a.action_count || 0}</strong></td>
             <td style="white-space:nowrap;">${toggleBtn} ${activityBtn} ${pwBtn} ${delBtn}</td>
           </tr>
-        `;
+        `);
       });
 
-      tbody.innerHTML = html || `<tr><td colspan="9" style="text-align:center;">No admins found.</td></tr>`;
+      tbody.innerHTML = rows.join('') || `<tr><td colspan="9" style="text-align:center;">No admins found.</td></tr>`;
     }
 
     function viewAdminActivity(username) {
@@ -2347,7 +3038,7 @@
           return;
         }
 
-        let html = '';
+        const rows = [];
         for (let i = 0; i < logs.length; i++) {
           const l = logs[i];
           let badgeCls = 'badge-info';
@@ -2359,7 +3050,7 @@
             badgeCls = 'badge-pending';
           }
 
-          html += `
+          rows.push(`
             <tr>
               <td>#${l.id}</td>
               <td style="font-size:11px; color:var(--text-muted); white-space:nowrap;">${formatDate(l.created_at)}</td>
@@ -2368,9 +3059,9 @@
               <td>${esc(l.target_label || l.target_id || '—')}</td>
               <td style="max-width:340px;">${esc(l.details || '')}</td>
             </tr>
-          `;
+          `);
         }
-        tbody.innerHTML = html;
+        tbody.innerHTML = rows.join('');
         renderPagination('logs-pagination', data.page, data.totalPages, data.total, 'loadActivityLogs');
       } catch (_) {}
     }
