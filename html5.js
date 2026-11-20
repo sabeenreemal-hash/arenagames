@@ -3,10 +3,10 @@
 
 const HTML5_GAMES = [
   {
-    id: '2048',
-    title: '2048 Puzzle',
-    url: 'https://gabrielecirulli.github.io/2048/',
-    thumbnailUrl: 'https://play2048.co/ogImage.jpg',
+    id: 'cut_the_rope_experiments',
+    title: 'Cut The Rope',
+    url: 'https://play.famobi.com/cut-the-rope-experiments',
+    thumbnailUrl: 'https://i.ibb.co/vxVJmRfT/Cut-The-Rope-Experiments-Teaser.jpg',
     orientation: 'portrait',
     status: 'active',
   },
@@ -19,11 +19,43 @@ const HTML5_GAMES = [
     status: 'active',
   },
   {
+    id: 'gun_spin',
+    title: 'Gun Spin',
+    url: 'https://play.famobi.com/gun-spin',
+    thumbnailUrl: 'https://i.ibb.co/NqdnxBp/Gun-Spin-Teaser.jpg',
+    orientation: 'portrait',
+    status: 'active',
+  },
+  {
+    id: 'color_water_sort_3d',
+    title: 'Color Water',
+    url: 'https://play.famobi.com/color-water-sort-3d',
+    thumbnailUrl: 'https://i.ibb.co/7JDKC3SC/Color-Water-Sort3d-Teaser.jpg',
+    orientation: 'portrait',
+    status: 'active',
+  },
+  {
+    id: 'word_run',
+    title: 'Word Run',
+    url: 'https://play.famobi.com/word-run',
+    thumbnailUrl: 'https://i.ibb.co/qMqLLdc7/Word-Run-Teaser.jpg',
+    orientation: 'portrait',
+    status: 'active',
+  },
+  {
     id: 'moto_x3m_pool_party',
     title: 'Moto X3M',
     url: 'https://play.famobi.com/moto-x3m-pool-party',
     thumbnailUrl: 'https://i.ibb.co/ZRwCQccG/Moto-X3m-Pool-Party-Teaser.jpg',
     orientation: 'landscape',
+    status: 'active',
+  },
+  {
+    id: '2048',
+    title: '2048 Puzzle',
+    url: 'https://gabrielecirulli.github.io/2048/',
+    thumbnailUrl: 'https://play2048.co/ogImage.jpg',
+    orientation: 'portrait',
     status: 'active',
   },
   {
