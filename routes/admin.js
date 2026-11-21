@@ -145,6 +145,18 @@ function getUtcToday() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function addDaysUtc(dateStr, days) {
+  const dt = new Date(`${dateStr}T00:00:00Z`);
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+function diffDaysUtc(startStr, endStr) {
+  const s = Date.parse(`${startStr}T00:00:00Z`);
+  const e = Date.parse(`${endStr}T00:00:00Z`);
+  return Math.floor((e - s) / 86400000);
+}
+
 function computeOnlineAccrual(adminRow, nowMs = Date.now()) {
   const today = getUtcToday();
   let totalSec = Number(adminRow.total_online_seconds || 0);
@@ -269,6 +281,8 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_admin ON admin_activity_logs(admin_username, id DESC)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_action ON admin_activity_logs(action_type, id DESC)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_created_amount ON transactions(created_at, amount)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status_reviewed ON task_submissions(status, reviewed_at)`);
 
   db.get("SELECT COUNT(*) as count FROM admins", (cErr, row) => {
     if (!cErr && row && row.count === 0) {
@@ -626,6 +640,155 @@ router.get('/dashboard', adminAuth, (req, res) => {
       });
     });
   });
+});
+
+// ---------------------------------------------------------------------------
+// B2. 7-Day User Coin Collection Chart (Auto-Restarts Every 7 Days)
+// ---------------------------------------------------------------------------
+router.get('/coins-7d', adminAuth, (req, res) => {
+  const todayStr = getUtcToday();
+
+  db.get("SELECT value FROM app_config WHERE key = 'coin_chart_cycle_start'", (cfgErr, row) => {
+    if (cfgErr) return res.status(500).json({ error: 'Failed to read coin cycle config' });
+
+    let cycleStart = row && /^\d{4}-\d{2}-\d{2}$/.test(row.value) ? row.value : todayStr;
+    const diff = diffDaysUtc(cycleStart, todayStr);
+    let needsSave = !row || !row.value;
+
+    // Auto-restart back to Day 1 once 7 days complete
+    if (diff < 0 || diff >= 7) {
+      cycleStart = diff >= 7
+        ? addDaysUtc(cycleStart, Math.floor(diff / 7) * 7)
+        : todayStr;
+      needsSave = true;
+    }
+
+    const runAggregation = () => {
+      const cycleEnd = addDaysUtc(cycleStart, 6);
+      const nextDayAfterCycle = addDaysUtc(cycleStart, 7);
+
+      // 1) Index-friendly range sum of positive coin transactions
+      db.all(
+        `SELECT SUBSTR(created_at, 1, 10) AS day_date,
+                COALESCE(SUM(amount), 0) AS coins
+         FROM transactions
+         WHERE amount > 0
+           AND created_at >= ?
+           AND created_at < ?
+         GROUP BY SUBSTR(created_at, 1, 10)`,
+        [cycleStart, nextDayAfterCycle],
+        (txErr, txRows) => {
+          if (txErr) return res.status(500).json({ error: 'Failed to aggregate coin transactions' });
+
+          // 2) Approved task rewards (deduplicated if also logged in transactions)
+          db.all(
+            `SELECT SUBSTR(ts.reviewed_at, 1, 10) AS day_date,
+                    COALESCE(SUM(t.reward_coins), 0) AS coins
+             FROM task_submissions ts
+             JOIN tasks t ON ts.task_id = t.id
+             WHERE ts.status = 'approved'
+               AND ts.reviewed_at IS NOT NULL
+               AND ts.reviewed_at >= ?
+               AND ts.reviewed_at < ?
+               AND NOT EXISTS (
+                 SELECT 1 FROM transactions tx
+                 WHERE tx.user_id = ts.user_id
+                   AND tx.amount > 0
+                   AND (
+                     tx.reference_id = ('TASK_SUB_' || ts.id)
+                     OR (
+                       UPPER(tx.type) LIKE '%TASK%'
+                       AND tx.amount = t.reward_coins
+                       AND SUBSTR(tx.created_at, 1, 10) = SUBSTR(ts.reviewed_at, 1, 10)
+                     )
+                   )
+               )
+             GROUP BY SUBSTR(ts.reviewed_at, 1, 10)`,
+            [cycleStart, nextDayAfterCycle],
+            (subErr, subRows) => {
+              const dayTotals = new Map();
+
+              (txRows || []).forEach(r => {
+                if (r.day_date) {
+                  dayTotals.set(r.day_date, (dayTotals.get(r.day_date) || 0) + (Number(r.coins) || 0));
+                }
+              });
+
+              if (!subErr && Array.isArray(subRows)) {
+                subRows.forEach(r => {
+                  if (r.day_date) {
+                    dayTotals.set(r.day_date, (dayTotals.get(r.day_date) || 0) + (Number(r.coins) || 0));
+                  }
+                });
+              }
+
+              const currentDiff = Math.min(6, Math.max(0, diffDaysUtc(cycleStart, todayStr)));
+              const currentDay = currentDiff + 1;
+              const daysRemaining = Math.max(1, 7 - currentDiff);
+
+              const days = [];
+              let totalCoins7d = 0;
+
+              for (let i = 0; i < 7; i++) {
+                const dateStr = addDaysUtc(cycleStart, i);
+                const isFuture = dateStr > todayStr;
+                const coins = isFuture ? 0 : Math.max(0, Math.round(dayTotals.get(dateStr) || 0));
+                totalCoins7d += coins;
+
+                days.push({
+                  day: i + 1,
+                  date: dateStr,
+                  coins,
+                  isToday: dateStr === todayStr,
+                  isFuture
+                });
+              }
+
+              res.json({
+                cycleStart,
+                cycleEnd,
+                currentDay,
+                daysRemaining,
+                totalCoins7d,
+                days
+              });
+            }
+          );
+        }
+      );
+    };
+
+    if (needsSave) {
+      db.run(
+        "INSERT OR REPLACE INTO app_config (key, value) VALUES ('coin_chart_cycle_start', ?)",
+        [cycleStart],
+        runAggregation
+      );
+    } else {
+      runAggregation();
+    }
+  });
+});
+
+// Manual 7-day cycle restart back to Day 1 (today)
+router.post('/coins-7d/reset', adminAuth, (req, res) => {
+  const todayStr = getUtcToday();
+  db.run(
+    "INSERT OR REPLACE INTO app_config (key, value) VALUES ('coin_chart_cycle_start', ?)",
+    [todayStr],
+    (err) => {
+      if (err) return res.status(500).json({ error: 'Failed to restart 7-day cycle' });
+      logAdminActivity(
+        req,
+        'CONFIG_UPDATED',
+        'config',
+        'coin_chart_cycle_start',
+        '7-Day Coin Chart',
+        `Restarted 7-day coin collection cycle to Day 1 (${todayStr})`
+      );
+      res.json({ success: true, cycleStart: todayStr });
+    }
+  );
 });
 
 // ---------------------------------------------------------------------------
