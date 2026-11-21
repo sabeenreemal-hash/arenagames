@@ -15,6 +15,8 @@ const JWT_ADMIN_SECRET = 'ARENA_GAMES_ADMIN_SECRET_KEY';
 const STALE_HEARTBEAT_MS = 5 * 60 * 1000;
 const MAX_HEARTBEAT_DELTA_SEC = 150;
 const REFERRAL_SIGNUP_BONUS_COINS = 100;
+const NEPAL_OFFSET_MINUTES = 5 * 60 + 45; // UTC+05:45 (Nepal Standard Time)
+const NEPAL_OFFSET_MS = NEPAL_OFFSET_MINUTES * 60 * 1000;
 
 // Default payment methods seeded if none exists in database
 const DEFAULT_PAYMENT_METHODS = [
@@ -145,13 +147,17 @@ function getUtcToday() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function addDaysUtc(dateStr, days) {
+function getNepalToday() {
+  return new Date(Date.now() + NEPAL_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+function addDaysDateStr(dateStr, days) {
   const dt = new Date(`${dateStr}T00:00:00Z`);
   dt.setUTCDate(dt.getUTCDate() + days);
   return dt.toISOString().slice(0, 10);
 }
 
-function diffDaysUtc(startStr, endStr) {
+function diffDaysDateStr(startStr, endStr) {
   const s = Date.parse(`${startStr}T00:00:00Z`);
   const e = Date.parse(`${endStr}T00:00:00Z`);
   return Math.floor((e - s) / 86400000);
@@ -643,46 +649,48 @@ router.get('/dashboard', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// B2. 7-Day User Coin Collection Chart (Auto-Restarts Every 7 Days)
+// B2. 7-Day User Coin Collection Chart (Nepal Time UTC+05:45, Auto-Restarts)
 // ---------------------------------------------------------------------------
 router.get('/coins-7d', adminAuth, (req, res) => {
-  const todayStr = getUtcToday();
+  const todayStr = getNepalToday();
 
   db.get("SELECT value FROM app_config WHERE key = 'coin_chart_cycle_start'", (cfgErr, row) => {
     if (cfgErr) return res.status(500).json({ error: 'Failed to read coin cycle config' });
 
     let cycleStart = row && /^\d{4}-\d{2}-\d{2}$/.test(row.value) ? row.value : todayStr;
-    const diff = diffDaysUtc(cycleStart, todayStr);
+    const diff = diffDaysDateStr(cycleStart, todayStr);
     let needsSave = !row || !row.value;
 
     // Auto-restart back to Day 1 once 7 days complete
     if (diff < 0 || diff >= 7) {
       cycleStart = diff >= 7
-        ? addDaysUtc(cycleStart, Math.floor(diff / 7) * 7)
+        ? addDaysDateStr(cycleStart, Math.floor(diff / 7) * 7)
         : todayStr;
       needsSave = true;
     }
 
     const runAggregation = () => {
-      const cycleEnd = addDaysUtc(cycleStart, 6);
-      const nextDayAfterCycle = addDaysUtc(cycleStart, 7);
+      const cycleEnd = addDaysDateStr(cycleStart, 6);
+      // Pad UTC range by -1/+2 days so index scan covers full Nepal UTC+05:45 window
+      const queryStartUtc = addDaysDateStr(cycleStart, -1);
+      const queryEndUtc = addDaysDateStr(cycleStart, 8);
 
-      // 1) Index-friendly range sum of positive coin transactions
+      // 1) Index-friendly range sum of positive coin transactions grouped by Nepal Date
       db.all(
-        `SELECT SUBSTR(created_at, 1, 10) AS day_date,
+        `SELECT SUBSTR(datetime(created_at, '+345 minutes'), 1, 10) AS day_date,
                 COALESCE(SUM(amount), 0) AS coins
          FROM transactions
          WHERE amount > 0
            AND created_at >= ?
            AND created_at < ?
-         GROUP BY SUBSTR(created_at, 1, 10)`,
-        [cycleStart, nextDayAfterCycle],
+         GROUP BY SUBSTR(datetime(created_at, '+345 minutes'), 1, 10)`,
+        [queryStartUtc, queryEndUtc],
         (txErr, txRows) => {
           if (txErr) return res.status(500).json({ error: 'Failed to aggregate coin transactions' });
 
-          // 2) Approved task rewards (deduplicated if also logged in transactions)
+          // 2) Approved task rewards grouped by Nepal Date (deduplicated if also logged in transactions)
           db.all(
-            `SELECT SUBSTR(ts.reviewed_at, 1, 10) AS day_date,
+            `SELECT SUBSTR(datetime(ts.reviewed_at, '+345 minutes'), 1, 10) AS day_date,
                     COALESCE(SUM(t.reward_coins), 0) AS coins
              FROM task_submissions ts
              JOIN tasks t ON ts.task_id = t.id
@@ -699,12 +707,12 @@ router.get('/coins-7d', adminAuth, (req, res) => {
                      OR (
                        UPPER(tx.type) LIKE '%TASK%'
                        AND tx.amount = t.reward_coins
-                       AND SUBSTR(tx.created_at, 1, 10) = SUBSTR(ts.reviewed_at, 1, 10)
+                       AND SUBSTR(datetime(tx.created_at, '+345 minutes'), 1, 10) = SUBSTR(datetime(ts.reviewed_at, '+345 minutes'), 1, 10)
                      )
                    )
                )
-             GROUP BY SUBSTR(ts.reviewed_at, 1, 10)`,
-            [cycleStart, nextDayAfterCycle],
+             GROUP BY SUBSTR(datetime(ts.reviewed_at, '+345 minutes'), 1, 10)`,
+            [queryStartUtc, queryEndUtc],
             (subErr, subRows) => {
               const dayTotals = new Map();
 
@@ -722,7 +730,7 @@ router.get('/coins-7d', adminAuth, (req, res) => {
                 });
               }
 
-              const currentDiff = Math.min(6, Math.max(0, diffDaysUtc(cycleStart, todayStr)));
+              const currentDiff = Math.min(6, Math.max(0, diffDaysDateStr(cycleStart, todayStr)));
               const currentDay = currentDiff + 1;
               const daysRemaining = Math.max(1, 7 - currentDiff);
 
@@ -730,7 +738,7 @@ router.get('/coins-7d', adminAuth, (req, res) => {
               let totalCoins7d = 0;
 
               for (let i = 0; i < 7; i++) {
-                const dateStr = addDaysUtc(cycleStart, i);
+                const dateStr = addDaysDateStr(cycleStart, i);
                 const isFuture = dateStr > todayStr;
                 const coins = isFuture ? 0 : Math.max(0, Math.round(dayTotals.get(dateStr) || 0));
                 totalCoins7d += coins;
@@ -770,9 +778,9 @@ router.get('/coins-7d', adminAuth, (req, res) => {
   });
 });
 
-// Manual 7-day cycle restart back to Day 1 (today)
+// Manual 7-day cycle restart back to Day 1 (today in Nepal Time)
 router.post('/coins-7d/reset', adminAuth, (req, res) => {
-  const todayStr = getUtcToday();
+  const todayStr = getNepalToday();
   db.run(
     "INSERT OR REPLACE INTO app_config (key, value) VALUES ('coin_chart_cycle_start', ?)",
     [todayStr],
@@ -784,7 +792,7 @@ router.post('/coins-7d/reset', adminAuth, (req, res) => {
         'config',
         'coin_chart_cycle_start',
         '7-Day Coin Chart',
-        `Restarted 7-day coin collection cycle to Day 1 (${todayStr})`
+        `Restarted 7-day coin collection cycle to Day 1 (${todayStr} NPT)`
       );
       res.json({ success: true, cycleStart: todayStr });
     }
