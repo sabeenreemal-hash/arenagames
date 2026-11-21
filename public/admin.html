@@ -425,6 +425,115 @@
       color: var(--gold);
     }
 
+    /* 7-DAY COIN COLLECTION CHART (LIGHTWEIGHT GPU/SVG) */
+    .coin-chart-kpis {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .coin-kpi-pill {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .coin-kpi-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .coin-kpi-val {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+    }
+    .chart-controls-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .chart-mode-toggle {
+      display: inline-flex;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2px;
+    }
+    .chart-mode-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 0.14s ease, color 0.14s ease;
+    }
+    .chart-mode-btn.active {
+      background: var(--primary-glow);
+      color: var(--primary);
+    }
+    .coin-chart-wrap {
+      position: relative;
+      background: #0B1018;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 10px 8px;
+      overflow: hidden;
+    }
+    .coin-chart-svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 245px;
+      user-select: none;
+    }
+    .chart-bar-rect {
+      transition: y 0.34s cubic-bezier(0.22, 1, 0.36, 1), height 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s ease;
+      cursor: pointer;
+    }
+    .chart-hit-col {
+      cursor: pointer;
+    }
+    .chart-hit-col:hover .chart-col-hover-bg {
+      opacity: 1;
+    }
+    .chart-col-hover-bg {
+      opacity: 0;
+      transition: opacity 0.12s ease;
+    }
+    .coin-chart-tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(15, 20, 29, 0.96);
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      padding: 8px 11px;
+      font-size: 11.5px;
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+      z-index: 20;
+      min-width: 145px;
+      display: none;
+      transform: translate(-50%, -100%);
+      will-change: left, top;
+    }
+    .coin-chart-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
     /* DASHBOARD QUICK ACTIONS */
     .quick-actions-grid {
       display: grid;
@@ -715,6 +824,7 @@
       .content-area { padding: 14px; }
       .topbar { padding: 8px 14px; }
       .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+      .coin-chart-kpis { grid-template-columns: repeat(2, 1fr); }
       .search-bar { width: 100%; }
       .grid-2col { grid-template-columns: 1fr !important; }
       .ruby-banner { padding: 14px; }
@@ -974,6 +1084,55 @@
               <span class="owner-chip">👑 SABEEN</span>
               <span class="owner-chip">♦️ RUBY</span>
               <span class="owner-chip">♋ SUBASH69</span>
+            </div>
+          </div>
+
+          <!-- 7-DAY USER COIN COLLECTION CHART (AUTO-RESTARTS EVERY 7 DAYS) -->
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2>🪙 7-Day User Coin Collection</h2>
+                <p id="coin-chart-subtitle" style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+                  Loading 7-day cycle...
+                </p>
+              </div>
+              <div class="chart-controls-group">
+                <span id="coin-chart-source-badge" class="badge badge-active">7-Day Cycle</span>
+                <div class="chart-mode-toggle" role="group" aria-label="Chart Type">
+                  <button type="button" class="chart-mode-btn active" id="chart-mode-bar" onclick="setCoinChartMode('bar')">📊 Bars</button>
+                  <button type="button" class="chart-mode-btn" id="chart-mode-line" onclick="setCoinChartMode('line')">📈 Line</button>
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="restartCoinCycle7d()" style="padding: 6px 10px; font-size: 11px;" title="Restart 7-day counter back to Day 1">↻ Restart 7d</button>
+              </div>
+            </div>
+
+            <div class="coin-chart-kpis">
+              <div class="coin-kpi-pill">
+                <div class="coin-kpi-label">7-Day Total</div>
+                <div class="coin-kpi-val" id="coin-7d-total" style="color:var(--primary);">0 🪙</div>
+              </div>
+              <div class="coin-kpi-pill">
+                <div class="coin-kpi-label" id="coin-7d-today-label">Today</div>
+                <div class="coin-kpi-val" id="coin-7d-today" style="color:var(--gold);">0 🪙</div>
+              </div>
+              <div class="coin-kpi-pill">
+                <div class="coin-kpi-label">Daily Average</div>
+                <div class="coin-kpi-val" id="coin-7d-avg" style="color:var(--info);">0 🪙</div>
+              </div>
+              <div class="coin-kpi-pill">
+                <div class="coin-kpi-label">Auto-Restart In</div>
+                <div class="coin-kpi-val" id="coin-7d-reset-in" style="color:var(--warning);">7 days</div>
+              </div>
+            </div>
+
+            <div class="coin-chart-wrap" id="coin-chart-wrap" onmouseleave="hideCoinTooltip()">
+              <svg id="coin-chart-svg" class="coin-chart-svg" viewBox="0 0 700 220" preserveAspectRatio="xMidYMid meet"></svg>
+              <div id="coin-chart-tooltip" class="coin-chart-tooltip"></div>
+            </div>
+
+            <div class="coin-chart-footer">
+              <span>🟢 Highlighted bar = Today • Auto-restarts to Day 1 after 7 days complete</span>
+              <span id="coin-chart-peak-text">Peak Day: —</span>
             </div>
           </div>
 
@@ -1527,6 +1686,12 @@
     let currentWithdrawalsPage = 1;
     let currentLogsPage = 1;
 
+    // 7-day coin chart state
+    let coinChartAbortController = null;
+    let coinChartData = null;
+    let coinChartMode = 'bar';
+    const COIN_CYCLE_STORAGE_KEY = 'arena_coin_cycle_7d_v1';
+
     // Coin-filtered user cache + abort controller for zero-lag filtering
     let usersAbortController = null;
     let coinsFilterCache = { key: null, users: [] };
@@ -1564,6 +1729,13 @@
       const d = new Date(isoStr.includes('T') ? isoStr : isoStr.replace(' ', 'T') + 'Z');
       if (isNaN(d.getTime())) return esc(isoStr);
       return d.toLocaleString();
+    }
+
+    function formatCompactCoins(val) {
+      const n = Number(val) || 0;
+      if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+      return String(n);
     }
 
     function formatActivityStatus(isoStr) {
@@ -1824,6 +1996,7 @@
 
       if (window.innerWidth <= 850) toggleSidebar(false);
 
+      if (tabId === 'tab-dashboard') loadCoinChart7d();
       if (tabId === 'tab-users') loadUsersList(currentUsersPage);
       if (tabId === 'tab-referrals') loadReferralsList(currentReferralsPage);
       if (tabId === 'tab-tasks') loadTasksList();
@@ -1868,7 +2041,376 @@
         document.getElementById('nav-tasks-count').innerText = stats.activeTasks || 0;
         document.getElementById('nav-redeem-count').innerText = stats.pendingWithdrawals || 0;
         document.getElementById('nav-sub-pending-count').innerText = stats.pendingTasks || 0;
+
+        if (activeTabId === 'tab-dashboard') {
+          loadCoinChart7d(stats.totalCoins || 0);
+        }
       } catch (_) {}
+    }
+
+    // =========================================================================
+    // 7-DAY USER COIN COLLECTION CHART (AUTO-RESTARTS AFTER 7 DAYS, ZERO LAG)
+    // =========================================================================
+    function toLocalDateStr(dateObj) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function addDaysStr(dateStr, days) {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      dt.setDate(dt.getDate() + days);
+      return toLocalDateStr(dt);
+    }
+
+    function diffDaysStr(startStr, endStr) {
+      const [sy, sm, sd] = startStr.split('-').map(Number);
+      const [ey, em, ed] = endStr.split('-').map(Number);
+      const sUtc = Date.UTC(sy, sm - 1, sd);
+      const eUtc = Date.UTC(ey, em - 1, ed);
+      return Math.floor((eUtc - sUtc) / 86400000);
+    }
+
+    function formatShortDayDate(dateStr) {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      const weekday = dt.toLocaleDateString(undefined, { weekday: 'short' });
+      const monthDay = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return { weekday, monthDay };
+    }
+
+    function buildLocal7DayFallback(currentPoolCoins) {
+      const todayStr = toLocalDateStr(new Date());
+      let state = null;
+      try {
+        state = JSON.parse(localStorage.getItem(COIN_CYCLE_STORAGE_KEY) || 'null');
+      } catch (_) {}
+
+      if (!state || !state.cycleStart) {
+        state = {
+          cycleStart: todayStr,
+          days: { [todayStr]: 0 },
+          lastPoolTotal: currentPoolCoins || 0
+        };
+      }
+
+      // Automatically restart after 7 days complete
+      const diff = diffDaysStr(state.cycleStart, todayStr);
+      if (diff < 0 || diff >= 7) {
+        const completedCycles = diff >= 7 ? Math.floor(diff / 7) : 0;
+        state.cycleStart = diff >= 7 ? addDaysStr(state.cycleStart, completedCycles * 7) : todayStr;
+        state.days = {};
+        if (typeof currentPoolCoins === 'number' && currentPoolCoins >= 0) {
+          state.lastPoolTotal = currentPoolCoins;
+        }
+      }
+
+      // Record net coin increase seen during today if pool grew
+      if (typeof currentPoolCoins === 'number' && currentPoolCoins > 0) {
+        const prevPool = Number(state.lastPoolTotal || 0);
+        if (prevPool > 0 && currentPoolCoins > prevPool) {
+          state.days[todayStr] = (Number(state.days[todayStr]) || 0) + (currentPoolCoins - prevPool);
+        }
+        state.lastPoolTotal = currentPoolCoins;
+      }
+
+      try {
+        localStorage.setItem(COIN_CYCLE_STORAGE_KEY, JSON.stringify(state));
+      } catch (_) {}
+
+      const days = [];
+      let total = 0;
+      const currentDayIdx = Math.min(7, Math.max(1, diffDaysStr(state.cycleStart, todayStr) + 1));
+
+      for (let i = 0; i < 7; i++) {
+        const dateStr = addDaysStr(state.cycleStart, i);
+        const { weekday, monthDay } = formatShortDayDate(dateStr);
+        const isFuture = dateStr > todayStr;
+        const coins = isFuture ? 0 : (Number(state.days[dateStr]) || 0);
+        total += coins;
+        days.push({
+          day: i + 1,
+          date: dateStr,
+          label: weekday,
+          shortDate: monthDay,
+          coins,
+          isToday: dateStr === todayStr,
+          isFuture
+        });
+      }
+
+      return {
+        isLocalFallback: true,
+        cycleStart: state.cycleStart,
+        cycleEnd: addDaysStr(state.cycleStart, 6),
+        currentDay: currentDayIdx,
+        daysRemaining: Math.max(1, 8 - currentDayIdx),
+        totalCoins7d: total,
+        days
+      };
+    }
+
+    async function loadCoinChart7d(poolCoinsFallback = null) {
+      if (coinChartAbortController) coinChartAbortController.abort();
+      coinChartAbortController = new AbortController();
+
+      try {
+        const res = await fetch(`${API_BASE}/coins-7d`, {
+          headers: getHeaders(),
+          signal: coinChartAbortController.signal
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.days) && data.days.length > 0) {
+            coinChartData = {
+              isLocalFallback: false,
+              cycleStart: data.cycleStart,
+              cycleEnd: data.cycleEnd,
+              currentDay: data.currentDay || 1,
+              daysRemaining: data.daysRemaining || 1,
+              totalCoins7d: Number(data.totalCoins7d || 0),
+              days: data.days.map((d, idx) => {
+                const info = d.date ? formatShortDayDate(d.date) : { weekday: d.label || `D${idx + 1}`, monthDay: '' };
+                return {
+                  day: d.day || (idx + 1),
+                  date: d.date || '',
+                  label: d.label || info.weekday,
+                  shortDate: d.shortDate || info.monthDay,
+                  coins: Math.max(0, Number(d.coins) || 0),
+                  isToday: !!d.isToday,
+                  isFuture: !!d.isFuture
+                };
+              })
+            };
+            renderCoinChart7d();
+            return;
+          }
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+
+      // Smooth fallback if backend endpoint /api/admin/coins-7d is not added yet
+      const poolText = document.getElementById('stat-coins')?.innerText?.replace(/,/g, '') || '0';
+      const fallbackPool = poolCoinsFallback !== null ? poolCoinsFallback : (parseInt(poolText, 10) || 0);
+      coinChartData = buildLocal7DayFallback(fallbackPool);
+      renderCoinChart7d();
+    }
+
+    async function restartCoinCycle7d() {
+      if (!confirm('Restart the 7-day coin collection chart back to Day 1 starting today?')) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/coins-7d/reset`, {
+          method: 'POST',
+          headers: getHeaders()
+        });
+        if (res.ok) {
+          loadCoinChart7d();
+          return;
+        }
+      } catch (_) {}
+
+      // Local fallback reset
+      const todayStr = toLocalDateStr(new Date());
+      const poolVal = parseInt((document.getElementById('stat-coins')?.innerText || '0').replace(/,/g, ''), 10) || 0;
+      try {
+        localStorage.setItem(COIN_CYCLE_STORAGE_KEY, JSON.stringify({
+          cycleStart: todayStr,
+          days: { [todayStr]: 0 },
+          lastPoolTotal: poolVal
+        }));
+      } catch (_) {}
+      coinChartData = buildLocal7DayFallback(poolVal);
+      renderCoinChart7d();
+    }
+
+    function setCoinChartMode(mode) {
+      coinChartMode = mode === 'line' ? 'line' : 'bar';
+      document.getElementById('chart-mode-bar')?.classList.toggle('active', coinChartMode === 'bar');
+      document.getElementById('chart-mode-line')?.classList.toggle('active', coinChartMode === 'line');
+      renderCoinChart7d();
+    }
+
+    function renderCoinChart7d() {
+      if (!coinChartData) return;
+      const svg = document.getElementById('coin-chart-svg');
+      if (!svg) return;
+
+      const { days, totalCoins7d, currentDay, daysRemaining, cycleStart, cycleEnd, isLocalFallback } = coinChartData;
+      const startFmt = cycleStart ? formatShortDayDate(cycleStart).monthDay : 'Day 1';
+      const endFmt = cycleEnd ? formatShortDayDate(cycleEnd).monthDay : 'Day 7';
+
+      document.getElementById('coin-chart-subtitle').innerText =
+        `Cycle: ${startFmt} – ${endFmt} • Day ${currentDay} of 7`;
+
+      const badgeEl = document.getElementById('coin-chart-source-badge');
+      if (isLocalFallback) {
+        badgeEl.className = 'badge badge-info';
+        badgeEl.innerText = 'Live Tracker (7-Day Cycle)';
+        badgeEl.title = 'Add GET /api/admin/coins-7d to server for full historical transaction totals';
+      } else {
+        badgeEl.className = 'badge badge-active';
+        badgeEl.innerText = '⚡ 7-Day Cycle Active';
+        badgeEl.title = 'Synced with server transactions';
+      }
+
+      const todayItem = days.find(d => d.isToday) || days[Math.min(currentDay - 1, days.length - 1)] || { coins: 0 };
+      const elapsedDays = Math.max(1, days.filter(d => !d.isFuture).length);
+      const avgCoins = Math.round(totalCoins7d / elapsedDays);
+
+      let peakDay = days[0];
+      for (let i = 1; i < days.length; i++) {
+        if (days[i].coins > peakDay.coins) peakDay = days[i];
+      }
+
+      document.getElementById('coin-7d-total').innerText = `${totalCoins7d.toLocaleString()} 🪙`;
+      document.getElementById('coin-7d-today-label').innerText = `Today (Day ${currentDay})`;
+      document.getElementById('coin-7d-today').innerText = `${(todayItem.coins || 0).toLocaleString()} 🪙`;
+      document.getElementById('coin-7d-avg').innerText = `${avgCoins.toLocaleString()} 🪙`;
+      document.getElementById('coin-7d-reset-in').innerText =
+        daysRemaining <= 1 ? 'Tonight (Day 7)' : `${daysRemaining} days`;
+      document.getElementById('coin-chart-peak-text').innerText = peakDay && peakDay.coins > 0
+        ? `Peak: Day ${peakDay.day} (${peakDay.shortDate || peakDay.label}) — ${peakDay.coins.toLocaleString()} 🪙`
+        : 'Peak Day: No coins recorded yet';
+
+      // SVG geometry
+      const W = 700, H = 220;
+      const padL = 52, padR = 18, padT = 26, padB = 42;
+      const plotW = W - padL - padR;
+      const plotH = H - padT - padB;
+      const maxCoin = Math.max(100, ...days.map(d => d.coins));
+      // Clean rounded top axis
+      const yMax = Math.ceil(maxCoin * 1.15);
+
+      const parts = [];
+      parts.push(`
+        <defs>
+          <linearGradient id="cgBarGreen" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#00E676" stop-opacity="0.95"/>
+            <stop offset="100%" stop-color="#00E676" stop-opacity="0.22"/>
+          </linearGradient>
+          <linearGradient id="cgBarCyan" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#22B8FF" stop-opacity="0.88"/>
+            <stop offset="100%" stop-color="#22B8FF" stop-opacity="0.18"/>
+          </linearGradient>
+          <linearGradient id="cgAreaFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#00E676" stop-opacity="0.30"/>
+            <stop offset="100%" stop-color="#00E676" stop-opacity="0.01"/>
+          </linearGradient>
+        </defs>
+      `);
+
+      // 4 Horizontal Grid Lines
+      for (let g = 0; g <= 3; g++) {
+        const ratio = g / 3;
+        const y = padT + plotH - ratio * plotH;
+        const val = Math.round(yMax * ratio);
+        parts.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="#1E283B" stroke-width="1" stroke-dasharray="${g === 0 ? '0' : '4 4'}"/>`);
+        parts.push(`<text x="${padL - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" fill="#6F809B" font-size="10.5" font-weight="600">${formatCompactCoins(val)}</text>`);
+      }
+
+      const slotW = plotW / 7;
+      const barW = Math.min(44, slotW * 0.54);
+      const pts = [];
+
+      for (let i = 0; i < days.length; i++) {
+        const d = days[i];
+        const cx = padL + slotW * i + slotW / 2;
+        const barH = d.coins > 0 ? Math.max(4, (d.coins / yMax) * plotH) : 2;
+        const y = padT + plotH - barH;
+        pts.push({ x: cx, y: d.isFuture ? (padT + plotH) : y, d });
+
+        if (coinChartMode === 'bar') {
+          const fill = d.isFuture
+            ? '#1B2435'
+            : (d.isToday ? 'url(#cgBarGreen)' : 'url(#cgBarCyan)');
+          const stroke = d.isToday ? '#00E676' : 'none';
+          const rx = 6;
+          parts.push(`
+            <g class="chart-hit-col" onmouseenter="showCoinTooltip(${i}, ${cx}, ${y})" onclick="showCoinTooltip(${i}, ${cx}, ${y})">
+              <rect class="chart-col-hover-bg" x="${(cx - slotW / 2 + 4).toFixed(1)}" y="${padT}" width="${(slotW - 8).toFixed(1)}" height="${plotH}" rx="8" fill="rgba(255,255,255,0.03)"/>
+              <rect class="chart-bar-rect" data-target-y="${y.toFixed(1)}" data-target-h="${barH.toFixed(1)}"
+                x="${(cx - barW / 2).toFixed(1)}" y="${(padT + plotH).toFixed(1)}" width="${barW.toFixed(1)}" height="0"
+                rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="${d.isToday ? 1.2 : 0}" opacity="${d.isFuture ? 0.45 : 1}"/>
+              ${!d.isFuture && d.coins > 0 ? `<text x="${cx.toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" fill="${d.isToday ? '#00E676' : '#CBD5E1'}" font-size="10.5" font-weight="700">${formatCompactCoins(d.coins)}</text>` : ''}
+            </g>
+          `);
+        }
+
+        // X-axis Day + Date label
+        const dayColor = d.isToday ? '#00E676' : (d.isFuture ? '#54637C' : '#94A3B8');
+        parts.push(`<text x="${cx.toFixed(1)}" y="${H - 22}" text-anchor="middle" fill="${dayColor}" font-size="11" font-weight="${d.isToday ? '800' : '700'}">D${d.day} (${esc(d.label)})</text>`);
+        parts.push(`<text x="${cx.toFixed(1)}" y="${H - 8}" text-anchor="middle" fill="#64748B" font-size="9.5" font-weight="600">${esc(d.shortDate || '')}</text>`);
+      }
+
+      if (coinChartMode === 'line') {
+        const activePts = pts.filter(p => !p.d.isFuture);
+        if (activePts.length > 0) {
+          const linePath = activePts.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+          const lastP = activePts[activePts.length - 1];
+          const firstP = activePts[0];
+          const areaPath = `${linePath} L ${lastP.x.toFixed(1)} ${(padT + plotH).toFixed(1)} L ${firstP.x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`;
+          parts.push(`<path d="${areaPath}" fill="url(#cgAreaFill)"/>`);
+          parts.push(`<path d="${linePath}" fill="none" stroke="#00E676" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`);
+        }
+
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i];
+          const dotColor = p.d.isFuture ? '#31405B' : (p.d.isToday ? '#00E676' : '#22B8FF');
+          parts.push(`
+            <g class="chart-hit-col" onmouseenter="showCoinTooltip(${i}, ${p.x}, ${p.y})" onclick="showCoinTooltip(${i}, ${p.x}, ${p.y})">
+              <rect class="chart-col-hover-bg" x="${(p.x - slotW / 2 + 4).toFixed(1)}" y="${padT}" width="${(slotW - 8).toFixed(1)}" height="${plotH}" rx="8" fill="rgba(255,255,255,0.03)"/>
+              <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.d.isToday ? 5.5 : 4.2}" fill="${dotColor}" stroke="#0B1018" stroke-width="2"/>
+              ${!p.d.isFuture && p.d.coins > 0 ? `<text x="${p.x.toFixed(1)}" y="${(p.y - 10).toFixed(1)}" text-anchor="middle" fill="${p.d.isToday ? '#00E676' : '#CBD5E1'}" font-size="10.5" font-weight="700">${formatCompactCoins(p.d.coins)}</text>` : ''}
+            </g>
+          `);
+        }
+      }
+
+      svg.innerHTML = parts.join('');
+
+      // Hardware-friendly 1-frame CSS grow animation for bars
+      if (coinChartMode === 'bar') {
+        requestAnimationFrame(() => {
+          svg.querySelectorAll('.chart-bar-rect').forEach(rect => {
+            rect.setAttribute('y', rect.getAttribute('data-target-y'));
+            rect.setAttribute('height', rect.getAttribute('data-target-h'));
+          });
+        });
+      }
+    }
+
+    function showCoinTooltip(idx, svgX, svgY) {
+      if (!coinChartData || !coinChartData.days[idx]) return;
+      const tip = document.getElementById('coin-chart-tooltip');
+      const d = coinChartData.days[idx];
+      const total = coinChartData.totalCoins7d || 0;
+      const pct = total > 0 ? ((d.coins / total) * 100).toFixed(1) : '0.0';
+
+      tip.innerHTML = `
+        <div style="font-weight:800; color:${d.isToday ? 'var(--primary)' : '#FFF'}; margin-bottom:2px;">
+          Day ${d.day} • ${esc(d.label)} ${esc(d.shortDate)} ${d.isToday ? '(Today)' : ''}
+        </div>
+        <div style="color:var(--gold); font-weight:800; font-size:13px;">
+          ${d.isFuture ? 'Upcoming Day' : `+${d.coins.toLocaleString()} 🪙`}
+        </div>
+        ${!d.isFuture ? `<div style="color:var(--text-muted); font-size:10.5px; margin-top:2px;">${pct}% of 7-day total</div>` : ''}
+      `;
+
+      const leftPct = Math.min(84, Math.max(16, (svgX / 700) * 100));
+      const topPct = Math.min(72, Math.max(18, (svgY / 220) * 100));
+      tip.style.left = `${leftPct}%`;
+      tip.style.top = `${topPct}%`;
+      tip.style.display = 'block';
+    }
+
+    function hideCoinTooltip() {
+      const tip = document.getElementById('coin-chart-tooltip');
+      if (tip) tip.style.display = 'none';
     }
 
     // =========================================================================
@@ -1995,7 +2537,6 @@
       usersAbortController = new AbortController();
       const signal = usersAbortController.signal;
 
-      // Fast path: no coin filter -> pure server-side pagination
       if (coinsFilter === 'all') {
         const params = new URLSearchParams({ page: currentUsersPage, limit, search, status, activity, sort });
         try {
@@ -2008,7 +2549,6 @@
         return;
       }
 
-      // Coin-filtered path (5,000 / 10,000 / 20,000)
       const cacheKey = `${search}|${status}|${activity}|${sort}|${coinsFilter}|${matchMode}`;
       if (coinsFilterCache.key === cacheKey) {
         const total = coinsFilterCache.users.length;
@@ -2038,7 +2578,6 @@
         const firstRes = await fetch(`${API_BASE}/users?${firstParams.toString()}`, { headers: getHeaders(), signal });
         const firstData = await firstRes.json();
 
-        // If backend natively supports min_coins filtering and returned a flag
         if (firstData.coinFilterApplied === true) {
           const serverParams = new URLSearchParams({
             page: currentUsersPage,
@@ -2057,7 +2596,6 @@
           return;
         }
 
-        // Otherwise, gather all pages cleanly in parallel batches so no matching user is missed
         let allMatched = (firstData.users || []).filter(u => matchesCoinsFilter(u, coinsFilter, matchMode));
         const totalServerPages = firstData.totalPages || 1;
 
