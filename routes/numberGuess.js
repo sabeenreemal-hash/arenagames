@@ -223,5 +223,50 @@ router.get('/history', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to load match history' });
   }
 });
+// 7. GET /api/number-guess/recent-winners
+router.get('/recent-winners', authenticateToken, async (req, res) => {
+  try {
+    const limit = Math.min(30, Math.max(5, parseInt(req.query.limit, 10) || 15));
+    const winners = await dbAll(
+      `SELECT m.id AS matchId,
+              m.room_code AS roomCode,
+              m.entry_fee AS entryFee,
+              m.secret_number AS secretNumber,
+              m.ended_at AS endedAt,
+              p.username,
+              p.avatar,
+              p.participant_type AS participantType,
+              p.guess,
+              p.diff,
+              p.payout_coins AS payoutCoins
+       FROM ng_match_participants p
+       JOIN ng_matches m ON p.match_id = m.id
+       WHERE m.is_sandbox = 0
+         AND m.status = 'COMPLETED'
+         AND p.is_winner = 1
+       ORDER BY m.ended_at DESC, p.payout_coins DESC
+       LIMIT ?`,
+      [limit]
+    );
 
+    res.json({
+      success: true,
+      recentWinners: winners.map((w) => ({
+        matchId: w.matchId,
+        roomCode: w.roomCode,
+        username: w.username,
+        avatar: w.avatar,
+        isBot: w.participantType === 'BOT',
+        entryFee: w.entryFee,
+        secretNumber: w.secretNumber,
+        guess: w.guess,
+        diff: w.diff,
+        payoutCoins: w.payoutCoins,
+        endedAt: w.endedAt,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load recent winners' });
+  }
+});
 module.exports = router;
