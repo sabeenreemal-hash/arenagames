@@ -67,7 +67,7 @@ router.get('/dashboard', async (req, res) => {
          COUNT(*) AS totalMatches,
          SUM(CASE WHEN status IN ('WAITING','FILLING_BOTS') THEN 1 ELSE 0 END) AS waitingMatches,
          SUM(CASE WHEN status = 'STARTING' THEN 1 ELSE 0 END) AS startingMatches,
-         SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) AS activeMatches,
+         SUM(CASE WHEN status IN ('ACTIVE', 'AWAITING_SECRET') THEN 1 ELSE 0 END) AS activeMatches,
          SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) AS completedMatches,
          SUM(CASE WHEN status IN ('CANCELLED','REFUNDED') THEN 1 ELSE 0 END) AS cancelledMatches,
          COALESCE(SUM(real_entry_coins), 0) AS totalRealEntryCoins,
@@ -122,14 +122,14 @@ router.get('/dashboard', async (req, res) => {
 });
 
 // =========================================================================
-// 2 & 3. Live Matches + Match History + Match Detail + Start / Cancel
+// 2 & 3. Live Matches + Match History + Match Detail + Start / Secret / Cancel
 // =========================================================================
 router.get('/matches/live', async (req, res) => {
   try {
     const cfg = await getConfigMap();
     const matches = await dbAll(
       `SELECT * FROM ng_matches
-       WHERE is_sandbox = 0 AND status IN ('WAITING','FILLING_BOTS','STARTING','ACTIVE')
+       WHERE is_sandbox = 0 AND status IN ('WAITING','FILLING_BOTS','STARTING','ACTIVE','AWAITING_SECRET')
        ORDER BY created_at DESC`
     );
 
@@ -137,7 +137,10 @@ router.get('/matches/live', async (req, res) => {
     const enriched = [];
 
     for (const m of matches) {
-      const parts = await dbAll(`SELECT participant_type FROM ng_match_participants WHERE match_id = ?`, [m.id]);
+      const parts = await dbAll(
+        `SELECT participant_type, username, guess, guess_submitted_at FROM ng_match_participants WHERE match_id = ?`,
+        [m.id]
+      );
       const realCount = parts.filter((p) => p.participant_type === 'HUMAN').length;
       const botCount = parts.filter((p) => p.participant_type === 'BOT').length;
       const totalCount = parts.length;
@@ -150,7 +153,7 @@ router.get('/matches/live', async (req, res) => {
         remainingSec = Math.max(0, Math.ceil((new Date(m.search_deadline_at).getTime() - nowMs) / 1000));
       } else if (m.status === 'STARTING' && m.starting_at) {
         remainingSec = Math.max(0, Math.ceil((new Date(m.starting_at).getTime() - nowMs) / 1000));
-      } else if (m.status === 'ACTIVE' && m.round_deadline_at) {
+      } else if (['ACTIVE', 'AWAITING_SECRET'].includes(m.status) && m.round_deadline_at) {
         remainingSec = Math.max(0, Math.ceil((new Date(m.round_deadline_at).getTime() - nowMs) / 1000));
       }
 
@@ -167,6 +170,7 @@ router.get('/matches/live', async (req, res) => {
         status: m.status,
         createdAt: m.created_at,
         remainingSec,
+        participants: parts, // includes each player's username and submitted guess
       });
     }
 
@@ -272,25 +276,31 @@ router.get('/matches/:matchId', async (req, res) => {
   }
 });
 
-// START MATCH: Accepts optional custom secret number { secretNumber: 1..100 }
+// START MATCH: Begins the match round for players to choose guesses
 router.post('/matches/:matchId/start', async (req, res) => {
   try {
-    const { secretNumber } = req.body || {};
-    const match = await engine.adminStartMatch(req.params.matchId, secretNumber);
-
-    const logDetails = {
+    const match = await engine.adminStartMatch(req.params.matchId);
+    await logNgAdminAction(req.admin, 'MANUAL_START_MATCH', 'MATCH', req.params.matchId, {
       roomCode: match.room_code,
       status: match.status,
-      manualSecretUsed: secretNumber !== null && secretNumber !== undefined && secretNumber !== '',
-    };
-    if (logDetails.manualSecretUsed) {
-      logDetails.specifiedSecret = Number(secretNumber);
-    }
-
-    await logNgAdminAction(req.admin, 'MANUAL_START_MATCH', 'MATCH', req.params.matchId, logDetails);
+    });
     res.json({ success: true, match });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message || 'Failed to start match' });
+  }
+});
+
+// SUBMIT ADMIN SECRET: Called during the 5-second post-guess window
+router.post('/matches/:matchId/secret', async (req, res) => {
+  try {
+    const { secretNumber } = req.body || {};
+    const result = await engine.adminSetSecretAndSettle(req.params.matchId, secretNumber);
+    await logNgAdminAction(req.admin, 'ADMIN_CHOOSE_SECRET', 'MATCH', req.params.matchId, {
+      secretNumber,
+    });
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message || 'Failed to set secret number' });
   }
 });
 
