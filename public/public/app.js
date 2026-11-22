@@ -26,7 +26,7 @@
 
   const TAB_META = {
     dashboard: ['Dashboard', 'Real-time operational overview & revenue metrics'],
-    'live-matches': ['Live Matches', 'Real-time active rooms, participant counts & safe controls'],
+    'live-matches': ['Live Matches', 'Real-time active rooms, Auto/Manual start control & refunds'],
     'match-history': ['Match History', 'Completed & refunded production matches with audit records'],
     matchmaking: ['Matchmaking Settings', 'Queue timeouts, min/max seats, bot fill & refund rules'],
     bots: ['Bot Management', 'Configure bot profiles, strategies, virtual wallets & limits'],
@@ -39,7 +39,6 @@
     settings: ['Settings', 'General configuration, defaults & admin session'],
   };
 
-  // Helpers
   function esc(val) {
     if (val === null || val === undefined) return '';
     return String(val)
@@ -127,9 +126,6 @@
     document.getElementById('live-indicator').classList.add('hidden');
   }
 
-  // =========================================================================
-  // Tab Switcher
-  // =========================================================================
   async function switchTab(tab) {
     stopLivePolling();
     state.activeTab = tab;
@@ -225,16 +221,21 @@
   }
 
   // =========================================================================
-  // 2. Live Matches
+  // 2. Live Matches (Includes Auto / Manual Start Mode + Start Match Button)
   // =========================================================================
   async function renderLiveMatches(silent) {
-    const { matches } = await api('/matches/live');
+    const [{ matches }, { settings }] = await Promise.all([
+      api('/matches/live'),
+      api('/settings'),
+    ]);
     const el = document.getElementById('tab-content');
+    const mode = settings.match_start_mode === 'MANUAL' ? 'MANUAL' : 'AUTO';
 
     const rowsHtml = matches.length
       ? matches
-          .map(
-            (m) => `
+          .map((m) => {
+            const canStart = ['WAITING', 'FILLING_BOTS'].includes(m.status);
+            return `
           <tr>
             <td><code>${esc(m.id.slice(0, 8))}…</code></td>
             <td><strong>${esc(m.roomCode)}</strong></td>
@@ -248,11 +249,12 @@
             <td>${fmtDate(m.createdAt)}</td>
             <td><strong>${m.remainingSec}s</strong></td>
             <td>
+              ${canStart ? `<button class="btn btn-success btn-sm" data-start-match="${esc(m.id)}">Start Match</button>` : ''}
               <button class="btn btn-secondary btn-sm" data-view-match="${esc(m.id)}">View</button>
               <button class="btn btn-danger btn-sm" data-cancel-match="${esc(m.id)}">Cancel & Refund</button>
             </td>
-          </tr>`
-          )
+          </tr>`;
+          })
           .join('')
       : `<tr><td colspan="12" class="muted">No active or waiting production matches right now.</td></tr>`;
 
@@ -260,8 +262,17 @@
       el.innerHTML = `
         <div class="card">
           <div class="card-header">
-            <div class="card-title">Live Production Matches (${matches.length})</div>
-            <span class="muted">Production secret numbers remain sealed until match completion</span>
+            <div>
+              <div class="card-title">Live Production Matches (${matches.length})</div>
+              <span class="muted">Production secret numbers are server-generated and sealed until match completion</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span class="muted">Start Mode:</span>
+              <select id="live-start-mode">
+                <option value="AUTO" ${mode === 'AUTO' ? 'selected' : ''}>Automatic Start</option>
+                <option value="MANUAL" ${mode === 'MANUAL' ? 'selected' : ''}>Manual Admin Start</option>
+              </select>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -277,10 +288,35 @@
           </div>
         </div>
       `;
+
+      document.getElementById('live-start-mode').onchange = async (e) => {
+        try {
+          await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ match_start_mode: e.target.value }),
+          });
+          toast(`Match start mode switched to ${e.target.value}.`);
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
     } else {
       el.querySelector('#live-matches-tbody').innerHTML = rowsHtml;
     }
 
+    el.querySelectorAll('[data-start-match]').forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          await api(`/matches/${encodeURIComponent(btn.dataset.startMatch)}/start`, {
+            method: 'POST',
+          });
+          toast('Match started with server RNG!');
+          renderLiveMatches(false);
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+    });
     el.querySelectorAll('[data-view-match]').forEach((btn) => {
       btn.onclick = () => showMatchDetailsModal(btn.dataset.viewMatch);
     });
@@ -480,6 +516,12 @@
         <div class="card-header"><div class="card-title">Queue & Matchmaking Rules</div></div>
         <form id="mm-form">
           <div class="form-grid">
+            <label><span>Match Start Mode</span>
+              <select id="mm-start-mode">
+                <option value="AUTO" ${settings.match_start_mode !== 'MANUAL' ? 'selected' : ''}>Automatic Start</option>
+                <option value="MANUAL" ${settings.match_start_mode === 'MANUAL' ? 'selected' : ''}>Manual Admin Start</option>
+              </select>
+            </label>
             <label><span>Minimum Players (2-10)</span><input type="number" min="2" max="10" id="mm-min" value="${settings.min_players}" /></label>
             <label><span>Maximum Players (2-10)</span><input type="number" min="2" max="10" id="mm-max" value="${settings.max_players}" /></label>
             <label><span>Search Timeout (10-120 sec)</span><input type="number" min="10" max="120" id="mm-timeout" value="${settings.search_timeout_sec}" /></label>
@@ -517,6 +559,7 @@
         await api('/settings', {
           method: 'PUT',
           body: JSON.stringify({
+            match_start_mode: document.getElementById('mm-start-mode').value,
             min_players: Number(document.getElementById('mm-min').value),
             max_players: Number(document.getElementById('mm-max').value),
             search_timeout_sec: Number(document.getElementById('mm-timeout').value),
