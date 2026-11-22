@@ -221,7 +221,7 @@
   }
 
   // =========================================================================
-  // 2. Live Matches (Includes Auto / Manual Start Mode + Start Match Button)
+  // 2. Live Matches (Includes Auto / Manual Start Mode + Secret Number Input)
   // =========================================================================
   async function renderLiveMatches(silent) {
     const [{ matches }, { settings }] = await Promise.all([
@@ -264,7 +264,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">Live Production Matches (${matches.length})</div>
-              <span class="muted">Production secret numbers are server-generated and sealed until match completion</span>
+              <span class="muted">In Manual Admin mode, administrators can choose to set a manual secret number or use server RNG</span>
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
               <span class="muted">Start Mode:</span>
@@ -304,19 +304,69 @@
       el.querySelector('#live-matches-tbody').innerHTML = rowsHtml;
     }
 
+    // Modal popup to optionally enter secret number or leave blank for RNG
     el.querySelectorAll('[data-start-match]').forEach((btn) => {
-      btn.onclick = async () => {
-        try {
-          await api(`/matches/${encodeURIComponent(btn.dataset.startMatch)}/start`, {
-            method: 'POST',
-          });
-          toast('Match started with server RNG!');
-          renderLiveMatches(false);
-        } catch (err) {
-          toast(err.message, 'err');
-        }
+      btn.onclick = () => {
+        const matchId = btn.dataset.startMatch;
+        const targetMatch = matches.find((m) => m.id === matchId);
+        const roomCode = targetMatch ? targetMatch.roomCode : matchId.slice(0, 8);
+
+        openModal(
+          `Start Match: ${esc(roomCode)}`,
+          `
+          <form id="start-match-form" style="display:flex; flex-direction:column; gap:14px;">
+            <p class="muted">
+              You can manually specify a fixed secret number (1–100) or leave it empty to automatically generate one with secure server RNG.
+            </p>
+            <label>
+              <span>Secret Number (1–100, Optional)</span>
+              <input 
+                type="number" 
+                id="start-custom-secret" 
+                min="1" 
+                max="100" 
+                placeholder="Leave blank for random RNG" 
+                style="font-size:16px; padding:8px;"
+              />
+            </label>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:8px;">
+              <button type="button" class="btn btn-secondary" id="start-match-cancel">Cancel</button>
+              <button type="submit" class="btn btn-success">Confirm & Start Match</button>
+            </div>
+          </form>
+          `
+        );
+
+        document.getElementById('start-match-cancel').onclick = closeModal;
+
+        document.getElementById('start-match-form').onsubmit = async (ev) => {
+          ev.preventDefault();
+          const rawSecret = document.getElementById('start-custom-secret').value.trim();
+          let secretNumber = null;
+
+          if (rawSecret !== '') {
+            secretNumber = parseInt(rawSecret, 10);
+            if (isNaN(secretNumber) || secretNumber < 1 || secretNumber > 100) {
+              alert('Secret number must be an integer between 1 and 100.');
+              return;
+            }
+          }
+
+          try {
+            await api(`/matches/${encodeURIComponent(matchId)}/start`, {
+              method: 'POST',
+              body: JSON.stringify({ secretNumber }),
+            });
+            closeModal();
+            toast(secretNumber !== null ? `Match started with secret number: ${secretNumber}` : 'Match started with server RNG!');
+            renderLiveMatches(false);
+          } catch (err) {
+            toast(err.message, 'err');
+          }
+        };
       };
     });
+
     el.querySelectorAll('[data-view-match]').forEach((btn) => {
       btn.onclick = () => showMatchDetailsModal(btn.dataset.viewMatch);
     });
@@ -330,7 +380,7 @@
       const { match, participants, ledger } = await api(`/matches/${encodeURIComponent(matchId)}`);
       const secretDisplay =
         match.secret_number !== null && match.secret_number !== undefined
-          ? `<strong>${match.secret_number}</strong> (${esc(match.secret_mode)})`
+          ? `<strong>${match.secret_number}</strong> (${esc(match.secret_mode || 'LOCKED')})`
           : `<span class="pill pill-amber">HIDDEN UNTIL COMPLETED</span>`;
 
       const pRows = participants
@@ -1334,7 +1384,7 @@
     document.getElementById('tab-content').innerHTML = `
       <div class="card">
         <div class="card-header"><div class="card-title">General Panel & Sandbox Defaults</div></div>
-        <p class="muted" style="margin-bottom:14px">Signed in as <strong>${esc(state.admin?.username)}</strong>. Production random numbers use Node.js <code>crypto.randomInt(1, 101)</code> and cannot be overridden.</p>
+        <p class="muted" style="margin-bottom:14px">Signed in as <strong>${esc(state.admin?.username)}</strong>.</p>
         <div class="toolbar">
           <label><span>Default Sandbox Starting Coins</span><input type="number" id="set-sb-bal" value="${settings.sandbox_default_balance}" /></label>
           <button class="btn btn-primary" id="set-save">Save</button>
