@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const {
   dbGet,
   dbAll,
+  dbRun,
   runInTransaction,
   initNumberGuessDb,
   getConfigMap,
@@ -120,7 +121,7 @@ async function joinMatchmaking(userId, rawEntryFee) {
       `SELECT m.id FROM ng_match_participants p
        JOIN ng_matches m ON p.match_id = m.id
        WHERE p.user_id = ? AND m.is_sandbox = 0
-         AND m.status IN ('WAITING','FILLING_BOTS','STARTING','ACTIVE')
+         AND m.status IN ('WAITING','FILLING_BOTS','STARTING','ACTIVE','AWAITING_SECRET')
        LIMIT 1`,
       [userId]
     );
@@ -293,21 +294,10 @@ async function leaveMatchmaking(userId, matchId) {
 }
 
 // =========================================================================
-// Admin Manual Start Button (Accepts optional custom secret number 1-100)
+// Admin Manual Start Button (Starts players round)
 // =========================================================================
-async function adminStartMatch(matchId, customSecret = null) {
+async function adminStartMatch(matchId) {
   const cfg = await getConfigMap();
-
-  let manualSecretNumber = null;
-  if (customSecret !== null && customSecret !== undefined && customSecret !== '') {
-    const parsed = parseInt(customSecret, 10);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
-      const err = new Error('Secret number must be a whole number between 1 and 100.');
-      err.status = 400;
-      throw err;
-    }
-    manualSecretNumber = parsed;
-  }
 
   return runInTransaction(async (tx) => {
     const match = await tx.dbGet(`SELECT * FROM ng_matches WHERE id = ? AND is_sandbox = 0`, [matchId]);
@@ -329,15 +319,53 @@ async function adminStartMatch(matchId, customSecret = null) {
       throw err;
     }
 
-    await transitionToStartingTx(tx, matchId, cfg, new Date(), manualSecretNumber);
+    await transitionToStartingTx(tx, matchId, cfg, new Date());
     return tx.dbGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
   });
 }
 
 // =========================================================================
-// Lock Room -> Generate/Set Secret -> Transition to STARTING/ACTIVE
+// Admin Selects Secret Number During 5s Window -> Settles Match Immediately
 // =========================================================================
-async function transitionToStartingTx(tx, matchId, cfg, now = new Date(), manualSecretNumber = null) {
+async function adminSetSecretAndSettle(matchId, customSecret) {
+  const parsed = parseInt(customSecret, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+    const err = new Error('Secret number must be a whole number between 1 and 100.');
+    err.status = 400;
+    throw err;
+  }
+
+  await runInTransaction(async (tx) => {
+    const match = await tx.dbGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
+    if (!match) {
+      const err = new Error('Match not found');
+      err.status = 404;
+      throw err;
+    }
+    if (!['AWAITING_SECRET', 'ACTIVE'].includes(match.status)) {
+      const err = new Error(`Match is in status ${match.status}; secret cannot be chosen.`);
+      err.status = 400;
+      throw err;
+    }
+
+    const nowIso = new Date().toISOString();
+    await tx.dbRun(
+      `UPDATE ng_matches 
+       SET status = 'ACTIVE', 
+           secret_number = ?, 
+           secret_generated_at = ? 
+       WHERE id = ?`,
+      [parsed, nowIso, matchId]
+    );
+  });
+
+  return settleMatch(matchId);
+}
+
+// =========================================================================
+// Lock Room -> Transition to STARTING/ACTIVE
+// =========================================================================
+async function transitionToStartingTx(tx, matchId, cfg, now = new Date()) {
   const { dbGet: txGet, dbRun: txRun } = tx;
 
   const match = await txGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
@@ -356,17 +384,12 @@ async function transitionToStartingTx(tx, matchId, cfg, now = new Date(), manual
   const platformFeeCoins = Math.floor((totalPool * feePercent) / 100);
   const prizePoolCoins = totalPool - platformFeeCoins;
 
-  // Priority:
-  // 1. Admin manual secret number (if specified)
-  // 2. Sandbox configured secret number
-  // 3. Cryptographically secure random number (1 to 100)
-  let secretNumber;
-  if (manualSecretNumber !== null && manualSecretNumber !== undefined) {
-    secretNumber = manualSecretNumber;
-  } else if (match.is_sandbox && match.secret_number !== null) {
-    secretNumber = match.secret_number;
-  } else {
-    secretNumber = crypto.randomInt(1, 101);
+  // In auto mode, RNG can be prepared; in manual mode, secret remains null until players guess
+  let initialSecret = null;
+  if (match.is_sandbox && match.secret_number !== null) {
+    initialSecret = match.secret_number;
+  } else if (cfg.match_start_mode !== 'MANUAL') {
+    initialSecret = crypto.randomInt(1, 101);
   }
 
   const nowIso = now.toISOString();
@@ -381,7 +404,7 @@ async function transitionToStartingTx(tx, matchId, cfg, now = new Date(), manual
     `UPDATE ng_matches
      SET status = ?,
          secret_number = ?,
-         secret_generated_at = COALESCE(secret_generated_at, ?),
+         secret_generated_at = CASE WHEN ? IS NOT NULL THEN ? ELSE secret_generated_at END,
          fee_percent = ?,
          winner_share_percent = ?,
          total_pool = ?,
@@ -393,7 +416,8 @@ async function transitionToStartingTx(tx, matchId, cfg, now = new Date(), manual
      WHERE id = ?`,
     [
       countdownSec === 0 ? 'ACTIVE' : 'STARTING',
-      secretNumber,
+      initialSecret,
+      initialSecret,
       nowIso,
       feePercent,
       winnerSharePercent,
@@ -408,7 +432,6 @@ async function transitionToStartingTx(tx, matchId, cfg, now = new Date(), manual
     ]
   );
 
-  // If countdownSec === 0, schedule bots immediately
   if (countdownSec === 0) {
     const bots = await tx.dbAll(
       `SELECT id FROM ng_match_participants WHERE match_id = ? AND participant_type = 'BOT' AND guess IS NULL`,
@@ -438,7 +461,7 @@ async function submitGuess(userId, matchId, rawGuess) {
     throw err;
   }
 
-  let shouldSettleNow = false;
+  let shouldTriggerFinish = false;
 
   const result = await runInTransaction(async ({ dbGet: txGet, dbRun: txRun }) => {
     const match = await txGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
@@ -484,14 +507,27 @@ async function submitGuess(userId, matchId, rawGuess) {
       [matchId]
     );
     if (pendingRow && pendingRow.cnt === 0) {
-      shouldSettleNow = true;
+      shouldTriggerFinish = true;
     }
 
     return { guess, guessSubmittedAt: nowIso };
   });
 
-  if (shouldSettleNow) {
-    await settleMatch(matchId);
+  if (shouldTriggerFinish) {
+    const cfg = await getConfigMap();
+    const match = await dbGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
+    if (match && match.status === 'ACTIVE') {
+      if (cfg.match_start_mode === 'MANUAL' && !match.is_sandbox) {
+        // Give admin 5 seconds to select secret number
+        const adminDeadlineIso = new Date(Date.now() + 5000).toISOString();
+        await dbRun(
+          `UPDATE ng_matches SET status = 'AWAITING_SECRET', round_deadline_at = ? WHERE id = ? AND status = 'ACTIVE'`,
+          [adminDeadlineIso, matchId]
+        );
+      } else {
+        await settleMatch(matchId);
+      }
+    }
   }
 
   return result;
@@ -507,7 +543,7 @@ async function settleMatch(matchId) {
     const { dbGet: txGet, dbAll: txAll, dbRun: txRun } = tx;
 
     const match = await txGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
-    if (!match || match.status !== 'ACTIVE') return null;
+    if (!match || !['ACTIVE', 'AWAITING_SECRET'].includes(match.status)) return null;
 
     const participants = await txAll(
       `SELECT * FROM ng_match_participants WHERE match_id = ? ORDER BY joined_at ASC`,
@@ -521,6 +557,7 @@ async function settleMatch(matchId) {
       return { status: 'REFUNDED' };
     }
 
+    // If secret_number was not picked by admin, fallback to secure server RNG
     const secret = match.secret_number ?? crypto.randomInt(1, 101);
     let minDiff = Infinity;
 
@@ -743,7 +780,6 @@ async function processTick() {
       const totalCount = participants.length;
       const botCount = participants.filter((p) => p.participant_type === 'BOT').length;
 
-      // Room full -> lock immediately in AUTO mode
       if (!isManualStart && totalCount >= m.max_players) {
         await runInTransaction((tx) => transitionToStartingTx(tx, m.id, cfg, now));
         continue;
@@ -751,7 +787,6 @@ async function processTick() {
 
       const searchDeadlineMs = new Date(m.search_deadline_at).getTime();
 
-      // Search timeout reached
       if (nowMs >= searchDeadlineMs) {
         if (totalCount >= m.min_players) {
           if (!isManualStart) {
@@ -849,7 +884,7 @@ async function processTick() {
       }
     }
 
-    // 3. Process ACTIVE matches (Bot submissions + Round timeout + All-submitted early finish)
+    // 3. Process ACTIVE matches (Bot submissions + Round timeout + All-submitted finish)
     const activeMatches = await dbAll(`SELECT * FROM ng_matches WHERE status = 'ACTIVE'`);
     for (const m of activeMatches) {
       const dueBots = await dbAll(
@@ -880,6 +915,28 @@ async function processTick() {
       const allSubmitted = pendingCountRow && pendingCountRow.cnt === 0;
 
       if (allSubmitted || roundExpired) {
+        if (cfg.match_start_mode === 'MANUAL' && !m.is_sandbox) {
+          // Transition to 5-second admin decision window
+          const adminDeadlineIso = new Date(nowMs + 5000).toISOString();
+          await dbRun(
+            `UPDATE ng_matches SET status = 'AWAITING_SECRET', round_deadline_at = ? WHERE id = ? AND status = 'ACTIVE'`,
+            [adminDeadlineIso, m.id]
+          );
+        } else {
+          await settleMatch(m.id);
+        }
+      }
+    }
+
+    // 4. Process AWAITING_SECRET matches (Admin 5-second window expires -> pick random RNG)
+    const awaitingSecretMatches = await dbAll(`SELECT * FROM ng_matches WHERE status = 'AWAITING_SECRET'`);
+    for (const m of awaitingSecretMatches) {
+      if (m.round_deadline_at && nowMs >= new Date(m.round_deadline_at).getTime()) {
+        const randomSecret = crypto.randomInt(1, 101);
+        await dbRun(
+          `UPDATE ng_matches SET status = 'ACTIVE', secret_number = ? WHERE id = ?`,
+          [randomSecret, m.id]
+        );
         await settleMatch(m.id);
       }
     }
@@ -908,6 +965,7 @@ module.exports = {
   joinMatchmaking,
   leaveMatchmaking,
   adminStartMatch,
+  adminSetSecretAndSettle,
   submitGuess,
   settleMatch,
   cancelAndRefundMatch,
