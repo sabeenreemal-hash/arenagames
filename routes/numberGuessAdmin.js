@@ -11,7 +11,6 @@ const {
   getConfigMap,
   saveConfigKeys,
   logNgAdminAction,
-  generateRoomCode,
   DEFAULT_CONFIG,
 } = require('../ngDatabase');
 const { loginAdmin, authenticateNgAdmin } = require('../middleware/ngAdminAuth');
@@ -123,7 +122,7 @@ router.get('/dashboard', async (req, res) => {
 });
 
 // =========================================================================
-// 2 & 3. Live Matches + Match History + Match Detail + Cancel/Refund
+// 2 & 3. Live Matches + Match History + Match Detail + Start / Cancel
 // =========================================================================
 router.get('/matches/live', async (req, res) => {
   try {
@@ -252,7 +251,6 @@ router.get('/matches/:matchId', async (req, res) => {
       [match.id]
     );
 
-    // PRD 6A: Reveal production secret number only after match completes
     const canRevealSecret = Boolean(match.is_sandbox) || match.status === 'COMPLETED';
     const durationSec =
       match.started_at && match.ended_at
@@ -271,6 +269,19 @@ router.get('/matches/:matchId', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load match details' });
+  }
+});
+
+router.post('/matches/:matchId/start', async (req, res) => {
+  try {
+    const match = await engine.adminStartMatch(req.params.matchId);
+    await logNgAdminAction(req.admin, 'MANUAL_START_MATCH', 'MATCH', req.params.matchId, {
+      roomCode: match.room_code,
+      status: match.status,
+    });
+    res.json({ success: true, match });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message || 'Failed to start match' });
   }
 });
 
@@ -312,6 +323,9 @@ router.put('/settings', async (req, res) => {
     }
     if (payload.search_timeout_sec !== undefined) {
       payload.search_timeout_sec = Math.max(10, Math.min(120, parseInt(payload.search_timeout_sec, 10) || 30));
+    }
+    if (payload.match_start_mode !== undefined) {
+      payload.match_start_mode = payload.match_start_mode === 'MANUAL' ? 'MANUAL' : 'AUTO';
     }
 
     const updated = await saveConfigKeys(payload);
@@ -668,7 +682,7 @@ router.post('/sandbox/matches', async (req, res) => {
       secretNumber,
       sandboxAccountIds = [],
       botIds = [],
-      guesses = {}, // optional map: { sim_1: 42, bot_2: 42 }
+      guesses = {},
       autoSettle = false,
     } = req.body;
 
