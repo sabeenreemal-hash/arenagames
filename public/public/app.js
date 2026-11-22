@@ -67,11 +67,12 @@
       FILLING_BOTS: 'pill-cyan',
       STARTING: 'pill-blue',
       ACTIVE: 'pill-green',
+      AWAITING_SECRET: 'pill-amber',
       COMPLETED: 'pill-green',
       CANCELLED: 'pill-red',
       REFUNDED: 'pill-red',
     };
-    return `<span class="pill ${map[s] || 'pill-blue'}">${esc(s)}</span>`;
+    return `<span class="pill ${map[s] || 'pill-blue'}">${esc(s === 'AWAITING_SECRET' ? 'CHOOSE SECRET (5s)' : s)}</span>`;
   }
 
   function toast(msg, type = 'ok') {
@@ -144,7 +145,7 @@
       document.getElementById('live-indicator').classList.remove('hidden');
       state.liveInterval = setInterval(() => {
         if (state.activeTab === 'live-matches') renderLiveMatches(true);
-      }, 3000);
+      }, 1000); // 1-second polling tick for real-time 5s countdown
     }
   }
 
@@ -221,7 +222,7 @@
   }
 
   // =========================================================================
-  // 2. Live Matches (Includes Auto / Manual Start Mode + Secret Number Input)
+  // 2. Live Matches (Includes 5-Second Post-Guess Secret Choice Window)
   // =========================================================================
   async function renderLiveMatches(silent) {
     const [{ matches }, { settings }] = await Promise.all([
@@ -235,8 +236,9 @@
       ? matches
           .map((m) => {
             const canStart = ['WAITING', 'FILLING_BOTS'].includes(m.status);
+            const isAwaitingSecret = m.status === 'AWAITING_SECRET';
             return `
-          <tr>
+          <tr style="${isAwaitingSecret ? 'background: rgba(245, 158, 11, 0.16); border: 1px solid var(--amber);' : ''}">
             <td><code>${esc(m.id.slice(0, 8))}…</code></td>
             <td><strong>${esc(m.roomCode)}</strong></td>
             <td>${fmtNum(m.entryFee)}</td>
@@ -247,11 +249,12 @@
             <td>${fmtNum(m.platformFeeCoins)} (${m.feePercent}%)</td>
             <td>${statusPill(m.status)}</td>
             <td>${fmtDate(m.createdAt)}</td>
-            <td><strong>${m.remainingSec}s</strong></td>
+            <td><strong style="${isAwaitingSecret ? 'color:var(--red); font-size:16px;' : ''}">${m.remainingSec}s</strong></td>
             <td>
               ${canStart ? `<button class="btn btn-success btn-sm" data-start-match="${esc(m.id)}">Start Match</button>` : ''}
+              ${isAwaitingSecret ? `<button class="btn btn-warning btn-sm" data-choose-secret="${esc(m.id)}" style="font-weight:bold;">⚡ Set Secret (${m.remainingSec}s)</button>` : ''}
               <button class="btn btn-secondary btn-sm" data-view-match="${esc(m.id)}">View</button>
-              <button class="btn btn-danger btn-sm" data-cancel-match="${esc(m.id)}">Cancel & Refund</button>
+              <button class="btn btn-danger btn-sm" data-cancel-match="${esc(m.id)}">Cancel</button>
             </td>
           </tr>`;
           })
@@ -264,7 +267,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">Live Production Matches (${matches.length})</div>
-              <span class="muted">In Manual Admin mode, administrators can choose to set a manual secret number or use server RNG</span>
+              <span class="muted">In Manual Start Mode: When players finish choosing numbers, admin gets 5 seconds to set the secret number before random RNG is picked.</span>
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
               <span class="muted">Start Mode:</span>
@@ -304,61 +307,82 @@
       el.querySelector('#live-matches-tbody').innerHTML = rowsHtml;
     }
 
-    // Modal popup to optionally enter secret number or leave blank for RNG
+    // 1. Start Match (transitions room to STARTING/ACTIVE for players to guess)
     el.querySelectorAll('[data-start-match]').forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          await api(`/matches/${encodeURIComponent(btn.dataset.startMatch)}/start`, {
+            method: 'POST',
+          });
+          toast('Match started! Players are now submitting guesses.');
+          renderLiveMatches(false);
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+    });
+
+    // 2. 5-Second Decision Window: Admin Sets Winning Secret Number
+    el.querySelectorAll('[data-choose-secret]').forEach((btn) => {
       btn.onclick = () => {
-        const matchId = btn.dataset.startMatch;
+        const matchId = btn.dataset.chooseSecret;
         const targetMatch = matches.find((m) => m.id === matchId);
-        const roomCode = targetMatch ? targetMatch.roomCode : matchId.slice(0, 8);
+        const playerGuesses = (targetMatch?.participants || [])
+          .map(
+            (p) => `
+            <li style="display:flex; justify-content:space-between; margin-bottom:4px;">
+              <span><strong>${esc(p.username)}</strong> <span class="muted">(${esc(p.participant_type)})</span></span>
+              <span>${p.guess !== null ? `<code style="font-size:15px; font-weight:bold; color:var(--cyan);">${p.guess}</code>` : '<em class="muted">Pending</em>'}</span>
+            </li>`
+          )
+          .join('');
 
         openModal(
-          `Start Match: ${esc(roomCode)}`,
+          `⚡ Set Secret: Room ${esc(targetMatch?.roomCode || matchId.slice(0, 8))}`,
           `
-          <form id="start-match-form" style="display:flex; flex-direction:column; gap:14px;">
-            <p class="muted">
-              You can manually specify a fixed secret number (1–100) or leave it empty to automatically generate one with secure server RNG.
+          <form id="set-secret-modal-form" style="display:flex; flex-direction:column; gap:14px;">
+            <p style="color:var(--amber); font-weight:600; margin:0;">
+              You have 5 seconds! If no number is submitted, server RNG will select a random number automatically.
             </p>
-            <label>
-              <span>Secret Number (1–100, Optional)</span>
+            <div style="background:var(--bg); border:1px solid rgba(255,255,255,0.08); padding:10px; border-radius:6px;">
+              <div class="muted" style="font-weight:600; margin-bottom:6px;">Player Choices:</div>
+              <ul style="margin:0; padding:0; list-style:none;">${playerGuesses || '<li class="muted">No participants found</li>'}</ul>
+            </div>
+            <label style="display:flex; flex-direction:column; gap:6px;">
+              <span style="font-weight:600;">Winning Secret Number (1–100)</span>
               <input 
                 type="number" 
-                id="start-custom-secret" 
+                id="modal-secret-input" 
                 min="1" 
                 max="100" 
-                placeholder="Leave blank for random RNG" 
-                style="font-size:16px; padding:8px;"
+                placeholder="e.g. 42" 
+                autofocus 
+                required 
+                style="font-size:18px; padding:10px; width:100%; box-sizing:border-box;"
               />
             </label>
-            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:8px;">
-              <button type="button" class="btn btn-secondary" id="start-match-cancel">Cancel</button>
-              <button type="submit" class="btn btn-success">Confirm & Start Match</button>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+              <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-backdrop').classList.add('hidden')">Cancel</button>
+              <button type="submit" class="btn btn-success" style="font-weight:bold; padding:8px 16px;">Lock Secret & Settle</button>
             </div>
           </form>
           `
         );
 
-        document.getElementById('start-match-cancel').onclick = closeModal;
-
-        document.getElementById('start-match-form').onsubmit = async (ev) => {
+        document.getElementById('set-secret-modal-form').onsubmit = async (ev) => {
           ev.preventDefault();
-          const rawSecret = document.getElementById('start-custom-secret').value.trim();
-          let secretNumber = null;
-
-          if (rawSecret !== '') {
-            secretNumber = parseInt(rawSecret, 10);
-            if (isNaN(secretNumber) || secretNumber < 1 || secretNumber > 100) {
-              alert('Secret number must be an integer between 1 and 100.');
-              return;
-            }
+          const val = Number(document.getElementById('modal-secret-input').value);
+          if (isNaN(val) || val < 1 || val > 100) {
+            alert('Secret number must be between 1 and 100.');
+            return;
           }
-
           try {
-            await api(`/matches/${encodeURIComponent(matchId)}/start`, {
+            await api(`/matches/${encodeURIComponent(matchId)}/secret`, {
               method: 'POST',
-              body: JSON.stringify({ secretNumber }),
+              body: JSON.stringify({ secretNumber: val }),
             });
             closeModal();
-            toast(secretNumber !== null ? `Match started with secret number: ${secretNumber}` : 'Match started with server RNG!');
+            toast(`Secret number locked to ${val}. Match settled!`);
             renderLiveMatches(false);
           } catch (err) {
             toast(err.message, 'err');
