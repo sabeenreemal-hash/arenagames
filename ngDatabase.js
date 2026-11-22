@@ -55,6 +55,7 @@ function runInTransaction(workFn) {
 
 const DEFAULT_CONFIG = {
   game_enabled: true,
+  match_start_mode: 'AUTO', // 'AUTO' | 'MANUAL'
   min_players: 2,
   max_players: 10,
   entry_fees: [500, 1000, 2000],
@@ -246,7 +247,6 @@ function initNumberGuessDb() {
           )
         `);
 
-        // Indexes for fast polling & analytics
         await dbRun(`CREATE INDEX IF NOT EXISTS idx_ng_matches_status ON ng_matches(status, is_sandbox, entry_fee);`);
         await dbRun(`CREATE INDEX IF NOT EXISTS idx_ng_matches_created ON ng_matches(created_at DESC);`);
         await dbRun(`CREATE INDEX IF NOT EXISTS idx_ng_part_match ON ng_match_participants(match_id);`);
@@ -339,7 +339,6 @@ async function logNgAdminAction(admin, actionType, targetType = '', targetId = '
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [adminId, adminUsername, actionType, targetType, String(targetId || ''), detailStr, nowIso]
     );
-    // Mirror into main admin_activity_logs if present
     await dbRun(
       `INSERT INTO admin_activity_logs (admin_id, admin_username, action_type, target_type, target_id, target_label, details)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
