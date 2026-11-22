@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Number Guess Battle — Admin Panel</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <!-- Login Overlay -->
+  <div id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="brand-badge">🎯 ARENA GAMES</div>
+      <h1>Number Guess Admin</h1>
+      <p class="muted">Sign in with your Arena Games admin account</p>
+      <form id="login-form">
+        <label>
+          <span>Username</span>
+          <input type="text" id="login-username" placeholder="admin" required autocomplete="username" />
+        </label>
+        <label>
+          <span>Password</span>
+          <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password" />
+        </label>
+        <div id="login-error" class="error-box hidden"></div>
+        <button type="submit" class="btn btn-primary full-width">Sign In</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Admin App -->
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-mark">🎯</div>
+        <div>
+          <div class="logo-title">Number Guess</div>
+          <div class="logo-sub">Admin Console</div>
+        </div>
+      </div>
+
+      <nav class="nav-list" id="sidebar-nav">
+        <button class="nav-item active" data-tab="dashboard">📊 Dashboard</button>
+        <button class="nav-item" data-tab="live-matches">⚡ Live Matches</button>
+        <button class="nav-item" data-tab="match-history">📜 Match History</button>
+        <button class="nav-item" data-tab="matchmaking">🔗 Matchmaking Settings</button>
+        <button class="nav-item" data-tab="bots">🤖 Bot Management</button>
+        <button class="nav-item" data-tab="players">👥 Player Management</button>
+        <button class="nav-item" data-tab="game-config">🎮 Game Configuration</button>
+        <button class="nav-item" data-tab="coins">🪙 Coin Management</button>
+        <button class="nav-item" data-tab="transactions">💳 Transactions</button>
+        <button class="nav-item" data-tab="sandbox">🧪 Sandbox Testing</button>
+        <button class="nav-item" data-tab="logs">🛡️ Admin Activity Logs</button>
+        <button class="nav-item" data-tab="settings">⚙️ Settings</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="admin-pill">
+          <span class="dot-online"></span>
+          <span id="admin-name-display">admin</span>
+        </div>
+        <button id="logout-btn" class="btn btn-ghost btn-sm">Logout</button>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div>
+          <h2 id="page-title">Dashboard</h2>
+          <p id="page-subtitle" class="muted">Real-time operational overview</p>
+        </div>
+        <div class="topbar-actions">
+          <span id="live-indicator" class="pill pill-green hidden">● Live Polling (3s)</span>
+          <button id="refresh-btn" class="btn btn-secondary btn-sm">↻ Refresh</button>
+        </div>
+      </header>
+
+      <div id="toast-container" class="toast-container"></div>
+      <section id="tab-content" class="tab-content"></section>
+    </main>
+  </div>
+
+  <!-- Reusable Modal -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title">Details</h3>
+        <button id="modal-close" class="btn btn-ghost btn-sm">✕</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
