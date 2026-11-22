@@ -293,10 +293,22 @@ async function leaveMatchmaking(userId, matchId) {
 }
 
 // =========================================================================
-// Admin Manual Start Button (Uses secure server RNG for production matches)
+// Admin Manual Start Button (Accepts optional custom secret number 1-100)
 // =========================================================================
-async function adminStartMatch(matchId) {
+async function adminStartMatch(matchId, customSecret = null) {
   const cfg = await getConfigMap();
+
+  let manualSecretNumber = null;
+  if (customSecret !== null && customSecret !== undefined && customSecret !== '') {
+    const parsed = parseInt(customSecret, 10);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+      const err = new Error('Secret number must be a whole number between 1 and 100.');
+      err.status = 400;
+      throw err;
+    }
+    manualSecretNumber = parsed;
+  }
+
   return runInTransaction(async (tx) => {
     const match = await tx.dbGet(`SELECT * FROM ng_matches WHERE id = ? AND is_sandbox = 0`, [matchId]);
     if (!match) {
@@ -317,15 +329,15 @@ async function adminStartMatch(matchId) {
       throw err;
     }
 
-    await transitionToStartingTx(tx, matchId, cfg, new Date());
+    await transitionToStartingTx(tx, matchId, cfg, new Date(), manualSecretNumber);
     return tx.dbGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
   });
 }
 
 // =========================================================================
-// Lock Room -> Generate Server Secret -> Transition to STARTING/ACTIVE
+// Lock Room -> Generate/Set Secret -> Transition to STARTING/ACTIVE
 // =========================================================================
-async function transitionToStartingTx(tx, matchId, cfg, now = new Date()) {
+async function transitionToStartingTx(tx, matchId, cfg, now = new Date(), manualSecretNumber = null) {
   const { dbGet: txGet, dbRun: txRun } = tx;
 
   const match = await txGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
@@ -344,10 +356,18 @@ async function transitionToStartingTx(tx, matchId, cfg, now = new Date()) {
   const platformFeeCoins = Math.floor((totalPool * feePercent) / 100);
   const prizePoolCoins = totalPool - platformFeeCoins;
 
-  const secretNumber =
-    match.is_sandbox && match.secret_number !== null
-      ? match.secret_number
-      : crypto.randomInt(1, 101);
+  // Priority:
+  // 1. Admin manual secret number (if specified)
+  // 2. Sandbox configured secret number
+  // 3. Cryptographically secure random number (1 to 100)
+  let secretNumber;
+  if (manualSecretNumber !== null && manualSecretNumber !== undefined) {
+    secretNumber = manualSecretNumber;
+  } else if (match.is_sandbox && match.secret_number !== null) {
+    secretNumber = match.secret_number;
+  } else {
+    secretNumber = crypto.randomInt(1, 101);
+  }
 
   const nowIso = now.toISOString();
   const countdownSec = Math.max(0, Number(cfg.starting_countdown_sec ?? 3));
@@ -360,7 +380,7 @@ async function transitionToStartingTx(tx, matchId, cfg, now = new Date()) {
   await txRun(
     `UPDATE ng_matches
      SET status = ?,
-         secret_number = COALESCE(secret_number, ?),
+         secret_number = ?,
          secret_generated_at = COALESCE(secret_generated_at, ?),
          fee_percent = ?,
          winner_share_percent = ?,
