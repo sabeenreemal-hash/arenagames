@@ -31,14 +31,14 @@ function getFeePercent(participantCount, cfg) {
 function generateBotGuess(strategy) {
   switch (String(strategy || 'RANDOM').toUpperCase()) {
     case 'LOW':
-      return crypto.randomInt(1, 36); // 1 - 35
+      return crypto.randomInt(1, 36);
     case 'HIGH':
-      return crypto.randomInt(66, 101); // 66 - 100
+      return crypto.randomInt(66, 101);
     case 'MIDDLE':
-      return crypto.randomInt(34, 68); // 34 - 67
+      return crypto.randomInt(34, 68);
     case 'RANDOM':
     default:
-      return crypto.randomInt(1, 101); // 1 - 100
+      return crypto.randomInt(1, 101);
   }
 }
 
@@ -88,7 +88,9 @@ async function joinMatchmaking(userId, rawEntryFee) {
     throw err;
   }
 
-  return runInTransaction(async ({ dbGet: txGet, dbAll: txAll, dbRun: txRun }) => {
+  return runInTransaction(async (tx) => {
+    const { dbGet: txGet, dbAll: txAll, dbRun: txRun } = tx;
+
     const user = await txGet(
       `SELECT id, username, full_name, balance, is_banned, ban_reason FROM users WHERE id = ?`,
       [userId]
@@ -114,7 +116,6 @@ async function joinMatchmaking(userId, rawEntryFee) {
       throw err;
     }
 
-    // Check if user is already in an ongoing production match (idempotent return)
     const existingParticipation = await txGet(
       `SELECT m.id FROM ng_match_participants p
        JOIN ng_matches m ON p.match_id = m.id
@@ -127,7 +128,6 @@ async function joinMatchmaking(userId, rawEntryFee) {
       return existingParticipation.id;
     }
 
-    // Atomic coin check & deduction
     const deductRes = await txRun(
       `UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?`,
       [entryFee, userId, entryFee]
@@ -142,7 +142,6 @@ async function joinMatchmaking(userId, rawEntryFee) {
     const now = new Date();
     const nowIso = now.toISOString();
 
-    // Find open WAITING or FILLING_BOTS room with same entry fee & available seats
     let openMatch = null;
     const candidates = await txAll(
       `SELECT m.* FROM ng_matches m
@@ -200,7 +199,6 @@ async function joinMatchmaking(userId, rawEntryFee) {
       [matchId, userId, user.username, entryFee, nowIso]
     );
 
-    // Auditable ledger + main Arena wallet transactions table
     const idempKey = `NG_ENTRY_${matchId}_U${userId}`;
     await txRun(
       `INSERT OR IGNORE INTO ng_ledger (
@@ -214,11 +212,12 @@ async function joinMatchmaking(userId, rawEntryFee) {
       [userId, -entryFee, matchId]
     );
 
-    // Lock immediately if room reached max_players
-    const countAfter = await txGet(`SELECT COUNT(*) AS cnt FROM ng_match_participants WHERE match_id = ?`, [matchId]);
-    const matchRow = await txGet(`SELECT max_players FROM ng_matches WHERE id = ?`, [matchId]);
-    if (countAfter && matchRow && countAfter.cnt >= matchRow.max_players) {
-      await transitionToStartingTx({ txRun, txGet }, matchId, cfg, now);
+    if (cfg.match_start_mode !== 'MANUAL') {
+      const countAfter = await txGet(`SELECT COUNT(*) AS cnt FROM ng_match_participants WHERE match_id = ?`, [matchId]);
+      const matchRow = await txGet(`SELECT max_players FROM ng_matches WHERE id = ?`, [matchId]);
+      if (countAfter && matchRow && countAfter.cnt >= matchRow.max_players) {
+        await transitionToStartingTx(tx, matchId, cfg, now);
+      }
     }
 
     return matchId;
@@ -236,7 +235,9 @@ async function leaveMatchmaking(userId, matchId) {
     throw err;
   }
 
-  return runInTransaction(async ({ dbGet: txGet, dbRun: txRun }) => {
+  return runInTransaction(async (tx) => {
+    const { dbGet: txGet, dbRun: txRun } = tx;
+
     const match = await txGet(`SELECT * FROM ng_matches WHERE id = ? AND is_sandbox = 0`, [matchId]);
     if (!match) {
       const err = new Error('Match not found');
@@ -284,7 +285,7 @@ async function leaveMatchmaking(userId, matchId) {
       [matchId]
     );
     if (!remainingHumans || remainingHumans.cnt === 0) {
-      await refundAndCancelMatchTx({ txGet, txAll: async (s, p) => dbAll(s, p), txRun }, matchId, 'All players left queue');
+      await refundAndCancelMatchTx(tx, matchId, 'All players left queue');
     }
 
     return { refunded: part.entry_paid };
@@ -292,9 +293,41 @@ async function leaveMatchmaking(userId, matchId) {
 }
 
 // =========================================================================
-// Lock Room -> Generate Secret -> Schedule Bots -> Transition to STARTING/ACTIVE
+// Admin Manual Start Button (Uses secure server RNG for production matches)
 // =========================================================================
-async function transitionToStartingTx({ txRun, txGet }, matchId, cfg, now = new Date()) {
+async function adminStartMatch(matchId) {
+  const cfg = await getConfigMap();
+  return runInTransaction(async (tx) => {
+    const match = await tx.dbGet(`SELECT * FROM ng_matches WHERE id = ? AND is_sandbox = 0`, [matchId]);
+    if (!match) {
+      const err = new Error('Match not found');
+      err.status = 404;
+      throw err;
+    }
+    if (!['WAITING', 'FILLING_BOTS'].includes(match.status)) {
+      const err = new Error(`Match cannot be started from status ${match.status}`);
+      err.status = 400;
+      throw err;
+    }
+    const cntRow = await tx.dbGet(`SELECT COUNT(*) AS cnt FROM ng_match_participants WHERE match_id = ?`, [matchId]);
+    const count = cntRow?.cnt || 0;
+    if (count < match.min_players) {
+      const err = new Error(`Need at least ${match.min_players} participants to start (currently ${count}).`);
+      err.status = 400;
+      throw err;
+    }
+
+    await transitionToStartingTx(tx, matchId, cfg, new Date());
+    return tx.dbGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
+  });
+}
+
+// =========================================================================
+// Lock Room -> Generate Server Secret -> Transition to STARTING/ACTIVE
+// =========================================================================
+async function transitionToStartingTx(tx, matchId, cfg, now = new Date()) {
+  const { dbGet: txGet, dbRun: txRun } = tx;
+
   const match = await txGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
   if (!match || !['WAITING', 'FILLING_BOTS'].includes(match.status)) return;
 
@@ -354,6 +387,24 @@ async function transitionToStartingTx({ txRun, txGet }, matchId, cfg, now = new 
       matchId,
     ]
   );
+
+  // If countdownSec === 0, schedule bots immediately
+  if (countdownSec === 0) {
+    const bots = await tx.dbAll(
+      `SELECT id FROM ng_match_participants WHERE match_id = ? AND participant_type = 'BOT' AND guess IS NULL`,
+      [matchId]
+    );
+    const minDelay = Math.max(1, Number(cfg.bot_submit_delay_min_sec || 3));
+    const maxDelay = Math.max(minDelay, Math.min(roundSec - 2, Number(cfg.bot_submit_delay_max_sec || 15)));
+    for (const b of bots) {
+      const delaySec = crypto.randomInt(minDelay, maxDelay + 1);
+      const submitAtIso = new Date(now.getTime() + delaySec * 1000).toISOString();
+      await txRun(`UPDATE ng_match_participants SET scheduled_bot_submit_at = ? WHERE id = ?`, [
+        submitAtIso,
+        b.id,
+      ]);
+    }
+  }
 }
 
 // =========================================================================
@@ -432,7 +483,9 @@ async function submitGuess(userId, matchId, rawGuess) {
 async function settleMatch(matchId) {
   const cfg = await getConfigMap();
 
-  return runInTransaction(async ({ dbGet: txGet, dbAll: txAll, dbRun: txRun }) => {
+  return runInTransaction(async (tx) => {
+    const { dbGet: txGet, dbAll: txAll, dbRun: txRun } = tx;
+
     const match = await txGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
     if (!match || match.status !== 'ACTIVE') return null;
 
@@ -443,9 +496,8 @@ async function settleMatch(matchId) {
 
     const submitted = participants.filter((p) => p.guess !== null);
 
-    // If nobody submitted a guess, refund if configured
     if (submitted.length === 0 && cfg.refund_on_no_guesses !== false) {
-      await refundAndCancelMatchTx({ txGet, txAll, txRun }, matchId, 'No guesses submitted before timer expired');
+      await refundAndCancelMatchTx(tx, matchId, 'No guesses submitted before timer expired');
       return { status: 'REFUNDED' };
     }
 
@@ -473,12 +525,10 @@ async function settleMatch(matchId) {
       }
     }
 
-    // Split winner reward equally
     const winnerCount = winners.length;
     const baseShare = winnerCount > 0 ? Math.floor(match.prize_pool_coins / winnerCount) : 0;
     let remainder = winnerCount > 0 ? match.prize_pool_coins % winnerCount : 0;
 
-    // Sort tied winners deterministically by earliest submission timestamp
     winners.sort((a, b) => String(a.guess_submitted_at || '').localeCompare(String(b.guess_submitted_at || '')));
     const winnerPayoutMap = new Map();
     for (const w of winners) {
@@ -554,7 +604,6 @@ async function settleMatch(matchId) {
       }
     }
 
-    // Record platform fee ledger entry
     if (match.platform_fee_coins > 0) {
       await txRun(
         `INSERT OR IGNORE INTO ng_ledger (
@@ -589,7 +638,9 @@ async function settleMatch(matchId) {
 // =========================================================================
 // Atomic Cancel & Refund Helper
 // =========================================================================
-async function refundAndCancelMatchTx({ txGet, txAll, txRun }, matchId, reason = 'Cancelled') {
+async function refundAndCancelMatchTx(tx, matchId, reason = 'Cancelled') {
+  const { dbGet: txGet, dbAll: txAll, dbRun: txRun } = tx;
+
   const match = await txGet(`SELECT * FROM ng_matches WHERE id = ?`, [matchId]);
   if (!match || ['COMPLETED', 'REFUNDED'].includes(match.status)) return null;
 
@@ -657,6 +708,7 @@ async function processTick() {
 
   try {
     const cfg = await getConfigMap();
+    const isManualStart = cfg.match_start_mode === 'MANUAL';
     const now = new Date();
     const nowMs = now.getTime();
     const nowIso = now.toISOString();
@@ -671,8 +723,8 @@ async function processTick() {
       const totalCount = participants.length;
       const botCount = participants.filter((p) => p.participant_type === 'BOT').length;
 
-      // Room full -> lock immediately
-      if (totalCount >= m.max_players) {
+      // Room full -> lock immediately in AUTO mode
+      if (!isManualStart && totalCount >= m.max_players) {
         await runInTransaction((tx) => transitionToStartingTx(tx, m.id, cfg, now));
         continue;
       }
@@ -682,7 +734,9 @@ async function processTick() {
       // Search timeout reached
       if (nowMs >= searchDeadlineMs) {
         if (totalCount >= m.min_players) {
-          await runInTransaction((tx) => transitionToStartingTx(tx, m.id, cfg, now));
+          if (!isManualStart) {
+            await runInTransaction((tx) => transitionToStartingTx(tx, m.id, cfg, now));
+          }
         } else {
           await cancelAndRefundMatch(m.id, 'Matchmaking timed out with insufficient players');
         }
@@ -732,7 +786,11 @@ async function processTick() {
                 [nextBotIso, m.id]
               );
             });
-          } else if (totalCount >= m.min_players && botCount >= maxBotsMatch) {
+          } else if (
+            !isManualStart &&
+            totalCount >= m.min_players &&
+            (totalCount >= targetTotal || botCount >= maxBotsMatch)
+          ) {
             await runInTransaction((tx) => transitionToStartingTx(tx, m.id, cfg, now));
           }
         }
@@ -752,7 +810,6 @@ async function processTick() {
             [nowIso, roundDeadlineIso, m.id]
           );
 
-          // Schedule bot guess submissions
           const bots = await txAll(
             `SELECT id FROM ng_match_participants WHERE match_id = ? AND participant_type = 'BOT' AND guess IS NULL`,
             [m.id]
@@ -775,7 +832,6 @@ async function processTick() {
     // 3. Process ACTIVE matches (Bot submissions + Round timeout + All-submitted early finish)
     const activeMatches = await dbAll(`SELECT * FROM ng_matches WHERE status = 'ACTIVE'`);
     for (const m of activeMatches) {
-      // Submit due bot guesses
       const dueBots = await dbAll(
         `SELECT p.id, b.strategy
          FROM ng_match_participants p
@@ -831,6 +887,7 @@ module.exports = {
   startEngine,
   joinMatchmaking,
   leaveMatchmaking,
+  adminStartMatch,
   submitGuess,
   settleMatch,
   cancelAndRefundMatch,
