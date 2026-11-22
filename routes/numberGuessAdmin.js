@@ -272,13 +272,22 @@ router.get('/matches/:matchId', async (req, res) => {
   }
 });
 
+// START MATCH: Accepts optional custom secret number { secretNumber: 1..100 }
 router.post('/matches/:matchId/start', async (req, res) => {
   try {
-    const match = await engine.adminStartMatch(req.params.matchId);
-    await logNgAdminAction(req.admin, 'MANUAL_START_MATCH', 'MATCH', req.params.matchId, {
+    const { secretNumber } = req.body || {};
+    const match = await engine.adminStartMatch(req.params.matchId, secretNumber);
+
+    const logDetails = {
       roomCode: match.room_code,
       status: match.status,
-    });
+      manualSecretUsed: secretNumber !== null && secretNumber !== undefined && secretNumber !== '',
+    };
+    if (logDetails.manualSecretUsed) {
+      logDetails.specifiedSecret = Number(secretNumber);
+    }
+
+    await logNgAdminAction(req.admin, 'MANUAL_START_MATCH', 'MATCH', req.params.matchId, logDetails);
     res.json({ success: true, match });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message || 'Failed to start match' });
