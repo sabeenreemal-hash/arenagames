@@ -10,9 +10,9 @@ const { getActiveGames, getActiveGameById } = require('../html5');
 const NORMAL_RATE_PER_MIN = 3;
 const BOOSTER_RATE_PER_MIN = 4;
 
-const CLAIM_INTERVAL_SEC = 10 * 60;      // 10 minutes = 600s
-const MAX_PLAY_SEC = 50 * 60;            // 50 minutes = 3000s
-const REST_DURATION_MS = 10 * 60 * 1000; // 10 minutes rest
+const CLAIM_INTERVAL_SEC = 2 * 60;       // 2 minutes = 120s
+const MAX_PLAY_SEC = 20 * 60;            // 20 minutes = 1200s
+const REST_DURATION_MS = 60 * 60 * 1000; // 60 minutes rest
 
 const BOOSTER_ADS_REQUIRED = 3;
 const BOOSTER_DURATION_MS = 10 * 60 * 1000;      // 10 minutes
@@ -128,7 +128,7 @@ async function getOrCreateUserState(userId, nowMs) {
     state = await dbGet('SELECT * FROM html5_user_state WHERE user_id = ?', [userId]);
   }
 
-  // If mandatory 10-minute rest period has finished, reset the 50-min play cycle
+  // If mandatory 60-minute rest period has finished, reset the 20-min play cycle
   if (state.rest_until_ms > 0 && nowMs >= state.rest_until_ms) {
     await dbRun(
       `UPDATE html5_user_state
@@ -138,6 +138,16 @@ async function getOrCreateUserState(userId, nowMs) {
     );
     state.cycle_play_seconds = 0;
     state.rest_until_ms = 0;
+  } else if (state.cycle_play_seconds >= MAX_PLAY_SEC && state.rest_until_ms === 0) {
+    // Handles existing users whose cycle_play_seconds exceeded the new 20-min limit
+    const restUntil = nowMs + REST_DURATION_MS;
+    await dbRun(
+      `UPDATE html5_user_state
+       SET rest_until_ms = ?, updated_at_ms = ?
+       WHERE user_id = ?`,
+      [restUntil, nowMs, userId]
+    );
+    state.rest_until_ms = restUntil;
   }
 
   return state;
@@ -261,14 +271,14 @@ exports.startSession = async (req, res) => {
     const result = await withUserLock(userId, async () => {
       const state = await getOrCreateUserState(userId, nowMs);
 
-      // Block starting a new earning session while mandatory 10-minute rest is active
+      // Block starting a new earning session while mandatory 60-minute rest is active
       if (state.rest_until_ms > 0 && nowMs < state.rest_until_ms) {
         return {
           blocked: true,
           status: 403,
           payload: {
             success: false,
-            error: 'Mandatory 10-minute rest break in progress.',
+            error: 'Mandatory 60-minute rest break in progress.',
             state: serializeState(state, nowMs),
           },
         };
@@ -420,7 +430,7 @@ exports.heartbeat = async (req, res) => {
       const newClaimCycleSeconds = state.claim_cycle_seconds + creditSeconds;
       const newUnclaimedUnits = state.unclaimed_units + addedUnits;
 
-      // Trigger mandatory 10-minute rest if 50-minute cap is reached
+      // Trigger mandatory 60-minute rest if 20-minute cap is reached
       let newRestUntilMs = state.rest_until_ms;
       if (newCyclePlaySeconds >= MAX_PLAY_SEC && newRestUntilMs === 0) {
         newRestUntilMs = nowMs + REST_DURATION_MS;
@@ -495,7 +505,7 @@ exports.claimCoins = async (req, res) => {
           status: 400,
           payload: {
             success: false,
-            error: 'Coins are only claimable after completing 10 minutes of active gameplay.',
+            error: 'Coins are only claimable after completing 2 minutes of active gameplay.',
             state: serializeState(state, nowMs),
           },
         };
@@ -542,7 +552,6 @@ exports.claimCoins = async (req, res) => {
 
       await dbRun('BEGIN TRANSACTION');
       try {
-        // 1. Reset claim cycle & deduct claimed units
         await dbRun(
           `UPDATE html5_user_state
            SET claim_cycle_seconds = 0, unclaimed_units = ?, updated_at_ms = ?
@@ -550,7 +559,6 @@ exports.claimCoins = async (req, res) => {
           [remainderUnits, nowMs, userId]
         );
 
-        // 2. Credit user wallet & daily streak
         await dbRun(
           `UPDATE users SET
             balance = balance + ?,
@@ -575,14 +583,12 @@ exports.claimCoins = async (req, res) => {
           ]
         );
 
-        // 3. Record wallet transaction
         await dbRun(
           `INSERT INTO transactions (user_id, type, amount, reference_id)
            VALUES (?, 'GAME_REWARD', ?, ?)`,
           [userId, unclaimedCoins, claimRef]
         );
 
-        // 4. 10% Referral commission
         if (user.referred_by_id) {
           const commission = Math.floor(unclaimedCoins * 0.1);
           if (commission > 0) {
@@ -608,7 +614,6 @@ exports.claimCoins = async (req, res) => {
         throw txErr;
       }
 
-      // Refresh session & state for response
       state.claim_cycle_seconds = 0;
       state.unclaimed_units = remainderUnits;
 
