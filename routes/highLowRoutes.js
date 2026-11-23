@@ -24,7 +24,6 @@ function generateFreshShuffledDeck() {
     }
   }
 
-  // Fisher-Yates with crypto.randomBytes
   for (let i = deck.length - 1; i > 0; i--) {
     const randomBuffer = crypto.randomBytes(4);
     const randomIndex = randomBuffer.readUInt32BE(0) % (i + 1);
@@ -43,26 +42,39 @@ function getRankValue(rank, aceRule = 'HIGHEST') {
   return parseInt(rank, 10);
 }
 
-// Helper: Fetch High Low System Configuration
+// Helper: Fetch High Low System Configuration always live
 function getHighLowConfig(callback) {
   db.get("SELECT value FROM app_config WHERE key = 'high_low_config'", (err, row) => {
+    const defaultConfig = {
+      entryCost: 500,
+      startingReward: 500,
+      multiplier: 2.0,
+      minWinsForClaim: 3,
+      aceRule: 'HIGHEST',
+      tieRule: 'LOSE',
+      isEnabled: true,
+      version: 1
+    };
+
     if (err || !row || !row.value) {
-      const defaultConfig = {
-        entryCost: 500,
-        startingReward: 500,
-        multiplier: 2.0,
-        minWinsForClaim: 3,
-        aceRule: 'HIGHEST', // 'HIGHEST' or 'LOWEST'
-        tieRule: 'LOSE',    // 'LOSE', 'PUSH', or 'WIN'
-        isEnabled: true,
-        version: 1
-      };
       return callback(null, defaultConfig);
     }
+
     try {
-      callback(null, JSON.parse(row.value));
+      const parsed = JSON.parse(row.value);
+      const cleanConfig = {
+        entryCost: parseInt(parsed.entryCost, 10) || 500,
+        startingReward: parseInt(parsed.startingReward ?? parsed.entryCost, 10) || 500,
+        multiplier: parseFloat(parsed.multiplier) || 2.0,
+        minWinsForClaim: parseInt(parsed.minWinsForClaim, 10) || 3,
+        aceRule: parsed.aceRule === 'LOWEST' ? 'LOWEST' : 'HIGHEST',
+        tieRule: ['WIN', 'PUSH', 'LOSE'].includes(parsed.tieRule) ? parsed.tieRule : 'LOSE',
+        isEnabled: parsed.isEnabled !== false,
+        version: parsed.version || 1
+      };
+      callback(null, cleanConfig);
     } catch (e) {
-      callback(e, null);
+      callback(null, defaultConfig);
     }
   });
 }
@@ -79,7 +91,6 @@ router.get('/status', authenticateToken, (req, res) => {
     db.get('SELECT balance FROM users WHERE id = ?', [userId], (uErr, user) => {
       if (uErr || !user) return res.status(404).json({ error: 'User not found' });
 
-      // Check for active unfinished session
       db.get(
         `SELECT * FROM high_low_games 
          WHERE user_id = ? AND status = 'ACTIVE' 
@@ -126,9 +137,9 @@ router.post('/start', authenticateToken, (req, res) => {
       return res.status(403).json({ error: 'High or Low is currently in maintenance mode' });
     }
 
-    const entryFee = config.entryCost || 500;
+    const entryFee = config.entryCost;
+    const startPrize = config.startingReward;
 
-    // Check user balance and active games
     db.get('SELECT balance, username FROM users WHERE id = ?', [userId], (uErr, user) => {
       if (uErr || !user) return res.status(404).json({ error: 'User profile not found' });
       if (user.balance < entryFee) {
@@ -137,18 +148,16 @@ router.post('/start', authenticateToken, (req, res) => {
         });
       }
 
-      // Check for existing active game
       db.get("SELECT id FROM high_low_games WHERE user_id = ? AND status = 'ACTIVE'", [userId], (gErr, existing) => {
         if (existing) {
           return res.status(400).json({
-            error: 'You already have an active game in progress. Please complete or forfeit it before starting a new one.',
+            error: 'You already have an active game in progress. Finish it or wait until resolved.',
             activeGameId: existing.id
           });
         }
 
-        // Generate and shuffle fresh 52-card deck
         const deck = generateFreshShuffledDeck();
-        const startingCard = deck.shift(); // Draw the first card
+        const startingCard = deck.shift();
         const gameSessionId = `HL_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
 
         db.serialize(() => {
@@ -164,7 +173,7 @@ router.post('/start', authenticateToken, (req, res) => {
             [userId, -entryFee, gameSessionId]
           );
 
-          // 3. Create High-Low game record
+          // 3. Create game session
           db.run(
             `INSERT INTO high_low_games (
               id, user_id, entry_cost, starting_card, current_card, 
@@ -177,17 +186,15 @@ router.post('/start', authenticateToken, (req, res) => {
               JSON.stringify(startingCard),
               JSON.stringify(startingCard),
               JSON.stringify(deck),
-              config.startingReward || 500,
+              startPrize,
               config.version || 1
             ],
             function (insErr) {
               if (insErr) {
                 db.run('ROLLBACK');
-                console.error('[HL START ERROR]', insErr);
                 return res.status(500).json({ error: 'Failed to initialize game run' });
               }
 
-              // Update user stats
               db.run(
                 `INSERT INTO high_low_user_stats (user_id, total_games, total_coins_spent)
                  VALUES (?, 1, ?)
@@ -203,8 +210,6 @@ router.post('/start', authenticateToken, (req, res) => {
                   return res.status(500).json({ error: 'Commit failed on game initialization' });
                 }
 
-                console.log(`[HL START] Game ${gameSessionId} initialized for User ${userId}. Starting Card: ${startingCard.display}`);
-
                 res.json({
                   success: true,
                   gameId: gameSessionId,
@@ -212,7 +217,7 @@ router.post('/start', authenticateToken, (req, res) => {
                   currentCard: startingCard,
                   cardsRemaining: deck.length,
                   consecutiveWins: 0,
-                  potentialReward: config.startingReward || 500,
+                  potentialReward: startPrize,
                   minWinsForClaim: config.minWinsForClaim
                 });
               });
@@ -229,7 +234,7 @@ router.post('/start', authenticateToken, (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/predict', authenticateToken, (req, res) => {
   const userId = req.user.id;
-  const { gameId, prediction } = req.body; // prediction: 'HIGHER' | 'LOWER'
+  const { gameId, prediction } = req.body;
 
   if (!gameId || !prediction || !['HIGHER', 'LOWER'].includes(prediction.toUpperCase())) {
     return res.status(400).json({ error: 'Valid gameId and prediction (HIGHER or LOWER) required' });
@@ -258,10 +263,10 @@ router.post('/predict', authenticateToken, (req, res) => {
         }
 
         if (remainingDeck.length === 0) {
-          return res.status(400).json({ error: 'No remaining cards in this 52-card deck' });
+          return res.status(400).json({ error: 'No remaining cards in this deck' });
         }
 
-        // Draw next card purely server-side
+        // Draw next card from the deck
         const revealedCard = remainingDeck.shift();
 
         const curVal = getRankValue(currentCard.rank, config.aceRule);
@@ -269,29 +274,32 @@ router.post('/predict', authenticateToken, (req, res) => {
 
         let isCorrect = false;
         let isTie = (curVal === revVal);
+        let comparisonReason = "";
 
         if (isTie) {
+          comparisonReason = `${revealedCard.display} equals ${currentCard.display} (Tie)`;
           if (config.tieRule === 'WIN') isCorrect = true;
-          else if (config.tieRule === 'PUSH') isCorrect = null; // Stays on same card
-          else isCorrect = false; // Default LOSE
-        } else if (chosenPrediction === 'HIGHER') {
-          isCorrect = revVal > curVal;
-        } else if (chosenPrediction === 'LOWER') {
-          isCorrect = revVal < curVal;
+          else if (config.tieRule === 'PUSH') isCorrect = null;
+          else isCorrect = false;
+        } else if (revVal > curVal) {
+          comparisonReason = `${revealedCard.display} is HIGHER than ${currentCard.display}`;
+          isCorrect = chosenPrediction === 'HIGHER';
+        } else {
+          comparisonReason = `${revealedCard.display} is LOWER than ${currentCard.display}`;
+          isCorrect = chosenPrediction === 'LOWER';
         }
 
         const currentStreak = game.consecutive_wins;
         const newStreak = isCorrect === true ? currentStreak + 1 : currentStreak;
-        const rewardMultiplier = config.multiplier || 2.0;
+        const multiplier = config.multiplier;
         const potentialRewardBefore = game.potential_reward;
         const potentialRewardAfter = isCorrect === true 
-          ? Math.floor(potentialRewardBefore * rewardMultiplier)
+          ? Math.floor(potentialRewardBefore * multiplier)
           : (isCorrect === null ? potentialRewardBefore : 0);
 
         db.serialize(() => {
           db.run('BEGIN TRANSACTION');
 
-          // Record action in high_low_predictions
           db.run(
             `INSERT INTO high_low_predictions (
               game_id, user_id, current_card, prediction, revealed_card, 
@@ -310,7 +318,6 @@ router.post('/predict', authenticateToken, (req, res) => {
           );
 
           if (isCorrect === true) {
-            // Player guessed correctly; game continues
             db.run(
               `UPDATE high_low_games 
                SET current_card = ?, remaining_deck = ?, consecutive_wins = ?, 
@@ -331,21 +338,21 @@ router.post('/predict', authenticateToken, (req, res) => {
                 return res.status(500).json({ error: 'Database update failed' });
               }
 
-              console.log(`[HL WIN] Game ${gameId}: ${revealedCard.display} (${chosenPrediction}) -> Won! Streak: ${newStreak}, Potential: ${potentialRewardAfter}`);
-
               return res.json({
                 success: true,
                 result: 'WIN',
-                revealedCard,
+                previousCard: currentCard,
+                revealedCard: revealedCard,
+                prediction: chosenPrediction,
+                comparisonReason,
                 consecutiveWins: newStreak,
                 potentialReward: potentialRewardAfter,
                 cardsRemaining: remainingDeck.length,
                 canClaim: newStreak >= config.minWinsForClaim,
-                message: `Correct prediction! Potential reward doubled to ${potentialRewardAfter} coins.`
+                message: `Correct! ${comparisonReason}`
               });
             });
           } else if (isCorrect === null) {
-            // Tie push
             db.run(
               `UPDATE high_low_games 
                SET remaining_deck = ?, updated_at = CURRENT_TIMESTAMP
@@ -357,16 +364,19 @@ router.post('/predict', authenticateToken, (req, res) => {
               return res.json({
                 success: true,
                 result: 'PUSH',
-                revealedCard,
+                previousCard: currentCard,
+                revealedCard: revealedCard,
+                prediction: chosenPrediction,
+                comparisonReason,
                 consecutiveWins: currentStreak,
                 potentialReward: potentialRewardBefore,
                 cardsRemaining: remainingDeck.length,
                 canClaim: currentStreak >= config.minWinsForClaim,
-                message: 'Tie! Card ranks were equal. Potential reward stays the same.'
+                message: `Tie Push! ${comparisonReason}`
               });
             });
           } else {
-            // Player lost: Run ends and potential reward is forfeited
+            // Player lost: Record loss and send back both previousCard and revealedCard
             db.run(
               `UPDATE high_low_games 
                SET current_card = ?, remaining_deck = ?, status = 'LOST', 
@@ -375,7 +385,6 @@ router.post('/predict', authenticateToken, (req, res) => {
               [JSON.stringify(revealedCard), JSON.stringify(remainingDeck), gameId]
             );
 
-            // Update user stats
             db.run(
               `UPDATE high_low_user_stats 
                SET total_losses = total_losses + 1,
@@ -391,18 +400,19 @@ router.post('/predict', authenticateToken, (req, res) => {
                 return res.status(500).json({ error: 'Database update failed on loss' });
               }
 
-              console.log(`[HL LOSS] Game ${gameId}: ${revealedCard.display} (${chosenPrediction}) -> Lost ${potentialRewardBefore} coins.`);
-
               return res.json({
                 success: true,
                 result: 'LOSS',
-                revealedCard,
+                previousCard: currentCard,
+                revealedCard: revealedCard,
+                prediction: chosenPrediction,
+                comparisonReason,
                 consecutiveWins: currentStreak,
                 lostReward: potentialRewardBefore,
                 potentialReward: 0,
                 cardsRemaining: remainingDeck.length,
                 canClaim: false,
-                message: `Incorrect prediction. You lost the potential reward of ${potentialRewardBefore} coins.`
+                message: `You Predicted ${chosenPrediction}. ${comparisonReason}`
               });
             });
           }
@@ -434,7 +444,7 @@ router.post('/claim', authenticateToken, (req, res) => {
           return res.status(400).json({ error: 'No active session eligible for claim' });
         }
 
-        const minWins = config.minWinsForClaim || 3;
+        const minWins = config.minWinsForClaim;
         if (game.consecutive_wins < minWins) {
           return res.status(400).json({
             error: `Minimum ${minWins} consecutive wins required to claim. Current wins: ${game.consecutive_wins}`
@@ -442,14 +452,10 @@ router.post('/claim', authenticateToken, (req, res) => {
         }
 
         const rewardCoins = game.potential_reward;
-        if (rewardCoins <= 0) {
-          return res.status(400).json({ error: 'No potential reward to claim' });
-        }
 
         db.serialize(() => {
           db.run('BEGIN TRANSACTION');
 
-          // 1. Mark game completed
           db.run(
             `UPDATE high_low_games 
              SET status = 'CLAIMED', claimed_reward = ?, completed_at = CURRENT_TIMESTAMP 
@@ -457,7 +463,6 @@ router.post('/claim', authenticateToken, (req, res) => {
             [rewardCoins, gameId]
           );
 
-          // 2. Credit coins to player wallet
           db.run(
             `UPDATE users 
              SET balance = balance + ?, 
@@ -466,14 +471,12 @@ router.post('/claim', authenticateToken, (req, res) => {
             [rewardCoins, rewardCoins, userId]
           );
 
-          // 3. Insert transaction record
           db.run(
             `INSERT INTO transactions (user_id, type, amount, reference_id) 
              VALUES (?, 'HIGH_LOW_CLAIM', ?, ?)`,
             [userId, rewardCoins, gameId]
           );
 
-          // 4. Update user statistics
           db.run(
             `UPDATE high_low_user_stats 
              SET total_wins = total_wins + 1,
@@ -489,8 +492,6 @@ router.post('/claim', authenticateToken, (req, res) => {
               db.run('ROLLBACK');
               return res.status(500).json({ error: 'Failed to credit claimed coins' });
             }
-
-            console.log(`[HL CLAIMED] User ${userId} successfully claimed +${rewardCoins} coins from Game ${gameId}!`);
 
             res.json({
               success: true,
@@ -522,12 +523,9 @@ router.get('/my-history', authenticateToken, (req, res) => {
       g.claimed_reward,
       g.status,
       g.started_at,
-      g.completed_at,
-      COUNT(p.id) as total_predictions
+      g.completed_at
     FROM high_low_games g
-    LEFT JOIN high_low_predictions p ON g.id = p.game_id
     WHERE g.user_id = ?
-    GROUP BY g.id
     ORDER BY g.started_at DESC
     LIMIT 50
   `;
@@ -535,31 +533,6 @@ router.get('/my-history', authenticateToken, (req, res) => {
   db.all(sql, [userId], (err, rows) => {
     if (err) return res.status(500).json({ error: 'Failed to retrieve match history' });
     res.json({ history: rows || [] });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 6. DETAILED GAME RUN INSPECTION (GET /api/high-low/game/:gameId)
-// ---------------------------------------------------------------------------
-router.get('/game/:gameId', authenticateToken, (req, res) => {
-  const userId = req.user.id;
-  const gameId = req.params.gameId;
-
-  db.get('SELECT * FROM high_low_games WHERE id = ? AND user_id = ?', [gameId, userId], (gErr, game) => {
-    if (gErr || !game) return res.status(404).json({ error: 'Match record not found' });
-
-    db.all(
-      'SELECT * FROM high_low_predictions WHERE game_id = ? ORDER BY id ASC',
-      [gameId],
-      (pErr, predictions) => {
-        if (pErr) return res.status(500).json({ error: 'Failed to retrieve moves' });
-
-        res.json({
-          game,
-          predictions: predictions || []
-        });
-      }
-    );
   });
 });
 
