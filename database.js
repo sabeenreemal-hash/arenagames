@@ -272,6 +272,19 @@ db.serialize(() => {
   ]);
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('payment_methods', ?)`, [defaultGateways], () => {});
 
+  // Default High or Low Engine Configuration
+  const defaultHighLowConfig = JSON.stringify({
+    entryCost: 500,
+    startingReward: 500,
+    multiplier: 2.0,
+    minWinsForClaim: 3,
+    aceRule: 'HIGHEST', // 'HIGHEST' or 'LOWEST'
+    tieRule: 'LOSE',    // 'LOSE', 'PUSH', or 'WIN'
+    isEnabled: true,
+    version: 1
+  });
+  db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('high_low_config', ?)`, [defaultHighLowConfig], () => {});
+
   // ==========================================
   // 7. Admins & Logs
   // ==========================================
@@ -412,8 +425,6 @@ db.serialize(() => {
   // ==========================================
   // 9. ARENA POT LOTTERY SYSTEM TABLES
   // ==========================================
-
-  // Arena Pot Lotteries
   db.run(`
     CREATE TABLE IF NOT EXISTS arena_pot_lotteries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -436,7 +447,6 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Arena Pot Tickets
   db.run(`
     CREATE TABLE IF NOT EXISTS arena_pot_tickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -451,7 +461,6 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Arena Pot Prizes
   db.run(`
     CREATE TABLE IF NOT EXISTS arena_pot_prizes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -465,7 +474,6 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Arena Pot Winners
   db.run(`
     CREATE TABLE IF NOT EXISTS arena_pot_winners (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -485,19 +493,89 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Arena Pot Indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_arena_pot_lotteries_status ON arena_pot_lotteries(status);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_arena_pot_tickets_lottery_user ON arena_pot_tickets(lottery_id, user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_arena_pot_tickets_user ON arena_pot_tickets(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_arena_pot_winners_lottery ON arena_pot_winners(lottery_id);`, () => {});
 
-  // Safe Standard Game Initializers
+  // ==========================================
+  // 10. HIGH OR LOW CARD GAME TABLES
+  // ==========================================
+  db.run(`
+    CREATE TABLE IF NOT EXISTS high_low_games (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      entry_cost INTEGER NOT NULL DEFAULT 500,
+      starting_card TEXT NOT NULL,
+      current_card TEXT NOT NULL,
+      remaining_deck TEXT NOT NULL,
+      consecutive_wins INTEGER DEFAULT 0,
+      potential_reward INTEGER DEFAULT 500,
+      claimed_reward INTEGER DEFAULT 0,
+      status TEXT CHECK(status IN ('ACTIVE', 'CLAIMED', 'LOST', 'CANCELLED')) DEFAULT 'ACTIVE',
+      config_version INTEGER DEFAULT 1,
+      started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, () => {});
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS high_low_predictions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      current_card TEXT NOT NULL,
+      prediction TEXT CHECK(prediction IN ('HIGHER', 'LOWER')) NOT NULL,
+      revealed_card TEXT NOT NULL,
+      result TEXT CHECK(result IN ('WIN', 'LOSS', 'PUSH')) NOT NULL,
+      reward_before INTEGER NOT NULL,
+      reward_after INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(game_id) REFERENCES high_low_games(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, () => {});
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS high_low_user_stats (
+      user_id INTEGER PRIMARY KEY,
+      total_games INTEGER DEFAULT 0,
+      total_wins INTEGER DEFAULT 0,
+      total_losses INTEGER DEFAULT 0,
+      total_coins_spent INTEGER DEFAULT 0,
+      total_coins_rewarded INTEGER DEFAULT 0,
+      highest_streak INTEGER DEFAULT 0,
+      highest_reward_claimed INTEGER DEFAULT 0,
+      total_potential_lost INTEGER DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, () => {});
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS high_low_target_users (
+      user_id INTEGER PRIMARY KEY,
+      reason TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, () => {});
+
+  db.run(`CREATE INDEX IF NOT EXISTS idx_hl_games_user_status ON high_low_games(user_id, status);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_hl_pred_game ON high_low_predictions(game_id);`, () => {});
+
+  // ==========================================
+  // 11. Safe Standard Game Initializers
+  // ==========================================
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('mines', 'Mines Puzzle', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('color_tap', 'Color Tap Challenge', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memory_match', 'Memory Match', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memoryMatch', 'Memory Match', 5000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('high_low', 'High or Low', 500000, 1.0, 1)`, () => {});
 
   // Safe General Performance Indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`, () => {});
