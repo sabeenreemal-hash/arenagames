@@ -2,16 +2,13 @@
 
 const express = require('express');
 const router = express.Router();
-const crypto = require('crypto');
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
 
-// Middleware: Admin Authorization Check
 function requireAdmin(req, res, next) {
   const userId = req.user.id;
   db.get('SELECT id, username FROM admins WHERE id = ?', [userId], (err, admin) => {
     if (err || !admin) {
-      // Fallback check against users table if admin was granted in users
       db.get('SELECT id, is_banned FROM users WHERE id = ?', [userId], (uErr, user) => {
         if (uErr || !user) return res.status(403).json({ error: 'Forbidden: Admin access required' });
         next();
@@ -24,20 +21,9 @@ function requireAdmin(req, res, next) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. ADMIN DASHBOARD SUMMARY (GET /api/admin/high-low/dashboard)
+// 1. DASHBOARD SUMMARY
 // ---------------------------------------------------------------------------
 router.get('/dashboard', authenticateToken, requireAdmin, (req, res) => {
-  const { timeframe } = req.query; // 'today', '7days', '30days', 'all'
-
-  let dateFilter = "";
-  if (timeframe === 'today') {
-    dateFilter = "WHERE started_at >= date('now')";
-  } else if (timeframe === '7days') {
-    dateFilter = "WHERE started_at >= date('now', '-7 days')";
-  } else if (timeframe === '30days') {
-    dateFilter = "WHERE started_at >= date('now', '-30 days')";
-  }
-
   const query = `
     SELECT 
       COUNT(*) AS total_games,
@@ -50,13 +36,11 @@ router.get('/dashboard', authenticateToken, requireAdmin, (req, res) => {
       AVG(consecutive_wins) AS avg_consecutive_wins,
       MAX(claimed_reward) AS highest_reward_claimed
     FROM high_low_games
-    ${dateFilter}
   `;
 
   db.get(query, (err, stats) => {
     if (err) return res.status(500).json({ error: 'Failed to aggregate dashboard analytics' });
 
-    // Recent 10 games
     db.all(
       `SELECT g.*, u.username 
        FROM high_low_games g 
@@ -73,7 +57,7 @@ router.get('/dashboard', authenticateToken, requireAdmin, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. LIVE ACTIVE GAMES MONITORING (GET /api/admin/high-low/live)
+// 2. LIVE ACTIVE GAMES
 // ---------------------------------------------------------------------------
 router.get('/live', authenticateToken, requireAdmin, (req, res) => {
   const sql = `
@@ -93,7 +77,7 @@ router.get('/live', authenticateToken, requireAdmin, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. TARGET USER MONITORING (GET & POST)
+// 3. TARGET USER MONITORING
 // ---------------------------------------------------------------------------
 router.get('/target-users', authenticateToken, requireAdmin, (req, res) => {
   const sql = `
@@ -133,11 +117,10 @@ router.post('/target-users/remove', authenticateToken, requireAdmin, (req, res) 
 });
 
 // ---------------------------------------------------------------------------
-// 4. GAME CONFIGURATION (GET & POST)
+// 4. GAME CONFIGURATION (FIXED SYNC)
 // ---------------------------------------------------------------------------
 router.get('/config', authenticateToken, requireAdmin, (req, res) => {
   db.get("SELECT value FROM app_config WHERE key = 'high_low_config'", (err, row) => {
-    if (err) return res.status(500).json({ error: 'Config fetch failed' });
     let config = {
       entryCost: 500,
       startingReward: 500,
@@ -149,7 +132,10 @@ router.get('/config', authenticateToken, requireAdmin, (req, res) => {
       version: 1
     };
     if (row && row.value) {
-      try { config = JSON.parse(row.value); } catch (_) {}
+      try {
+        const parsed = JSON.parse(row.value);
+        config = { ...config, ...parsed };
+      } catch (_) {}
     }
     res.json({ config });
   });
@@ -157,34 +143,51 @@ router.get('/config', authenticateToken, requireAdmin, (req, res) => {
 
 router.post('/config', authenticateToken, requireAdmin, (req, res) => {
   const incoming = req.body;
+
   db.get("SELECT value FROM app_config WHERE key = 'high_low_config'", (err, row) => {
-    let oldConfig = {};
+    let current = {};
     if (row && row.value) {
-      try { oldConfig = JSON.parse(row.value); } catch (_) {}
+      try { current = JSON.parse(row.value); } catch (_) {}
     }
+
+    const entryFee = parseInt(incoming.entryCost ?? current.entryCost ?? 500, 10);
+    const startReward = parseInt(incoming.startingReward ?? current.startingReward ?? entryFee, 10);
+    const mult = parseFloat(incoming.multiplier ?? current.multiplier ?? 2.0);
+    const minWins = parseInt(incoming.minWinsForClaim ?? current.minWinsForClaim ?? 3, 10);
+    const ace = incoming.aceRule === 'LOWEST' ? 'LOWEST' : 'HIGHEST';
+    const tie = ['WIN', 'PUSH', 'LOSE'].includes(incoming.tieRule) ? incoming.tieRule : 'LOSE';
+    const isEnabled = incoming.isEnabled !== false;
+
     const updated = {
-      ...oldConfig,
-      ...incoming,
-      version: (oldConfig.version || 1) + 1,
+      entryCost: entryFee,
+      startingReward: startReward,
+      multiplier: mult,
+      minWinsForClaim: minWins,
+      aceRule: ace,
+      tieRule: tie,
+      isEnabled: isEnabled,
+      version: (current.version || 1) + 1,
       updated_at: new Date().toISOString()
     };
 
     db.run(
-      `INSERT OR REPLACE INTO app_config (key, value) VALUES ('high_low_config', ?)`,
+      `INSERT INTO app_config (key, value) VALUES ('high_low_config', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [JSON.stringify(updated)],
       (saveErr) => {
-        if (saveErr) return res.status(500).json({ error: 'Config save failed' });
-        res.json({ success: true, config: updated, message: 'High or Low configuration updated' });
+        if (saveErr) return res.status(500).json({ error: 'Config save failed: ' + saveErr.message });
+        console.log(`[HL CONFIG SYNCED]`, updated);
+        res.json({ success: true, config: updated, message: 'Configuration synchronized successfully' });
       }
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// 5. CANCEL AND REFUND GAME (POST /api/admin/high-low/game/cancel)
+// 5. CANCEL AND REFUND GAME
 // ---------------------------------------------------------------------------
 router.post('/game/cancel', authenticateToken, requireAdmin, (req, res) => {
-  const { gameId, reason } = req.body;
+  const { gameId } = req.body;
   if (!gameId) return res.status(400).json({ error: 'gameId required' });
 
   db.get(`SELECT * FROM high_low_games WHERE id = ? AND status = 'ACTIVE'`, [gameId], (err, game) => {
@@ -194,10 +197,7 @@ router.post('/game/cancel', authenticateToken, requireAdmin, (req, res) => {
       db.run('BEGIN TRANSACTION');
 
       db.run(`UPDATE high_low_games SET status = 'CANCELLED', completed_at = CURRENT_TIMESTAMP WHERE id = ?`, [gameId]);
-      
-      // Refund entry fee
       db.run(`UPDATE users SET balance = balance + ? WHERE id = ?`, [game.entry_cost, game.user_id]);
-      
       db.run(
         `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'HIGH_LOW_REFUND', ?, ?)`,
         [game.user_id, game.entry_cost, `REFUND_${gameId}`]
@@ -208,14 +208,14 @@ router.post('/game/cancel', authenticateToken, requireAdmin, (req, res) => {
           db.run('ROLLBACK');
           return res.status(500).json({ error: 'Refund cancellation failed' });
         }
-        res.json({ success: true, message: `Game ${gameId} cancelled and ${game.entry_cost} coins refunded to User ${game.user_id}` });
+        res.json({ success: true, message: `Game ${gameId} cancelled and ${game.entry_cost} coins refunded.` });
       });
     });
   });
 });
 
 // ---------------------------------------------------------------------------
-// 6. ISOLATED SANDBOX TESTING (POST /api/admin/high-low/sandbox/simulate)
+// 6. ISOLATED SANDBOX TESTING
 // ---------------------------------------------------------------------------
 router.post('/sandbox/simulate', authenticateToken, requireAdmin, (req, res) => {
   const { currentRank, revealedRank, prediction, aceRule = 'HIGHEST', tieRule = 'LOSE' } = req.body;
@@ -247,8 +247,7 @@ router.post('/sandbox/simulate', authenticateToken, requireAdmin, (req, res) => 
     prediction,
     cVal,
     rVal,
-    outcome: result,
-    note: 'SANDBOX ONLY. Never written to production user balances.'
+    outcome: result
   });
 });
 
