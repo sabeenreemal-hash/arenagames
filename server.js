@@ -18,7 +18,7 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Serve static assets from public/ (e.g. admin.html, arena.html)
+// Serve static assets from public/ (e.g. admin.html, arena.html, spin-wheel)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Serve uploaded screenshots publicly for verification
@@ -80,6 +80,11 @@ app.get('/arena', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'arena.html'));
 });
 
+// Direct entry point for Spin & Win Admin & Demo Panel (Section 10 & 23 PRD)
+app.get('/spin-wheel', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'spin-wheel', 'index.html'));
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ONLINE',
@@ -111,5 +116,7 @@ app.listen(PORT, () => {
   console.log(`🚀 Arena Games Server running on port ${PORT}`);
   console.log(`🏆 Weekly Leaderboard Scheduler Active`);
   console.log(`🎰 Arena Pot System Active at /api/arena-pot`);
+  console.log(`🎡 Spin & Win System Active at /api/spin`);
+  console.log(`🎯 Spin & Win Web Portal available at /spin-wheel`);
   console.log(`=========================================`);
 });
