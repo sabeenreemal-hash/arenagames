@@ -2,33 +2,32 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Arena Games – Spin Wheel Admin & Demo Panel</title>
+  <title>Arena Games – Spin Wheel Admin & Target Engine</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen">
   <div class="max-w-7xl mx-auto p-6">
-    <!-- Header -->
     <header class="flex justify-between items-center pb-6 border-b border-slate-700">
       <div>
-        <h1 class="text-2xl font-black text-amber-400">🎰 ARENA GAMES — SPIN WHEEL PORTAL</h1>
-        <p class="text-xs text-slate-400">Production Odds Engine & 100,000 Coin Sandbox Simulator</p>
+        <h1 class="text-2xl font-black text-amber-400">🎰 ARENA GAMES — SPIN WHEEL CONTROL</h1>
+        <p class="text-xs text-slate-400">Prizes Engine, Odds Settings & User Target Controls</p>
       </div>
-      <div class="flex gap-3">
-        <button onclick="switchTab('dashboard')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm">Dashboard</button>
-        <button onclick="switchTab('prizes')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm">Prize Odds</button>
-        <button onclick="switchTab('demo')" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black font-bold rounded-lg text-sm">Play Demo (100k)</button>
+      <div class="flex gap-2">
+        <button onclick="switchTab('dashboard')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-semibold">Dashboard</button>
+        <button onclick="switchTab('targets')" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold">🎯 Target Users</button>
+        <button onclick="switchTab('prizes')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-semibold">Prize Odds</button>
       </div>
     </header>
 
     <!-- TAB 1: DASHBOARD -->
     <section id="tab-dashboard" class="mt-8">
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
           <p class="text-xs text-slate-400">Total Spins</p>
           <h3 id="stat-spins" class="text-2xl font-bold mt-1 text-white">0</h3>
         </div>
         <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
-          <p class="text-xs text-slate-400">Coins Collected (-500 each)</p>
+          <p class="text-xs text-slate-400">Coins Collected (-500/spin)</p>
           <h3 id="stat-spent" class="text-2xl font-bold mt-1 text-emerald-400">0</h3>
         </div>
         <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
@@ -42,67 +41,86 @@
       </div>
     </section>
 
-    <!-- TAB 2: PROBABILITY & PRIZE SETTINGS -->
-    <section id="tab-prizes" class="mt-8 hidden">
-      <div class="bg-slate-800 p-6 rounded-xl border border-slate-700">
-        <div class="flex justify-between items-center mb-4">
-          <h2 class="text-lg font-bold">Prize Probability Configuration</h2>
-          <span id="prob-badge" class="px-3 py-1 bg-emerald-950 text-emerald-400 text-xs font-mono rounded-full border border-emerald-500">
-            Total Enabled: 100%
-          </span>
-        </div>
-        <table class="w-full text-left text-sm">
-          <thead>
-            <tr class="text-slate-400 border-b border-slate-700">
-              <th class="py-2">Prize Label</th>
-              <th>Coin Reward</th>
-              <th>Probability (%)</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="prizes-table-body"></tbody>
-        </table>
-        <div class="mt-6 flex justify-end">
-          <button onclick="saveProbabilities()" class="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-black font-bold rounded-lg text-sm">
-            Save & Publish New Odds
+    <!-- TAB 2: TARGET USERS -->
+    <section id="tab-targets" class="mt-8 hidden">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Target Form -->
+        <div class="bg-slate-800 p-6 rounded-xl border border-slate-700">
+          <h3 class="font-bold text-lg mb-4 text-amber-400">Set Outcome Target</h3>
+          
+          <label class="block text-xs text-slate-400 mb-1">Target Username</label>
+          <input id="target-username" type="text" placeholder="e.g. player123" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg mb-4 text-sm">
+
+          <label class="block text-xs text-slate-400 mb-1">Forced Result Outcome</label>
+          <select id="target-outcome" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg mb-4 text-sm">
+            <option value="try_again">❌ Try Again (0 Coins)</option>
+            <option value="coins_50">🪙 50 Coins</option>
+            <option value="coins_100">💰 100 Coins</option>
+            <option value="coins_1000">⭐ 1,000 Coins</option>
+            <option value="coins_5000">👑 5,000 Coins</option>
+            <option value="coins_10000">🏆 10,000 Coins</option>
+          </select>
+
+          <label class="block text-xs text-slate-400 mb-1">Number of Spins</label>
+          <input id="target-spins" type="number" value="1" min="1" max="10" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg mb-4 text-sm">
+
+          <label class="block text-xs text-slate-400 mb-1">Admin Note (Optional)</label>
+          <input id="target-note" type="text" placeholder="Testing / VIP reward" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg mb-6 text-sm">
+
+          <button onclick="saveTarget()" class="w-full py-2 bg-red-600 hover:bg-red-700 font-bold rounded-lg text-sm text-white">
+            Set User Target
           </button>
+        </div>
+
+        <!-- Target Table -->
+        <div class="md:col-span-2 bg-slate-800 p-6 rounded-xl border border-slate-700">
+          <h3 class="font-bold text-lg mb-4 text-white">Active User Targets</h3>
+          <table class="w-full text-left text-sm">
+            <thead>
+              <tr class="text-slate-400 border-b border-slate-700">
+                <th class="py-2">User</th>
+                <th>Target Outcome</th>
+                <th>Spins Left</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="targets-table-body"></tbody>
+          </table>
         </div>
       </div>
     </section>
 
-    <!-- TAB 3: DEMO SANDBOX (100,000 COINS) -->
-    <section id="tab-demo" class="mt-8 hidden text-center">
-      <div class="bg-slate-800 p-8 rounded-xl max-w-lg mx-auto border border-slate-700">
-        <h2 class="text-xl font-bold mb-2">Sandbox Simulator</h2>
-        <p class="text-slate-400 text-sm mb-6">Virtual testing environment with 100,000 Starting Coins</p>
-        
-        <div class="text-4xl font-black text-amber-400 mb-6 font-mono" id="demo-balance">
-          🪙 100,000
-        </div>
-
-        <button onclick="executeDemoSpin()" class="w-full py-4 bg-amber-500 hover:bg-amber-600 text-black font-black text-lg rounded-xl shadow-lg">
-          SPIN (500 COINS)
+    <!-- TAB 3: PRIZES ODDS -->
+    <section id="tab-prizes" class="mt-8 hidden">
+      <div class="bg-slate-800 p-6 rounded-xl border border-slate-700">
+        <h3 class="font-bold text-lg mb-4">Probability Configuration</h3>
+        <table class="w-full text-left text-sm">
+          <thead>
+            <tr class="text-slate-400 border-b border-slate-700">
+              <th class="py-2">Prize</th>
+              <th>Coins</th>
+              <th>Probability (%)</th>
+              <th>Enabled</th>
+            </tr>
+          </thead>
+          <tbody id="prizes-table-body"></tbody>
+        </table>
+        <button onclick="saveProbabilities()" class="mt-6 px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-black font-bold rounded-lg text-sm">
+          Save Odds
         </button>
-
-        <button onclick="resetDemo()" class="mt-4 text-xs text-slate-500 hover:text-slate-300 underline">
-          Reset Demo to 100,000 Coins
-        </button>
-
-        <div id="demo-result" class="mt-6 hidden p-4 bg-slate-900 rounded-lg border border-slate-700 text-sm"></div>
       </div>
     </section>
   </div>
 
   <script>
-    let demoBalance = 100000;
     let cachedPrizes = [];
 
     function switchTab(name) {
-      ['dashboard', 'prizes', 'demo'].forEach(t => {
-        document.getElementById(`tab-${t}`).classList.add('hidden');
-      });
+      ['dashboard', 'targets', 'prizes'].forEach(t => document.getElementById(`tab-${t}`).classList.add('hidden'));
       document.getElementById(`tab-${name}`).classList.remove('hidden');
       if (name === 'dashboard') loadStats();
+      if (name === 'targets') loadTargets();
       if (name === 'prizes') loadPrizes();
     }
 
@@ -117,6 +135,51 @@
       }
     }
 
+    async function loadTargets() {
+      const res = await fetch('/api/spin/admin/targets');
+      const data = await res.json();
+      const tbody = document.getElementById('targets-table-body');
+      tbody.innerHTML = '';
+      if (data.success && data.targets) {
+        data.targets.forEach(t => {
+          tbody.innerHTML += `
+            <tr class="border-b border-slate-700/50">
+              <td class="py-3 font-bold text-amber-400">${t.username}</td>
+              <td>${t.target_prize_key}</td>
+              <td>${t.spins_remaining}</td>
+              <td>${t.is_active ? '<span class="text-green-400 font-bold">ACTIVE</span>' : '<span class="text-slate-500">CONSUMED</span>'}</td>
+              <td>
+                <button onclick="deleteTarget(${t.id})" class="text-red-400 hover:underline text-xs">Remove</button>
+              </td>
+            </tr>
+          `;
+        });
+      }
+    }
+
+    async function saveTarget() {
+      const username = document.getElementById('target-username').value.trim();
+      const targetPrizeKey = document.getElementById('target-outcome').value;
+      const spinsCount = document.getElementById('target-spins').value;
+      const adminNote = document.getElementById('target-note').value;
+
+      if (!username) return alert('Please enter a username');
+
+      const res = await fetch('/api/spin/admin/targets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, targetPrizeKey, spinsCount, adminNote })
+      });
+      const data = await res.json();
+      alert(data.message || data.error);
+      loadTargets();
+    }
+
+    async function deleteTarget(id) {
+      await fetch(`/api/spin/admin/targets/${id}`, { method: 'DELETE' });
+      loadTargets();
+    }
+
     async function loadPrizes() {
       const res = await fetch('/api/spin/wheel-info');
       const data = await res.json();
@@ -127,67 +190,26 @@
         cachedPrizes.forEach((p, idx) => {
           tbody.innerHTML += `
             <tr class="border-b border-slate-700/50">
-              <td class="py-3 font-semibold">${p.icon} ${p.label}</td>
+              <td class="py-3">${p.icon} ${p.label}</td>
               <td>${p.amount}</td>
-              <td>
-                <input type="number" step="0.1" value="${p.probability}" 
-                  onchange="updateProb(${idx}, this.value)"
-                  class="bg-slate-900 border border-slate-700 px-3 py-1 rounded w-24 text-center">
-              </td>
-              <td>
-                <input type="checkbox" ${p.isEnabled ? 'checked' : ''} 
-                  onchange="toggleEnabled(${idx}, this.checked)">
-              </td>
+              <td><input type="number" step="0.1" value="${p.probability}" onchange="cachedPrizes[${idx}].probability = parseFloat(this.value)" class="bg-slate-900 border border-slate-700 px-3 py-1 rounded w-24"></td>
+              <td><input type="checkbox" ${p.isEnabled ? 'checked' : ''} onchange="cachedPrizes[${idx}].isEnabled = this.checked"></td>
             </tr>
           `;
         });
       }
     }
 
-    function updateProb(index, val) {
-      cachedPrizes[index].probability = parseFloat(val) || 0;
-    }
-
-    function toggleEnabled(index, val) {
-      cachedPrizes[index].isEnabled = val;
-    }
-
     async function saveProbabilities() {
       const res = await fetch('/api/spin/admin/prizes', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prizes: cachedPrizes, reason: 'Updated via Web Admin' })
+        body: JSON.stringify({ prizes: cachedPrizes })
       });
       const data = await res.json();
       alert(data.message || data.error);
-      loadPrizes();
     }
 
-    async function executeDemoSpin() {
-      const res = await fetch('/api/spin/demo/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ demoBalance })
-      });
-      const data = await res.json();
-      if (data.success) {
-        demoBalance = data.newBalance;
-        document.getElementById('demo-balance').innerText = `🪙 ${demoBalance.toLocaleString()}`;
-        const resDiv = document.getElementById('demo-result');
-        resDiv.classList.remove('hidden');
-        resDiv.innerHTML = `Result: <strong>${data.prize.icon} ${data.prize.label}</strong> (Earned: +${data.prize.amount})`;
-      } else {
-        alert(data.error);
-      }
-    }
-
-    function resetDemo() {
-      demoBalance = 100000;
-      document.getElementById('demo-balance').innerText = `🪙 ${demoBalance.toLocaleString()}`;
-      document.getElementById('demo-result').classList.add('hidden');
-    }
-
-    // Initialize
     loadStats();
   </script>
 </body>
