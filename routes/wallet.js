@@ -22,7 +22,8 @@ const CONVERSION_RATES = {
 const REDEMPTION_TIERS = [
   { coins: 5000, npr: 50 },
   { coins: 10000, npr: 100 },
-  { coins: 20000, npr: 200 }
+  { coins: 20000, npr: 200 },
+  { coins: 120000, npr: 1200 } // 120,000 Coins = 1,200 NPR
 ];
 
 // Supported payment methods
@@ -45,6 +46,7 @@ db.serialize(() => {
       npr_amount REAL,
       usd_amount REAL,
       status TEXT DEFAULT 'PENDING',
+      rejection_reason TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       processed_at DATETIME
     )
@@ -53,6 +55,7 @@ db.serialize(() => {
   db.run("ALTER TABLE withdrawals ADD COLUMN npr_amount REAL", () => {});
   db.run("ALTER TABLE withdrawals ADD COLUMN usd_amount REAL", () => {});
   db.run("ALTER TABLE withdrawals ADD COLUMN processed_at DATETIME", () => {});
+  db.run("ALTER TABLE withdrawals ADD COLUMN rejection_reason TEXT", () => {});
   db.run("ALTER TABLE users ADD COLUMN last_withdrawal_at TEXT", () => {});
 });
 
@@ -271,7 +274,7 @@ router.get('/', authenticateToken, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Fetch Transaction History (WITH WITHDRAWAL STATUS & TASK TITLES)
+// 3. Fetch Transaction History (WITH WITHDRAWAL STATUS & REJECTION REASON)
 // ---------------------------------------------------------------------------
 router.get('/transactions', authenticateToken, (req, res) => {
   const query = `
@@ -295,6 +298,7 @@ router.get('/transactions', authenticateToken, (req, res) => {
       w.account_info,
       COALESCE(w.npr_amount, (w.coin_amount / 100)) AS npr_amount,
       COALESCE(w.status, 'COMPLETED') AS status,
+      w.rejection_reason,
       tsk.title AS task_title
     FROM transactions t
     LEFT JOIN withdrawals w ON (
@@ -473,11 +477,11 @@ router.post('/redeem', authenticateToken, (req, res) => {
   const userId = req.user.id;
   const parsedCoins = parseInt(coinAmount, 10);
 
-  // 1. Validate fixed tier (5000, 10000, 20000)
+  // 1. Validate fixed tier (5000, 10000, 20000, 120000)
   const matchedTier = REDEMPTION_TIERS.find(t => t.coins === parsedCoins);
   if (!matchedTier) {
     return res.status(400).json({ 
-      error: 'Invalid redemption tier. You can only redeem 5,000, 10,000, or 20,000 coins.' 
+      error: 'Invalid redemption tier. You can only redeem 5,000, 10,000, 20,000, or 120,000 coins.' 
     });
   }
 
