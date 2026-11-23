@@ -13,7 +13,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'arena_games_jwt_secret_key_2025';
 // Helpers & Middleware
 // ---------------------------------------------------------------------------
 
-// Auto-sync lottery status based on real-time schedule and seat capacities
+// Auto-advance lottery status based on real-time schedule and seat capacities
 function syncLotteryStatuses(callback) {
   const nowIso = new Date().toISOString();
   db.serialize(() => {
@@ -25,7 +25,7 @@ function syncLotteryStatuses(callback) {
       [nowIso, nowIso]
     );
 
-    // 2. Advance ACTIVE -> CLOSED if end_time has passed or all seats are sold
+    // 2. Advance ACTIVE -> CLOSED if end_time passed or all seats are sold
     db.run(
       `UPDATE arena_pot_lotteries 
        SET status = 'CLOSED', updated_at = CURRENT_TIMESTAMP 
@@ -44,7 +44,7 @@ function verifyAdminToken(req, res, next) {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.status(401).json({ error: 'Access token required.' });
+    return res.status(401).json({ error: 'Admin access token required.' });
   }
 
   jwt.verify(token, JWT_SECRET, (err, decoded) => {
@@ -78,7 +78,7 @@ router.get('/home', authenticateToken, (req, res) => {
 
       const winnersQuery = `
         SELECT w.id, w.winner_position, w.prize_title, w.prize_amount, w.prize_type, w.published_at,
-               t.ticket_number, u.username, l.title as lottery_title
+               t.ticket_number AS winning_seat, u.username, l.title as lottery_title
         FROM arena_pot_winners w
         JOIN users u ON w.user_id = u.id
         JOIN arena_pot_tickets t ON w.ticket_id = t.id
@@ -103,7 +103,7 @@ router.get('/home', authenticateToken, (req, res) => {
   });
 });
 
-// 2. Lottery Details: Rules, Prize Distribution, and User's Purchased Tickets
+// 2. Lottery Details: Rules, Seat Availability Grid, and User's Chosen Seats
 router.get('/lottery/:id', authenticateToken, (req, res) => {
   const lotteryId = parseInt(req.params.id, 10);
   const userId = req.user.id;
@@ -114,21 +114,25 @@ router.get('/lottery/:id', authenticateToken, (req, res) => {
        FROM arena_pot_lotteries WHERE id = ?`,
       [lotteryId],
       (err, lottery) => {
-        if (err || !lottery) return res.status(404).json({ error: 'Lottery not found' });
+        if (err || !lottery) return res.status(404).json({ error: 'Lottery not found.' });
 
         db.all(
           `SELECT winner_position, prize_type, prize_amount, prize_title 
            FROM arena_pot_prizes WHERE lottery_id = ? ORDER BY winner_position ASC`,
           [lotteryId],
           (pErr, prizes) => {
+            // Get all tickets to compute occupied and user-owned seats
             db.all(
-              `SELECT id, ticket_number, purchased_at 
-               FROM arena_pot_tickets WHERE lottery_id = ? AND user_id = ? ORDER BY ticket_number ASC`,
-              [lotteryId, userId],
-              (tErr, myTickets) => {
+              `SELECT ticket_number, user_id FROM arena_pot_tickets WHERE lottery_id = ? ORDER BY ticket_number ASC`,
+              [lotteryId],
+              (tErr, allTickets) => {
+                const occupiedSeats = (allTickets || []).map((t) => t.ticket_number);
+                const myTickets = (allTickets || []).filter((t) => t.user_id === userId);
+
+                // Fetch published winning seats if lottery is drawn
                 db.all(
                   `SELECT w.winner_position, w.prize_title, w.prize_amount, w.prize_type,
-                          t.ticket_number, u.username
+                          t.ticket_number AS winning_seat, u.username
                    FROM arena_pot_winners w
                    JOIN users u ON w.user_id = u.id
                    JOIN arena_pot_tickets t ON w.ticket_id = t.id
@@ -140,8 +144,9 @@ router.get('/lottery/:id', authenticateToken, (req, res) => {
                       success: true,
                       lottery,
                       prizes: prizes || [],
-                      my_tickets: myTickets || [],
-                      my_ticket_count: (myTickets || []).length,
+                      occupied_seats: occupiedSeats,
+                      my_tickets: myTickets,
+                      my_ticket_count: myTickets.length,
                       winners: winners || [],
                     });
                   }
@@ -155,20 +160,23 @@ router.get('/lottery/:id', authenticateToken, (req, res) => {
   });
 });
 
-// 3. Purchase Tickets (Atomic, Thread-Safe, Validated)
+// 3. Buy Specific Seat Numbers (User Choice with Atomic Concurrency Protection)
 router.post('/lottery/:id/buy', authenticateToken, (req, res) => {
   const lotteryId = parseInt(req.params.id, 10);
   const userId = req.user.id;
-  const count = parseInt(req.body.count, 10);
+  const { selected_seats } = req.body;
 
-  if (isNaN(count) || count <= 0) {
-    return res.status(400).json({ error: 'Please enter a valid ticket quantity.' });
+  if (!Array.isArray(selected_seats) || selected_seats.length === 0) {
+    return res.status(400).json({ error: 'Please choose at least one seat number.' });
   }
+
+  // Deduplicate and parse seat numbers
+  const seatNumbers = [...new Set(selected_seats.map((n) => parseInt(n, 10)))];
+  const count = seatNumbers.length;
 
   db.serialize(() => {
     db.run('BEGIN IMMEDIATE TRANSACTION');
 
-    // 1. Fetch current lottery record
     db.get(`SELECT * FROM arena_pot_lotteries WHERE id = ?`, [lotteryId], (lErr, lottery) => {
       if (lErr || !lottery) {
         db.run('ROLLBACK');
@@ -181,15 +189,16 @@ router.post('/lottery/:id/buy', authenticateToken, (req, res) => {
         return res.status(400).json({ error: 'Ticket sales are closed for this lottery.' });
       }
 
-      const remainingSeats = lottery.total_seats - lottery.sold_seats;
-      if (count > remainingSeats) {
+      // Check bounds (1 to total_seats)
+      const outOfBounds = seatNumbers.find((s) => s < 1 || s > lottery.total_seats);
+      if (outOfBounds) {
         db.run('ROLLBACK');
         return res.status(400).json({
-          error: `Only ${remainingSeats} seat(s) remaining. Cannot purchase ${count} ticket(s).`,
+          error: `Seat #${outOfBounds} is invalid. Seats must be between 1 and ${lottery.total_seats}.`,
         });
       }
 
-      // 2. Validate User Ticket Limit
+      // Check user maximum seat limit
       db.get(
         `SELECT COUNT(*) as existing_count FROM arena_pot_tickets WHERE lottery_id = ? AND user_id = ?`,
         [lotteryId, userId],
@@ -198,111 +207,108 @@ router.post('/lottery/:id/buy', authenticateToken, (req, res) => {
           if (lottery.user_ticket_limit > 0 && existingCount + count > lottery.user_ticket_limit) {
             db.run('ROLLBACK');
             return res.status(400).json({
-              error: `User ticket limit is ${lottery.user_ticket_limit}. You already own ${existingCount} ticket(s).`,
+              error: `Maximum seat limit is ${lottery.user_ticket_limit}. You already hold ${existingCount} seat(s).`,
             });
           }
 
-          const totalCost = lottery.ticket_price * count;
-
-          // 3. Check Wallet Balance
-          db.get(`SELECT balance FROM users WHERE id = ?`, [userId], (uErr, user) => {
-            if (uErr || !user) {
-              db.run('ROLLBACK');
-              return res.status(404).json({ error: 'User not found.' });
-            }
-
-            if (user.balance < totalCost) {
-              db.run('ROLLBACK');
-              return res.status(400).json({
-                error: `Insufficient coins. You have ${user.balance} coins, but ${totalCost} coins are required.`,
-              });
-            }
-
-            // 4. Generate sequential ticket numbers
-            const startingTicketNumber = lottery.sold_seats + 1;
-            const assignedTickets = [];
-            const ticketValuesSql = [];
-            const ticketParams = [];
-
-            for (let i = 0; i < count; i++) {
-              const ticketNum = startingTicketNumber + i;
-              assignedTickets.push(ticketNum);
-              ticketValuesSql.push('(?, ?, ?, ?)');
-              ticketParams.push(lotteryId, userId, ticketNum, lottery.ticket_price);
-            }
-
-            // 5. Insert Tickets
-            const insertTicketsQuery = `
-              INSERT INTO arena_pot_tickets (lottery_id, user_id, ticket_number, coin_price)
-              VALUES ${ticketValuesSql.join(', ')}
-            `;
-
-            db.run(insertTicketsQuery, ticketParams, function (tErr) {
-              if (tErr) {
+          // Check if any of these seats were already taken
+          const placeholders = seatNumbers.map(() => '?').join(',');
+          db.all(
+            `SELECT ticket_number FROM arena_pot_tickets WHERE lottery_id = ? AND ticket_number IN (${placeholders})`,
+            [lotteryId, ...seatNumbers],
+            (collErr, collisionRows) => {
+              if (collisionRows && collisionRows.length > 0) {
                 db.run('ROLLBACK');
-                return res.status(500).json({ error: 'Failed to generate tickets: ' + tErr.message });
+                const taken = collisionRows.map((r) => `#${r.ticket_number}`).join(', ');
+                return res.status(400).json({
+                  error: `Seat(s) ${taken} have just been taken by another player. Please pick different seats.`,
+                });
               }
 
-              const newSoldSeats = lottery.sold_seats + count;
-              const newStatus = newSoldSeats >= lottery.total_seats ? 'CLOSED' : 'ACTIVE';
+              const totalCost = lottery.ticket_price * count;
 
-              // 6. Update Lottery Seat Counter
-              db.run(
-                `UPDATE arena_pot_lotteries 
-                 SET sold_seats = ?, status = ?, updated_at = CURRENT_TIMESTAMP 
-                 WHERE id = ?`,
-                [newSoldSeats, newStatus, lotteryId],
-                (updateLotteryErr) => {
-                  if (updateLotteryErr) {
-                    db.run('ROLLBACK');
-                    return res.status(500).json({ error: 'Failed to update seats' });
-                  }
+              // Check User Wallet Balance
+              db.get(`SELECT balance FROM users WHERE id = ?`, [userId], (uErr, user) => {
+                if (uErr || !user) {
+                  db.run('ROLLBACK');
+                  return res.status(404).json({ error: 'User profile not found.' });
+                }
 
-                  // 7. Deduct User Wallet Coins
-                  db.run(
-                    `UPDATE users SET balance = balance - ? WHERE id = ?`,
-                    [totalCost, userId],
-                    (balErr) => {
-                      if (balErr) {
-                        db.run('ROLLBACK');
-                        return res.status(500).json({ error: 'Failed to deduct wallet coins' });
-                      }
+                if (user.balance < totalCost) {
+                  db.run('ROLLBACK');
+                  return res.status(400).json({
+                    error: `Insufficient coins. You have ${user.balance} coins, but ${totalCost} coins are required.`,
+                  });
+                }
 
-                      // 8. Insert Audit Transaction Log
-                      const refId = `ARENA_POT_${lotteryId}_${Date.now()}`;
-                      db.run(
-                        `INSERT INTO transactions (user_id, type, amount, reference_id) 
-                         VALUES (?, 'POT_TICKET_PURCHASE', ?, ?)`,
-                        [userId, -totalCost, refId],
-                        (txErr) => {
-                          if (txErr) {
-                            db.run('ROLLBACK');
-                            return res.status(500).json({ error: 'Audit log write failed' });
-                          }
+                // Insert selected seat tickets
+                const valuesSql = [];
+                const params = [];
+                for (const seat of seatNumbers) {
+                  valuesSql.push('(?, ?, ?, ?)');
+                  params.push(lotteryId, userId, seat, lottery.ticket_price);
+                }
 
-                          db.run('COMMIT', (commitErr) => {
-                            if (commitErr) {
+                db.run(
+                  `INSERT INTO arena_pot_tickets (lottery_id, user_id, ticket_number, coin_price) VALUES ${valuesSql.join(', ')}`,
+                  params,
+                  function (tErr) {
+                    if (tErr) {
+                      db.run('ROLLBACK');
+                      return res.status(500).json({ error: 'Failed to reserve seats: ' + tErr.message });
+                    }
+
+                    const newSoldSeats = lottery.sold_seats + count;
+                    const newStatus = newSoldSeats >= lottery.total_seats ? 'CLOSED' : 'ACTIVE';
+
+                    // Update lottery sold seats count
+                    db.run(
+                      `UPDATE arena_pot_lotteries SET sold_seats = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                      [newSoldSeats, newStatus, lotteryId],
+                      (upErr) => {
+                        if (upErr) {
+                          db.run('ROLLBACK');
+                          return res.status(500).json({ error: 'Failed to update lottery seat count.' });
+                        }
+
+                        // Deduct user wallet balance
+                        db.run(
+                          `UPDATE users SET balance = balance - ? WHERE id = ?`,
+                          [totalCost, userId],
+                          (balErr) => {
+                            if (balErr) {
                               db.run('ROLLBACK');
-                              return res.status(500).json({ error: 'Transaction commit failed' });
+                              return res.status(500).json({ error: 'Failed to deduct wallet coins.' });
                             }
 
-                            res.json({
-                              success: true,
-                              message: `Successfully purchased ${count} ticket(s)!`,
-                              tickets: assignedTickets,
-                              coins_spent: totalCost,
-                              new_balance: user.balance - totalCost,
-                              remaining_seats: lottery.total_seats - newSoldSeats,
-                            });
-                          });
-                        }
-                      );
-                    }
-                  );
-                }
-              );
-            });
-          });
+                            // Write transaction audit entry
+                            const refId = `POT_SEATS_${lotteryId}_${Date.now()}`;
+                            db.run(
+                              `INSERT INTO transactions (user_id, type, amount, reference_id) 
+                               VALUES (?, 'POT_TICKET_PURCHASE', ?, ?)`,
+                              [userId, -totalCost, refId],
+                              (txErr) => {
+                                db.run('COMMIT', () => {
+                                  res.json({
+                                    success: true,
+                                    message: `Reserved seat(s): ${seatNumbers.map((s) => `#${s}`).join(', ')}!`,
+                                    booked_seats: seatNumbers,
+                                    coins_spent: totalCost,
+                                    new_balance: user.balance - totalCost,
+                                    remaining_seats: lottery.total_seats - newSoldSeats,
+                                  });
+                                });
+                              }
+                            );
+                          }
+                        );
+                      }
+                    );
+                  }
+                );
+              });
+            }
+          );
         }
       );
     });
@@ -325,7 +331,7 @@ router.get('/lottery/:id/participants', authenticateToken, (req, res) => {
   `;
 
   db.all(query, [lotteryId], (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to load participants' });
+    if (err) return res.status(500).json({ error: 'Failed to load participants.' });
     res.json({ success: true, participants: rows || [] });
   });
 });
@@ -347,7 +353,7 @@ router.get('/my-tickets', authenticateToken, (req, res) => {
   `;
 
   db.all(query, [userId], (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to fetch tickets' });
+    if (err) return res.status(500).json({ error: 'Failed to fetch tickets.' });
     res.json({ success: true, tickets: rows || [] });
   });
 });
@@ -356,7 +362,7 @@ router.get('/my-tickets', authenticateToken, (req, res) => {
 router.get('/winners/all', (req, res) => {
   const query = `
     SELECT w.id, w.winner_position, w.prize_title, w.prize_amount, w.prize_type, w.published_at,
-           t.ticket_number, u.username, l.title as lottery_title, l.id as lottery_id
+           t.ticket_number AS winning_seat, u.username, l.title as lottery_title, l.id as lottery_id
     FROM arena_pot_winners w
     JOIN users u ON w.user_id = u.id
     JOIN arena_pot_tickets t ON w.ticket_id = t.id
@@ -365,7 +371,7 @@ router.get('/winners/all', (req, res) => {
   `;
 
   db.all(query, [], (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to load winners' });
+    if (err) return res.status(500).json({ error: 'Failed to load winners history.' });
     res.json({ success: true, winners: rows || [] });
   });
 });
@@ -464,7 +470,7 @@ router.get('/admin/lotteries', verifyAdminToken, (req, res) => {
   sql += ` ORDER BY l.id DESC`;
 
   db.all(sql, params, (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to fetch lotteries' });
+    if (err) return res.status(500).json({ error: 'Failed to fetch lotteries.' });
     res.json({ success: true, lotteries: rows || [] });
   });
 });
@@ -600,7 +606,7 @@ router.delete('/admin/lottery/:id', verifyAdminToken, (req, res) => {
   });
 });
 
-// Admin Get Sold Tickets for Inspector
+// Admin Get Sold Seats / Tickets for Inspector
 router.get('/admin/lottery/:id/tickets', verifyAdminToken, (req, res) => {
   const lotteryId = req.params.id;
   const sql = `
@@ -621,10 +627,11 @@ router.get('/admin/lottery/:id/tickets', verifyAdminToken, (req, res) => {
   });
 });
 
-// Admin Settle & Draw Winners
+// Admin Settle & Draw Winners (Supports manual seat choice or auto random pick)
 router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
   const lotteryId = parseInt(req.params.id, 10);
-  const { winners } = req.body;
+  const { manual_winners } = req.body;
+  // manual_winners format: [ { position: 1, winningSeat: 42 }, { position: 2, winningSeat: 15 } ]
 
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
@@ -632,12 +639,12 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
     db.get('SELECT * FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (err, lottery) => {
       if (err || !lottery) {
         db.run('ROLLBACK');
-        return res.status(404).json({ error: 'Lottery not found' });
+        return res.status(404).json({ error: 'Lottery not found.' });
       }
 
       if (lottery.status === 'RESULTS_PUBLISHED' || lottery.status === 'COMPLETED') {
         db.run('ROLLBACK');
-        return res.status(400).json({ error: 'Winners already drawn for this lottery.' });
+        return res.status(400).json({ error: 'Winners have already been drawn for this lottery.' });
       }
 
       db.all(
@@ -655,7 +662,7 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
             (tErr, soldTickets) => {
               if (!soldTickets || soldTickets.length === 0) {
                 db.run('ROLLBACK');
-                return res.status(400).json({ error: 'No tickets were sold for this lottery.' });
+                return res.status(400).json({ error: 'No seats were purchased for this lottery.' });
               }
 
               const selectedWinners = [];
@@ -664,15 +671,23 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
               for (const prize of prizes) {
                 let chosenTicket = null;
 
-                if (Array.isArray(winners)) {
-                  const assigned = winners.find((w) => w.position === prize.winner_position);
-                  if (assigned) {
+                // 1. Check if admin manually designated a winning seat for this position
+                if (Array.isArray(manual_winners)) {
+                  const assignment = manual_winners.find((m) => m.position === prize.winner_position);
+                  if (assignment && assignment.winningSeat) {
                     chosenTicket = soldTickets.find(
-                      (t) => t.ticket_number === assigned.ticketNumber && !usedTicketIds.has(t.id)
+                      (t) => t.ticket_number === parseInt(assignment.winningSeat, 10) && !usedTicketIds.has(t.id)
                     );
+                    if (!chosenTicket) {
+                      db.run('ROLLBACK');
+                      return res.status(400).json({
+                        error: `Seat #${assignment.winningSeat} for Rank #${prize.winner_position} is either not purchased or already assigned to another rank.`,
+                      });
+                    }
                   }
                 }
 
+                // 2. Fall back to automatic random draw from available seats if not manually assigned
                 if (!chosenTicket) {
                   const available = soldTickets.filter((t) => !usedTicketIds.has(t.id));
                   if (available.length > 0) {
@@ -687,6 +702,7 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
                     lottery_id: lotteryId,
                     ticket_id: chosenTicket.id,
                     user_id: chosenTicket.user_id,
+                    winning_seat: chosenTicket.ticket_number,
                     winner_position: prize.winner_position,
                     prize_id: prize.id,
                     prize_title: prize.prize_title,
@@ -696,6 +712,7 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
                 }
               }
 
+              // Record Winners and credit coin balances
               for (const win of selectedWinners) {
                 db.run(
                   `INSERT INTO arena_pot_winners 
@@ -719,19 +736,16 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
                     [win.prize_amount, win.prize_amount, win.user_id]
                   );
 
-                  const refId = `POT_WIN_${lotteryId}_POS_${win.winner_position}`;
+                  const refId = `POT_WIN_${lotteryId}_SEAT_${win.winning_seat}`;
                   db.run(
-                    `INSERT INTO transactions (user_id, type, amount, reference_id) 
-                     VALUES (?, 'ARENA_POT_WIN', ?, ?)`,
+                    `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'ARENA_POT_WIN', ?, ?)`,
                     [win.user_id, win.prize_amount, refId]
                   );
                 }
               }
 
               db.run(
-                `UPDATE arena_pot_lotteries 
-                 SET status = 'RESULTS_PUBLISHED', updated_at = CURRENT_TIMESTAMP 
-                 WHERE id = ?`,
+                `UPDATE arena_pot_lotteries SET status = 'RESULTS_PUBLISHED', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
                 [lotteryId],
                 () => {
                   db.run('COMMIT', (commitErr) => {
@@ -741,7 +755,7 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
                     }
                     res.json({
                       success: true,
-                      message: `Successfully drawn ${selectedWinners.length} winner(s)!`,
+                      message: `Results published! Winning seats: ${selectedWinners.map((w) => `#${w.winning_seat} (Rank ${w.winner_position})`).join(', ')}`,
                       winners: selectedWinners,
                     });
                   });
