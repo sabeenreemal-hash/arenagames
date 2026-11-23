@@ -36,7 +36,7 @@
       display: flex;
     }
 
-    /* Auth Screen */
+    /* Auth Screen Overlay */
     #auth-screen {
       position: fixed; inset: 0;
       background: radial-gradient(circle at 50% 20%, #1e1b4b 0%, #090a16 80%);
@@ -210,7 +210,7 @@
       <li class="nav-item active" onclick="switchTab('dashboard')">📊 Dashboard</li>
       <li class="nav-item" onclick="switchTab('lotteries')">📋 Lotteries Manager</li>
       <li class="nav-item" onclick="openCreateModal()">➕ Create New Pot</li>
-      <li class="nav-item" onclick="switchTab('inspector')">🎟️ Ticket Inspector</li>
+      <li class="nav-item" onclick="switchTab('inspector')">🎟️ Seat & Ticket Inspector</li>
       <li class="nav-item" onclick="switchTab('winners')">🏆 Winners Ledger</li>
     </ul>
     <div style="padding: 16px; border-top: 1px solid var(--border);">
@@ -242,11 +242,11 @@
           <span class="stat-value stat-val-green" id="stat-active-pots">0</span>
         </div>
         <div class="stat-card">
-          <span class="stat-label">Tickets Sold</span>
+          <span class="stat-label">Seats Sold</span>
           <span class="stat-value stat-val-cyan" id="stat-tickets-sold">0</span>
         </div>
         <div class="stat-card">
-          <span class="stat-label">Total Coin Revenue</span>
+          <span class="stat-label">Coin Revenue</span>
           <span class="stat-value stat-val-gold" id="stat-coin-revenue">0</span>
         </div>
         <div class="stat-card">
@@ -267,7 +267,7 @@
               <th>Lottery Title</th>
               <th>Prize</th>
               <th>Seats Sold</th>
-              <th>Ticket Price</th>
+              <th>Price</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -285,12 +285,12 @@
         <div class="table-header">
           <span style="font-weight: 700;">All Published Lotteries</span>
           <div style="display: flex; gap: 8px;">
-            <select id="filter-status" class="form-control" style="width: 140px; padding: 6px 10px;" onchange="loadLotteries()">
+            <select id="filter-status" class="form-control" style="width: 160px; padding: 6px 10px;" onchange="loadLotteries()">
               <option value="ALL">All Status</option>
               <option value="ACTIVE">ACTIVE</option>
               <option value="UPCOMING">UPCOMING</option>
               <option value="CLOSED">CLOSED</option>
-              <option value="RESULTS_PUBLISHED">PUBLISHED</option>
+              <option value="RESULTS_PUBLISHED">RESULTS PUBLISHED</option>
             </select>
           </div>
         </div>
@@ -312,21 +312,21 @@
       </div>
     </div>
 
-    <!-- TAB: TICKET INSPECTOR -->
+    <!-- TAB: TICKET & SEAT INSPECTOR -->
     <div id="tab-inspector" class="tab-pane" style="display: none;">
       <div class="table-container">
         <div class="table-header">
-          <span style="font-weight: 700;">Sold Tickets & Participant Inspector</span>
+          <span style="font-weight: 700;">Sold Seats & Participant Ledger</span>
           <div style="display: flex; gap: 8px; align-items: center;">
             <label style="font-size: 13px; color: var(--text-muted);">Select Pot:</label>
-            <select id="inspector-pot-select" class="form-control" style="width: 220px; padding: 6px 10px;" onchange="loadInspectorTickets()">
+            <select id="inspector-pot-select" class="form-control" style="width: 260px; padding: 6px 10px;" onchange="loadInspectorTickets()">
             </select>
           </div>
         </div>
         <table>
           <thead>
             <tr>
-              <th>Ticket #</th>
+              <th>Seat #</th>
               <th>Username</th>
               <th>User ID</th>
               <th>Coin Paid</th>
@@ -335,7 +335,7 @@
             </tr>
           </thead>
           <tbody id="inspector-tickets-tbody">
-            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Select a lottery to view purchased tickets</td></tr>
+            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Select a lottery to inspect sold seat numbers</td></tr>
           </tbody>
         </table>
       </div>
@@ -345,7 +345,7 @@
     <div id="tab-winners" class="tab-pane" style="display: none;">
       <div class="table-container">
         <div class="table-header">
-          <span style="font-weight: 700;">Complete Winners Ledger</span>
+          <span style="font-weight: 700;">Complete Winners Hall of Fame</span>
         </div>
         <table>
           <thead>
@@ -354,7 +354,7 @@
               <th>Lottery Name</th>
               <th>Rank</th>
               <th>Winner Username</th>
-              <th>Winning Ticket</th>
+              <th>Winning Seat</th>
               <th>Awarded Prize</th>
               <th>Published At</th>
             </tr>
@@ -375,7 +375,7 @@
       <form id="createPotForm" onsubmit="submitCreatePot(event)">
         <div class="form-group">
           <label class="form-label">Lottery Title</label>
-          <input type="text" id="p-title" class="form-control" placeholder="e.g. Weekend Mega Ruby Jackpot" required>
+          <input type="text" id="p-title" class="form-control" placeholder="e.g. Weekend Mega Ruby Pot" required>
         </div>
         <div class="form-group">
           <label class="form-label">Main Prize Title</label>
@@ -395,7 +395,7 @@
             <input type="number" id="p-price" class="form-control" value="50" min="1" required>
           </div>
           <div class="form-group">
-            <label class="form-label">User Limit (0 = Unltd)</label>
+            <label class="form-label">Seat Limit Per User (0 = Unltd)</label>
             <input type="number" id="p-limit" class="form-control" value="0" min="0">
           </div>
         </div>
@@ -430,11 +430,36 @@
     </div>
   </div>
 
+  <!-- MODAL: MANUAL & AUTO WINNING SEAT DRAW -->
+  <div id="modal-draw-winners" class="modal">
+    <div class="modal-content" style="max-width: 580px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <h2 style="font-size:18px; font-weight:800;">🏆 Select Winning Seats</h2>
+        <button class="btn btn-outline btn-sm" onclick="closeDrawModal()">✕</button>
+      </div>
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:18px;">
+        Choose the exact winning seat number for each rank from sold seats, or click <strong>Randomize Seats</strong> to auto-assign [20].
+      </p>
+
+      <div id="draw-prizes-list"></div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:24px; padding-top:16px; border-top:1px solid var(--border);">
+        <button type="button" class="btn btn-outline" onclick="autoPickRandomSeats()">🎲 Randomize Seats</button>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn btn-outline" onclick="closeDrawModal()">Cancel</button>
+          <button type="button" class="btn btn-gold" onclick="confirmAndPublishWinners()">Publish Winners</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_BASE = '/api/arena-pot';
     let adminToken = localStorage.getItem('arena_pot_admin_token') || '';
+    let currentDrawLotteryId = null;
+    let currentLotterySoldTickets = [];
 
-    // Check auth on load
+    // Check Authentication on Page Load
     window.addEventListener('DOMContentLoaded', () => {
       if (adminToken) {
         document.getElementById('auth-screen').style.display = 'none';
@@ -463,7 +488,7 @@
           alert(data.error || 'Login failed');
         }
       } catch (err) {
-        alert('Cannot connect to backend: ' + err.message);
+        alert('Cannot connect to server: ' + err.message);
       }
     }
 
@@ -490,7 +515,7 @@
       if (tabId === 'winners') loadWinnersLedger();
     }
 
-    // Load Dashboard Stats & Table
+    // Load Dashboard Overview
     async function loadDashboard() {
       try {
         const res = await fetch(`${API_BASE}/admin/stats`, {
@@ -506,7 +531,7 @@
           document.getElementById('stat-prizes-coins').innerText = s.total_prizes_distributed.toLocaleString();
         }
 
-        // Active pots
+        // Active Pots
         const potsRes = await fetch(`${API_BASE}/admin/lotteries?status=ACTIVE`, {
           headers: { 'Authorization': `Bearer ${adminToken}` }
         });
@@ -529,7 +554,7 @@
               <td>🪙 ${l.ticket_price}</td>
               <td><span class="badge badge-${l.status}">${l.status}</span></td>
               <td>
-                <button class="btn btn-outline btn-sm" onclick="triggerDraw(${l.id})">🏆 Draw Winners</button>
+                <button class="btn btn-gold btn-sm" onclick="triggerDraw(${l.id})">🏆 Draw Winners</button>
               </td>
             </tr>
           `;
@@ -539,7 +564,7 @@
       }
     }
 
-    // Load All Lotteries
+    // Load Lotteries Manager
     async function loadLotteries() {
       const status = document.getElementById('filter-status').value;
       const res = await fetch(`${API_BASE}/admin/lotteries?status=${status}`, {
@@ -558,7 +583,9 @@
             <td>${l.sold_seats} / ${l.total_seats}</td>
             <td>🪙 ${l.ticket_price}</td>
             <td><span class="badge badge-${l.status}">${l.status}</span></td>
-            <td style="font-size: 11px; color: var(--text-muted);">${new Date(l.start_time).toLocaleDateString()} - ${new Date(l.end_time).toLocaleDateString()}</td>
+            <td style="font-size: 11px; color: var(--text-muted);">
+              ${new Date(l.start_time).toLocaleDateString()} - ${new Date(l.end_time).toLocaleDateString()}
+            </td>
             <td>
               <div style="display: flex; gap: 4px;">
                 ${l.status === 'ACTIVE' || l.status === 'CLOSED' ? `<button class="btn btn-gold btn-sm" onclick="triggerDraw(${l.id})">Draw</button>` : ''}
@@ -574,7 +601,7 @@
 
     async function updateStatus(id, newStatus) {
       if (!confirm(`Set Lottery #${id} to ${newStatus}?`)) return;
-      const res = await fetch(`${API_BASE}/admin/lottery/${id}/status`, {
+      await fetch(`${API_BASE}/admin/lottery/${id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
         body: JSON.stringify({ status: newStatus })
@@ -584,25 +611,114 @@
 
     async function deleteLottery(id) {
       if (!confirm(`Delete Lottery #${id}?`)) return;
-      await fetch(`${API_BASE}/admin/lottery/${id}`, {
+      const res = await fetch(`${API_BASE}/admin/lottery/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${adminToken}` }
       });
+      const data = await res.json();
+      if (!data.success) alert(data.error);
       loadLotteries();
     }
 
-    // Draw Winners Action
+    // ==========================================
+    // WINNER SELECTION MODAL LOGIC
+    // ==========================================
     async function triggerDraw(lotteryId) {
-      if (!confirm(`Are you sure you want to trigger the draw for Lottery #${lotteryId}? Winners will be selected from sold tickets and coin prizes credited immediately.`)) return;
+      currentDrawLotteryId = lotteryId;
 
-      const res = await fetch(`${API_BASE}/admin/lottery/${lotteryId}/draw`, {
+      // 1. Fetch sold seats & participant names
+      const tRes = await fetch(`${API_BASE}/admin/lottery/${lotteryId}/tickets`, {
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      const tData = await tRes.json();
+      currentLotterySoldTickets = tData.tickets || [];
+
+      if (currentLotterySoldTickets.length === 0) {
+        alert('Cannot draw winners: No seats have been purchased for this lottery yet.');
+        return;
+      }
+
+      // 2. Fetch configured prizes
+      const lRes = await fetch(`${API_BASE}/lottery/${lotteryId}`, {
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      const lData = await lRes.json();
+      const prizes = lData.prizes || [];
+
+      const listDiv = document.getElementById('draw-prizes-list');
+      listDiv.innerHTML = '';
+
+      prizes.forEach(p => {
+        let options = `<option value="">-- Choose Winning Seat Number --</option>`;
+        currentLotterySoldTickets.forEach(t => {
+          options += `<option value="${t.ticket_number}">Seat #${t.ticket_number} (Owner: @${t.username})</option>`;
+        });
+
+        listDiv.innerHTML += `
+          <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-weight:700; color:var(--gold);">Rank #${p.winner_position}</span>
+              <span style="font-size:12px; color:var(--text-muted);">${p.prize_title} (${p.prize_type === 'COINS' ? '🪙 ' + p.prize_amount + ' Coins' : p.prize_type})</span>
+            </div>
+            <select class="form-control draw-seat-select" data-pos="${p.winner_position}">
+              ${options}
+            </select>
+          </div>
+        `;
+      });
+
+      document.getElementById('modal-draw-winners').classList.add('active');
+    }
+
+    function closeDrawModal() {
+      document.getElementById('modal-draw-winners').classList.remove('active');
+    }
+
+    function autoPickRandomSeats() {
+      const selects = document.querySelectorAll('.draw-seat-select');
+      const pool = [...currentLotterySoldTickets];
+
+      selects.forEach(sel => {
+        if (pool.length > 0) {
+          const idx = Math.floor(Math.random() * pool.length);
+          sel.value = pool[idx].ticket_number;
+          pool.splice(idx, 1); // Ensure unique seat per rank
+        }
+      });
+    }
+
+    async function confirmAndPublishWinners() {
+      const selects = document.querySelectorAll('.draw-seat-select');
+      const manual_winners = [];
+      const chosenSeats = new Set();
+
+      for (const sel of selects) {
+        const val = sel.value;
+        const pos = parseInt(sel.getAttribute('data-pos'), 10);
+        if (!val) {
+          alert(`Please select a winning seat for Rank #${pos} (or click Randomize Seats).`);
+          return;
+        }
+        if (chosenSeats.has(val)) {
+          alert(`Seat #${val} has been selected more than once. Each winning rank must have a unique seat.`);
+          return;
+        }
+        chosenSeats.add(val);
+        manual_winners.push({ position: pos, winningSeat: parseInt(val, 10) });
+      }
+
+      if (!confirm('Publish these winning seats? User wallet balances will be credited immediately.')) return;
+
+      const res = await fetch(`${API_BASE}/admin/lottery/${currentDrawLotteryId}/draw`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
-        body: JSON.stringify({})
+        body: JSON.stringify({ manual_winners })
       });
+
       const data = await res.json();
       if (data.success) {
         alert(data.message);
+        closeDrawModal();
         loadDashboard();
         loadLotteries();
       } else {
@@ -610,7 +726,9 @@
       }
     }
 
-    // Inspector Dropdown & Tickets
+    // ==========================================
+    // INSPECTOR & WINNERS LEDGER
+    // ==========================================
     async function loadInspectorDropdown() {
       const res = await fetch(`${API_BASE}/admin/lotteries?status=ALL`, {
         headers: { 'Authorization': `Bearer ${adminToken}` }
@@ -619,13 +737,14 @@
       const sel = document.getElementById('inspector-pot-select');
       sel.innerHTML = '<option value="">-- Choose Lottery --</option>';
       (json.lotteries || []).forEach(l => {
-        sel.innerHTML += `<option value="${l.id}">#${l.id} - ${l.title} (${l.sold_seats} tickets)</option>`;
+        sel.innerHTML += `<option value="${l.id}">#${l.id} - ${l.title} (${l.sold_seats} seats sold)</option>`;
       });
     }
 
     async function loadInspectorTickets() {
       const id = document.getElementById('inspector-pot-select').value;
       if (!id) return;
+
       const res = await fetch(`${API_BASE}/admin/lottery/${id}/tickets`, {
         headers: { 'Authorization': `Bearer ${adminToken}` }
       });
@@ -634,15 +753,15 @@
       tbody.innerHTML = '';
 
       if (!json.tickets || json.tickets.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No tickets purchased for this lottery yet.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No seats purchased for this lottery yet.</td></tr>`;
         return;
       }
 
       json.tickets.forEach(t => {
         tbody.innerHTML += `
           <tr>
-            <td style="font-weight: 800; font-family: var(--font-mono); color: var(--gold);">#${t.ticket_number}</td>
-            <td style="font-weight: 600;">${t.username}</td>
+            <td style="font-weight: 800; font-family: var(--font-mono); color: var(--gold);">Seat #${t.ticket_number}</td>
+            <td style="font-weight: 600;">@${t.username}</td>
             <td>${t.user_id}</td>
             <td>🪙 ${t.coin_price}</td>
             <td>${new Date(t.purchased_at).toLocaleString()}</td>
@@ -652,11 +771,8 @@
       });
     }
 
-    // Winners Ledger
     async function loadWinnersLedger() {
-      const res = await fetch(`${API_BASE}/winners/all`, {
-        headers: { 'Authorization': `Bearer ${adminToken}` }
-      });
+      const res = await fetch(`${API_BASE}/winners/all`);
       const json = await res.json();
       const tbody = document.getElementById('winners-tbody');
       tbody.innerHTML = '';
@@ -667,8 +783,8 @@
             <td>#${w.lottery_id}</td>
             <td style="font-weight: 700;">${w.lottery_title}</td>
             <td><span class="badge badge-ACTIVE">Rank #${w.winner_position}</span></td>
-            <td style="font-weight: 700;">${w.username}</td>
-            <td style="font-family: var(--font-mono); color: var(--gold);">Ticket #${w.ticket_number}</td>
+            <td style="font-weight: 700;">@${w.username}</td>
+            <td style="font-family: var(--font-mono); color: var(--gold);">Seat #${w.winning_seat}</td>
             <td>${w.prize_title}</td>
             <td style="font-size: 12px; color: var(--text-muted);">${new Date(w.published_at).toLocaleString()}</td>
           </tr>
@@ -676,7 +792,9 @@
       });
     }
 
-    // Create Modal Handlers & Dynamic Prizes
+    // ==========================================
+    // CREATE LOTTERY MODAL & PRIZE BUILDER
+    // ==========================================
     function openCreateModal() {
       const now = new Date();
       const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
