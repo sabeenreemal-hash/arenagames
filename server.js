@@ -18,10 +18,10 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Serve static assets from public/ (e.g. admin.html and /number-guess/)
+// Serve static assets from public/ (e.g. admin.html, arena.html)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// FIX: Serve uploaded screenshots publicly so admin panel can open them
+// Serve uploaded screenshots publicly for verification
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Request logger for debugging
@@ -50,9 +50,7 @@ const spinWheelRoutes = require('./routes/spinWheelRoutes');
 const tasksRoutes = require('./routes/tasks');
 const watchRoutes = require('./routes/watch');
 const html5Routes = require('./routes/html5Routes');
-const numberGuessRoutes = require('./routes/numberGuess');
-const numberGuessAdminRoutes = require('./routes/numberGuessAdmin');
-const numberGuessEngine = require('./services/numberGuessEngine');
+const arenaPotRoutes = require('./routes/arenaPot'); // Arena Pot Central Router
 
 // ==========================================
 // 3. Mount Routes
@@ -68,14 +66,18 @@ app.use('/api/spin', spinWheelRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/watch', watchRoutes);
 app.use('/api/html5', html5Routes);
-app.use('/api/number-guess', numberGuessRoutes);
-app.use('/api/ng-admin', numberGuessAdminRoutes);
+app.use('/api/arena-pot', arenaPotRoutes); // Arena Pot Endpoints
 
 // ==========================================
 // 4. Base & Health Check Endpoints
 // ==========================================
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+// Direct entry point for Arena Pot Admin Panel
+app.get('/arena', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'arena.html'));
 });
 
 app.get('/api/health', (req, res) => {
@@ -101,14 +103,13 @@ app.use((err, req, res, next) => {
 });
 
 // ==========================================
-// 6. Start Server & Schedulers
+// 6. Start Server & Weekly Leaderboard Scheduler
 // ==========================================
 app.listen(PORT, () => {
   leaderboardRoutes.startWeeklyLeaderboardScheduler();
-  numberGuessEngine.startEngine();
   console.log(`=========================================`);
   console.log(`🚀 Arena Games Server running on port ${PORT}`);
   console.log(`🏆 Weekly Leaderboard Scheduler Active`);
-  console.log(`🎯 Number Guess Battle Engine Active`);
+  console.log(`🎰 Arena Pot System Active at /api/arena-pot`);
   console.log(`=========================================`);
 });
