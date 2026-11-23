@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arena Pot — Central Lottery Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090a16;
+      --panel: #111428;
+      --card: #171b35;
+      --border: #262c54;
+      --border-focus: #3d4685;
+      --gold: #f59e0b;
+      --gold-light: #fbbf24;
+      --gold-glow: rgba(245, 158, 11, 0.2);
+      --purple: #8b5cf6;
+      --cyan: #06b6d4;
+      --green: #10b981;
+      --red: #ef4444;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --font-main: 'Plus Jakarta Sans', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* Auth Screen */
+    #auth-screen {
+      position: fixed; inset: 0;
+      background: radial-gradient(circle at 50% 20%, #1e1b4b 0%, #090a16 80%);
+      z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .auth-box {
+      width: 100%; max-width: 420px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+    }
+    .auth-logo { font-size: 40px; margin-bottom: 12px; }
+    .auth-title { font-size: 22px; font-weight: 800; color: #fff; }
+    .auth-subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 24px; }
+
+    /* Layout */
+    #sidebar {
+      width: 260px;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      flex-shrink: 0;
+    }
+    .brand {
+      padding: 24px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .brand-title { font-weight: 800; font-size: 17px; letter-spacing: 0.5px; }
+    .nav-links { list-style: none; padding: 16px 12px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px; border-radius: 10px;
+      color: var(--text-muted); font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .nav-item:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+    .nav-item.active { color: #000; background: var(--gold); box-shadow: 0 4px 14px var(--gold-glow); font-weight: 700; }
+
+    #main {
+      flex: 1; overflow-y: auto; padding: 28px 36px;
+      display: flex; flex-direction: column; gap: 28px;
+    }
+
+    /* Top Bar */
+    .topbar {
+      display: flex; justify-content: space-between; align-items: center;
+      background: var(--panel); padding: 16px 24px; border-radius: 14px;
+      border: 1px solid var(--border);
+    }
+    .page-title { font-size: 22px; font-weight: 800; }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;
+    }
+    .stat-card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .stat-label { font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
+    .stat-value { font-size: 26px; font-weight: 800; font-family: var(--font-mono); color: #fff; }
+    .stat-val-gold { color: var(--gold-light); }
+    .stat-val-cyan { color: var(--cyan); }
+    .stat-val-green { color: var(--green); }
+
+    /* Tables */
+    .table-container {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden;
+    }
+    .table-header {
+      padding: 16px 20px; display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th {
+      padding: 14px 18px; font-size: 12px; color: var(--text-muted);
+      text-transform: uppercase; font-weight: 700; background: rgba(0,0,0,0.2);
+    }
+    td { padding: 16px 18px; font-size: 13px; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+    /* Badges & Buttons */
+    .badge {
+      display: inline-block; padding: 4px 10px; border-radius: 6px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+    }
+    .badge-ACTIVE { background: rgba(16, 185, 129, 0.15); color: var(--green); }
+    .badge-UPCOMING { background: rgba(245, 158, 11, 0.15); color: var(--gold); }
+    .badge-CLOSED { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
+    .badge-PAUSED { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+    .badge-RESULTS_PUBLISHED { background: rgba(139, 92, 246, 0.2); color: #c084fc; }
+
+    .btn {
+      padding: 9px 16px; border-radius: 8px; border: none; font-size: 13px;
+      font-weight: 700; cursor: pointer; transition: all 0.2s; display: inline-flex;
+      align-items: center; gap: 6px; text-decoration: none;
+    }
+    .btn-gold { background: var(--gold); color: #000; }
+    .btn-gold:hover { background: var(--gold-light); }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: #fff; }
+    .btn-outline:hover { background: rgba(255,255,255,0.05); border-color: var(--border-focus); }
+    .btn-red { background: rgba(239, 68, 68, 0.2); color: var(--red); }
+    .btn-red:hover { background: var(--red); color: #fff; }
+    .btn-sm { padding: 6px 10px; font-size: 12px; }
+
+    /* Modals */
+    .modal {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85);
+      z-index: 2000; display: none; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .modal.active { display: flex; }
+    .modal-content {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 18px; width: 100%; max-width: 650px;
+      max-height: 90vh; overflow-y: auto; padding: 28px;
+    }
+
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text-muted); }
+    .form-control {
+      width: 100%; padding: 11px 14px; background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; color: #fff; font-family: var(--font-main); font-size: 14px;
+    }
+    .form-control:focus { outline: none; border-color: var(--gold); }
+    .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+
+    .prize-row {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 1. LOGIN OVERLAY -->
+  <div id="auth-screen">
+    <div class="auth-box">
+      <div class="auth-logo">🎰</div>
+      <h2 class="auth-title">Arena Pot Admin</h2>
+      <p class="auth-subtitle">Enter master credentials to access lotteries</p>
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label class="form-label">Admin Username</label>
+          <input type="text" id="adminUser" class="form-control" placeholder="admin" required value="admin">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="adminPass" class="form-control" placeholder="••••••••" required value="admin123">
+        </div>
+        <button type="submit" class="btn btn-gold" style="width: 100%; justify-content: center; padding: 12px;">
+          Unlock Command Center
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. SIDEBAR -->
+  <aside id="sidebar">
+    <div class="brand">
+      <span style="font-size: 26px;">🎰</span>
+      <div class="brand-title">ARENA POT<br><span style="font-size: 11px; color: var(--gold);">CONTROL DESK</span></div>
+    </div>
+    <ul class="nav-links">
+      <li class="nav-item active" onclick="switchTab('dashboard')">📊 Dashboard</li>
+      <li class="nav-item" onclick="switchTab('lotteries')">📋 Lotteries Manager</li>
+      <li class="nav-item" onclick="openCreateModal()">➕ Create New Pot</li>
+      <li class="nav-item" onclick="switchTab('inspector')">🎟️ Ticket Inspector</li>
+      <li class="nav-item" onclick="switchTab('winners')">🏆 Winners Ledger</li>
+    </ul>
+    <div style="padding: 16px; border-top: 1px solid var(--border);">
+      <button class="btn btn-outline" style="width: 100%; justify-content: center;" onclick="logout()">
+        🚪 Sign Out
+      </button>
+    </div>
+  </aside>
+
+  <!-- 3. MAIN WORKSPACE -->
+  <main id="main">
+    <div class="topbar">
+      <div>
+        <h1 class="page-title" id="page-heading">Dashboard Overview</h1>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Live state synchronization active</p>
+      </div>
+      <button class="btn btn-gold" onclick="openCreateModal()">+ Create Pot Lottery</button>
+    </div>
+
+    <!-- TAB: DASHBOARD -->
+    <div id="tab-dashboard" class="tab-pane">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">Total Lotteries</span>
+          <span class="stat-value" id="stat-total-pots">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Active Running</span>
+          <span class="stat-value stat-val-green" id="stat-active-pots">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Tickets Sold</span>
+          <span class="stat-value stat-val-cyan" id="stat-tickets-sold">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Total Coin Revenue</span>
+          <span class="stat-value stat-val-gold" id="stat-coin-revenue">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Prizes Distributed</span>
+          <span class="stat-value stat-val-gold" id="stat-prizes-coins">0</span>
+        </div>
+      </div>
+
+      <div class="table-container" style="margin-top: 24px;">
+        <div class="table-header">
+          <span style="font-weight: 700;">Active & Upcoming Lotteries</span>
+          <button class="btn btn-outline btn-sm" onclick="loadDashboard()">Refresh</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Lottery Title</th>
+              <th>Prize</th>
+              <th>Seats Sold</th>
+              <th>Ticket Price</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="dashboard-lotteries-tbody">
+            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading active lotteries...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB: LOTTERIES MANAGER -->
+    <div id="tab-lotteries" class="tab-pane" style="display: none;">
+      <div class="table-container">
+        <div class="table-header">
+          <span style="font-weight: 700;">All Published Lotteries</span>
+          <div style="display: flex; gap: 8px;">
+            <select id="filter-status" class="form-control" style="width: 140px; padding: 6px 10px;" onchange="loadLotteries()">
+              <option value="ALL">All Status</option>
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="UPCOMING">UPCOMING</option>
+              <option value="CLOSED">CLOSED</option>
+              <option value="RESULTS_PUBLISHED">PUBLISHED</option>
+            </select>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Title</th>
+              <th>Main Prize</th>
+              <th>Seats</th>
+              <th>Price</th>
+              <th>Status</th>
+              <th>Schedule</th>
+              <th>Operations</th>
+            </tr>
+          </thead>
+          <tbody id="all-lotteries-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB: TICKET INSPECTOR -->
+    <div id="tab-inspector" class="tab-pane" style="display: none;">
+      <div class="table-container">
+        <div class="table-header">
+          <span style="font-weight: 700;">Sold Tickets & Participant Inspector</span>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <label style="font-size: 13px; color: var(--text-muted);">Select Pot:</label>
+            <select id="inspector-pot-select" class="form-control" style="width: 220px; padding: 6px 10px;" onchange="loadInspectorTickets()">
+            </select>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Ticket #</th>
+              <th>Username</th>
+              <th>User ID</th>
+              <th>Coin Paid</th>
+              <th>Purchase Date</th>
+              <th>Winner Status</th>
+            </tr>
+          </thead>
+          <tbody id="inspector-tickets-tbody">
+            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Select a lottery to view purchased tickets</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB: WINNERS LEDGER -->
+    <div id="tab-winners" class="tab-pane" style="display: none;">
+      <div class="table-container">
+        <div class="table-header">
+          <span style="font-weight: 700;">Complete Winners Ledger</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Pot ID</th>
+              <th>Lottery Name</th>
+              <th>Rank</th>
+              <th>Winner Username</th>
+              <th>Winning Ticket</th>
+              <th>Awarded Prize</th>
+              <th>Published At</th>
+            </tr>
+          </thead>
+          <tbody id="winners-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- MODAL: CREATE LOTTERY -->
+  <div id="modal-create" class="modal">
+    <div class="modal-content">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 style="font-size: 18px; font-weight: 800;">Create Pot Lottery</h2>
+        <button class="btn btn-outline btn-sm" onclick="closeCreateModal()">✕</button>
+      </div>
+      <form id="createPotForm" onsubmit="submitCreatePot(event)">
+        <div class="form-group">
+          <label class="form-label">Lottery Title</label>
+          <input type="text" id="p-title" class="form-control" placeholder="e.g. Weekend Mega Ruby Jackpot" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Main Prize Title</label>
+          <input type="text" id="p-prize" class="form-control" placeholder="e.g. 50,000 Coins / iPhone 15" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description / Rules</label>
+          <textarea id="p-desc" class="form-control" rows="2" placeholder="Rules or notes..."></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Total Seats</label>
+            <input type="number" id="p-seats" class="form-control" value="100" min="2" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Ticket Price (Coins)</label>
+            <input type="number" id="p-price" class="form-control" value="50" min="1" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">User Limit (0 = Unltd)</label>
+            <input type="number" id="p-limit" class="form-control" value="0" min="0">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Start Time</label>
+            <input type="datetime-local" id="p-start" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Time</label>
+            <input type="datetime-local" id="p-end" class="form-control" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="p-featured"> Feature on Home Carousel</label>
+        </div>
+
+        <!-- PRIZE BUILDER -->
+        <div style="margin: 20px 0; border-top: 1px solid var(--border); padding-top: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <label class="form-label" style="margin:0;">Prize Distribution Tiers</label>
+            <button type="button" class="btn btn-outline btn-sm" onclick="addPrizeTier()">+ Add Rank</button>
+          </div>
+          <div id="prize-tiers-container"></div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+          <button type="button" class="btn btn-outline" onclick="closeCreateModal()">Cancel</button>
+          <button type="submit" class="btn btn-gold">Publish Lottery</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = '/api/arena-pot';
+    let adminToken = localStorage.getItem('arena_pot_admin_token') || '';
+
+    // Check auth on load
+    window.addEventListener('DOMContentLoaded', () => {
+      if (adminToken) {
+        document.getElementById('auth-screen').style.display = 'none';
+        initApp();
+      }
+    });
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const u = document.getElementById('adminUser').value;
+      const p = document.getElementById('adminPass').value;
+
+      try {
+        const res = await fetch(`${API_BASE}/admin/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u, password: p })
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+          adminToken = data.token;
+          localStorage.setItem('arena_pot_admin_token', adminToken);
+          document.getElementById('auth-screen').style.display = 'none';
+          initApp();
+        } else {
+          alert(data.error || 'Login failed');
+        }
+      } catch (err) {
+        alert('Cannot connect to backend: ' + err.message);
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('arena_pot_admin_token');
+      location.reload();
+    }
+
+    function initApp() {
+      loadDashboard();
+      initPrizeDefaults();
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.style.display = 'none');
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+
+      document.getElementById(`tab-${tabId}`).style.display = 'block';
+      event.currentTarget.classList.add('active');
+
+      if (tabId === 'dashboard') loadDashboard();
+      if (tabId === 'lotteries') loadLotteries();
+      if (tabId === 'inspector') loadInspectorDropdown();
+      if (tabId === 'winners') loadWinnersLedger();
+    }
+
+    // Load Dashboard Stats & Table
+    async function loadDashboard() {
+      try {
+        const res = await fetch(`${API_BASE}/admin/stats`, {
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const json = await res.json();
+        if (json.success) {
+          const s = json.stats;
+          document.getElementById('stat-total-pots').innerText = s.total_lotteries;
+          document.getElementById('stat-active-pots').innerText = s.active_lotteries;
+          document.getElementById('stat-tickets-sold').innerText = s.total_tickets_sold;
+          document.getElementById('stat-coin-revenue').innerText = s.total_revenue.toLocaleString();
+          document.getElementById('stat-prizes-coins').innerText = s.total_prizes_distributed.toLocaleString();
+        }
+
+        // Active pots
+        const potsRes = await fetch(`${API_BASE}/admin/lotteries?status=ACTIVE`, {
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const potsJson = await potsRes.json();
+        const tbody = document.getElementById('dashboard-lotteries-tbody');
+        tbody.innerHTML = '';
+
+        if (!potsJson.lotteries || potsJson.lotteries.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No active lotteries running</td></tr>`;
+          return;
+        }
+
+        potsJson.lotteries.forEach(l => {
+          tbody.innerHTML += `
+            <tr>
+              <td>#${l.id}</td>
+              <td style="font-weight: 700;">${l.title}</td>
+              <td style="color: var(--gold);">${l.prize_title}</td>
+              <td>${l.sold_seats} / ${l.total_seats} (${l.remaining_seats} left)</td>
+              <td>🪙 ${l.ticket_price}</td>
+              <td><span class="badge badge-${l.status}">${l.status}</span></td>
+              <td>
+                <button class="btn btn-outline btn-sm" onclick="triggerDraw(${l.id})">🏆 Draw Winners</button>
+              </td>
+            </tr>
+          `;
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // Load All Lotteries
+    async function loadLotteries() {
+      const status = document.getElementById('filter-status').value;
+      const res = await fetch(`${API_BASE}/admin/lotteries?status=${status}`, {
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      const json = await res.json();
+      const tbody = document.getElementById('all-lotteries-tbody');
+      tbody.innerHTML = '';
+
+      (json.lotteries || []).forEach(l => {
+        tbody.innerHTML += `
+          <tr>
+            <td>#${l.id}</td>
+            <td style="font-weight: 700;">${l.title}</td>
+            <td>${l.prize_title}</td>
+            <td>${l.sold_seats} / ${l.total_seats}</td>
+            <td>🪙 ${l.ticket_price}</td>
+            <td><span class="badge badge-${l.status}">${l.status}</span></td>
+            <td style="font-size: 11px; color: var(--text-muted);">${new Date(l.start_time).toLocaleDateString()} - ${new Date(l.end_time).toLocaleDateString()}</td>
+            <td>
+              <div style="display: flex; gap: 4px;">
+                ${l.status === 'ACTIVE' || l.status === 'CLOSED' ? `<button class="btn btn-gold btn-sm" onclick="triggerDraw(${l.id})">Draw</button>` : ''}
+                ${l.status === 'ACTIVE' ? `<button class="btn btn-outline btn-sm" onclick="updateStatus(${l.id}, 'PAUSED')">Pause</button>` : ''}
+                ${l.status === 'PAUSED' ? `<button class="btn btn-outline btn-sm" onclick="updateStatus(${l.id}, 'ACTIVE')">Resume</button>` : ''}
+                ${l.sold_seats === 0 ? `<button class="btn btn-red btn-sm" onclick="deleteLottery(${l.id})">Delete</button>` : ''}
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    async function updateStatus(id, newStatus) {
+      if (!confirm(`Set Lottery #${id} to ${newStatus}?`)) return;
+      const res = await fetch(`${API_BASE}/admin/lottery/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+        body: JSON.stringify({ status: newStatus })
+      });
+      loadLotteries();
+    }
+
+    async function deleteLottery(id) {
+      if (!confirm(`Delete Lottery #${id}?`)) return;
+      await fetch(`${API_BASE}/admin/lottery/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      loadLotteries();
+    }
+
+    // Draw Winners Action
+    async function triggerDraw(lotteryId) {
+      if (!confirm(`Are you sure you want to trigger the draw for Lottery #${lotteryId}? Winners will be selected from sold tickets and coin prizes credited immediately.`)) return;
+
+      const res = await fetch(`${API_BASE}/admin/lottery/${lotteryId}/draw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        loadDashboard();
+        loadLotteries();
+      } else {
+        alert(data.error || 'Failed to draw winners');
+      }
+    }
+
+    // Inspector Dropdown & Tickets
+    async function loadInspectorDropdown() {
+      const res = await fetch(`${API_BASE}/admin/lotteries?status=ALL`, {
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      const json = await res.json();
+      const sel = document.getElementById('inspector-pot-select');
+      sel.innerHTML = '<option value="">-- Choose Lottery --</option>';
+      (json.lotteries || []).forEach(l => {
+        sel.innerHTML += `<option value="${l.id}">#${l.id} - ${l.title} (${l.sold_seats} tickets)</option>`;
+      });
+    }
+
+    async function loadInspectorTickets() {
+      const id = document.getElementById('inspector-pot-select').value;
+      if (!id) return;
+      const res = await fetch(`${API_BASE}/admin/lottery/${id}/tickets`, {
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      const json = await res.json();
+      const tbody = document.getElementById('inspector-tickets-tbody');
+      tbody.innerHTML = '';
+
+      if (!json.tickets || json.tickets.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No tickets purchased for this lottery yet.</td></tr>`;
+        return;
+      }
+
+      json.tickets.forEach(t => {
+        tbody.innerHTML += `
+          <tr>
+            <td style="font-weight: 800; font-family: var(--font-mono); color: var(--gold);">#${t.ticket_number}</td>
+            <td style="font-weight: 600;">${t.username}</td>
+            <td>${t.user_id}</td>
+            <td>🪙 ${t.coin_price}</td>
+            <td>${new Date(t.purchased_at).toLocaleString()}</td>
+            <td>${t.is_winner ? `<span class="badge badge-ACTIVE">WINNER (Rank #${t.winner_position})</span>` : 'Participant'}</td>
+          </tr>
+        `;
+      });
+    }
+
+    // Winners Ledger
+    async function loadWinnersLedger() {
+      const res = await fetch(`${API_BASE}/winners/all`, {
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      const json = await res.json();
+      const tbody = document.getElementById('winners-tbody');
+      tbody.innerHTML = '';
+
+      (json.winners || []).forEach(w => {
+        tbody.innerHTML += `
+          <tr>
+            <td>#${w.lottery_id}</td>
+            <td style="font-weight: 700;">${w.lottery_title}</td>
+            <td><span class="badge badge-ACTIVE">Rank #${w.winner_position}</span></td>
+            <td style="font-weight: 700;">${w.username}</td>
+            <td style="font-family: var(--font-mono); color: var(--gold);">Ticket #${w.ticket_number}</td>
+            <td>${w.prize_title}</td>
+            <td style="font-size: 12px; color: var(--text-muted);">${new Date(w.published_at).toLocaleString()}</td>
+          </tr>
+        `;
+      });
+    }
+
+    // Create Modal Handlers & Dynamic Prizes
+    function openCreateModal() {
+      const now = new Date();
+      const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      document.getElementById('p-start').value = now.toISOString().slice(0, 16);
+      document.getElementById('p-end').value = nextWeek.toISOString().slice(0, 16);
+      document.getElementById('modal-create').classList.add('active');
+    }
+
+    function closeCreateModal() {
+      document.getElementById('modal-create').classList.remove('active');
+    }
+
+    let rankCounter = 1;
+    function initPrizeDefaults() {
+      const container = document.getElementById('prize-tiers-container');
+      container.innerHTML = '';
+      rankCounter = 1;
+      addPrizeTier(10000);
+      addPrizeTier(5000);
+      addPrizeTier(2500);
+    }
+
+    function addPrizeTier(defaultCoin = 1000) {
+      const container = document.getElementById('prize-tiers-container');
+      const div = document.createElement('div');
+      div.className = 'prize-row';
+      div.innerHTML = `
+        <span style="font-size: 12px; font-weight: 700; width: 60px;">Rank #${rankCounter}</span>
+        <input type="number" class="form-control p-rank-pos" value="${rankCounter}" style="display:none;">
+        <input type="text" class="form-control p-rank-title" value="Rank #${rankCounter} Prize" style="flex:2;" placeholder="Prize Label">
+        <input type="number" class="form-control p-rank-coin" value="${defaultCoin}" style="flex:1;" placeholder="Coins">
+        <button type="button" class="btn btn-red btn-sm" onclick="this.parentElement.remove()">✕</button>
+      `;
+      container.appendChild(div);
+      rankCounter++;
+    }
+
+    async function submitCreatePot(e) {
+      e.preventDefault();
+
+      const prizeRows = document.querySelectorAll('.prize-row');
+      const prizes = [];
+      prizeRows.forEach(row => {
+        prizes.push({
+          winner_position: parseInt(row.querySelector('.p-rank-pos').value, 10),
+          prize_title: row.querySelector('.p-rank-title').value,
+          prize_type: 'COINS',
+          prize_amount: parseInt(row.querySelector('.p-rank-coin').value, 10) || 0
+        });
+      });
+
+      const payload = {
+        title: document.getElementById('p-title').value,
+        prize_title: document.getElementById('p-prize').value,
+        description: document.getElementById('p-desc').value,
+        total_seats: parseInt(document.getElementById('p-seats').value, 10),
+        ticket_price: parseInt(document.getElementById('p-price').value, 10),
+        user_ticket_limit: parseInt(document.getElementById('p-limit').value, 10),
+        start_time: new Date(document.getElementById('p-start').value).toISOString(),
+        end_time: new Date(document.getElementById('p-end').value).toISOString(),
+        is_featured: document.getElementById('p-featured').checked,
+        winner_count: prizes.length,
+        prizes
+      };
+
+      const res = await fetch(`${API_BASE}/admin/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert('🎉 Lottery published successfully!');
+        closeCreateModal();
+        loadDashboard();
+        loadLotteries();
+      } else {
+        alert(data.error || 'Failed to create lottery');
+      }
+    }
+  </script>
+</body>
+</html>
