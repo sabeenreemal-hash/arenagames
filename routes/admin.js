@@ -313,11 +313,12 @@ db.serialize(() => {
     }
   });
 
-  // Ensure user ban, FCM, and activity columns exist
+  // Ensure user ban, FCM, activity, and withdrawal rejection reason columns exist
   addColumnSafe('users', 'ban_reason', 'TEXT', 'NULL');
   addColumnSafe('users', 'fcm_token', 'TEXT', 'NULL');
   addColumnSafe('users', 'fcm_updated_at', 'DATETIME', 'NULL');
   addColumnSafe('users', 'last_active_at', 'DATETIME', 'NULL');
+  addColumnSafe('withdrawals', 'rejection_reason', 'TEXT', 'NULL');
 });
 
 // ---------------------------------------------------------------------------
@@ -1655,7 +1656,7 @@ router.post('/payment-methods', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// G. Withdrawals Pipeline (Supports Paginated & Backward-Compatible Mode)
+// G. Withdrawals Pipeline (Includes rejection_reason & Prompt Support)
 // ---------------------------------------------------------------------------
 router.get('/withdrawals', adminAuth, (req, res) => {
   const hasPagination = req.query.page !== undefined;
@@ -1671,6 +1672,7 @@ router.get('/withdrawals', adminAuth, (req, res) => {
         w.coin_amount,
         w.npr_amount,
         w.status,
+        w.rejection_reason,
         w.created_at,
         u.username
        FROM withdrawals w 
@@ -1721,6 +1723,7 @@ router.get('/withdrawals', adminAuth, (req, res) => {
           w.coin_amount,
           w.npr_amount,
           w.status,
+          w.rejection_reason,
           w.created_at,
           u.username
          FROM withdrawals w 
@@ -1745,11 +1748,15 @@ router.get('/withdrawals', adminAuth, (req, res) => {
 });
 
 router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
-  const { status } = req.body;
+  const { status, reason } = req.body;
   const withdrawalId = req.params.id;
 
   if (!['APPROVED', 'REJECTED'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
+  }
+
+  if (status === 'REJECTED' && (!reason || !String(reason).trim())) {
+    return res.status(400).json({ error: 'Rejection reason is required' });
   }
 
   db.get(
@@ -1761,6 +1768,7 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
 
       const nowIso = new Date().toISOString();
       const targetUser = record.username ? `@${record.username}` : `User #${record.user_id}`;
+      const cleanReason = reason ? String(reason).trim() : null;
 
       if (status === 'APPROVED') {
         db.run(
@@ -1788,8 +1796,8 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
         );
       } else {
         db.run(
-          'UPDATE withdrawals SET status = ?, processed_at = ? WHERE id = ?',
-          ['REJECTED', nowIso, withdrawalId],
+          'UPDATE withdrawals SET status = ?, rejection_reason = ?, processed_at = ? WHERE id = ?',
+          ['REJECTED', cleanReason, nowIso, withdrawalId],
           () => {
             logAdminActivity(
               req,
@@ -1797,9 +1805,9 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
               'withdrawal',
               withdrawalId,
               targetUser,
-              `Rejected ${record.coin_amount} coins via ${record.payment_method}`
+              `Rejected ${record.coin_amount} coins via ${record.payment_method} — Reason: ${cleanReason}`
             );
-            res.json({ success: true });
+            res.json({ success: true, rejection_reason: cleanReason });
           }
         );
       }
