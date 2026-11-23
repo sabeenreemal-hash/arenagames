@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Arena Games — High or Low Master Administration</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #0b0e14; color: #e2e8f0; font-family: ui-sans-serif, system-ui, sans-serif; }
+    .glass { background: rgba(22, 27, 46, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .card-red { color: #f87171; }
+    .card-black { color: #94a3b8; }
+  </style>
+</head>
+<body class="flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <aside class="w-64 glass flex flex-col justify-between border-r border-slate-800">
+    <div>
+      <div class="p-6 border-b border-slate-800 flex items-center space-x-3">
+        <span class="text-3xl">🃏</span>
+        <div>
+          <h1 class="font-extrabold text-lg text-white leading-tight">High or Low</h1>
+          <span class="text-xs text-indigo-400 font-semibold tracking-wider uppercase">Arena Engine v2.0</span>
+        </div>
+      </div>
+      <nav class="mt-4 px-4 space-y-1">
+        <button onclick="switchTab('dashboard')" id="nav-dashboard" class="w-full flex items-center px-4 py-3 rounded-xl text-sm font-medium transition bg-indigo-600 text-white">
+          <i class="fa-solid fa-chart-pie w-6"></i> Dashboard
+        </button>
+        <button onclick="switchTab('live')" id="nav-live" class="w-full flex items-center px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-slate-800 transition">
+          <i class="fa-solid fa-satellite-dish w-6"></i> Live Games
+        </button>
+        <button onclick="switchTab('target')" id="nav-target" class="w-full flex items-center px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-slate-800 transition">
+          <i class="fa-solid fa-user-shield w-6"></i> Target Users
+        </button>
+        <button onclick="switchTab('config')" id="nav-config" class="w-full flex items-center px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-slate-800 transition">
+          <i class="fa-solid fa-sliders w-6"></i> Configuration
+        </button>
+        <button onclick="switchTab('sandbox')" id="nav-sandbox" class="w-full flex items-center px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-slate-800 transition">
+          <i class="fa-solid fa-vial w-6"></i> Card Sandbox
+        </button>
+      </nav>
+    </div>
+    <div class="p-4 border-t border-slate-800">
+      <div class="text-xs text-slate-500 text-center">Fairness Enforced • Pure RNG</div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="flex-1 flex flex-col overflow-y-auto">
+    <!-- Header -->
+    <header class="h-16 glass border-b border-slate-800 flex items-center justify-between px-8">
+      <div id="page-title" class="font-bold text-xl text-white">Dashboard Overview</div>
+      <div class="flex items-center space-x-4">
+        <input id="admin-token" type="password" placeholder="Paste Bearer Token" class="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500 w-48">
+        <button onclick="refreshData()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded-lg font-medium">Sync Data</button>
+      </div>
+    </header>
+
+    <div class="p-8 space-y-8">
+      
+      <!-- DASHBOARD TAB -->
+      <section id="tab-dashboard" class="space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div class="glass p-5 rounded-2xl">
+            <div class="text-slate-400 text-xs font-semibold uppercase">Total Games Played</div>
+            <div id="stat-total-games" class="text-3xl font-extrabold text-white mt-2">0</div>
+          </div>
+          <div class="glass p-5 rounded-2xl">
+            <div class="text-slate-400 text-xs font-semibold uppercase">Coins Collected (Entry)</div>
+            <div id="stat-coins-in" class="text-3xl font-extrabold text-amber-400 mt-2">0</div>
+          </div>
+          <div class="glass p-5 rounded-2xl">
+            <div class="text-slate-400 text-xs font-semibold uppercase">Coins Rewarded</div>
+            <div id="stat-coins-out" class="text-3xl font-extrabold text-emerald-400 mt-2">0</div>
+          </div>
+          <div class="glass p-5 rounded-2xl">
+            <div class="text-slate-400 text-xs font-semibold uppercase">Highest Claimed Reward</div>
+            <div id="stat-highest-win" class="text-3xl font-extrabold text-purple-400 mt-2">0</div>
+          </div>
+        </div>
+
+        <div class="glass rounded-2xl p-6">
+          <h2 class="text-lg font-bold text-white mb-4">Recent Games Activity</h2>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs text-slate-300">
+              <thead class="text-slate-500 uppercase border-b border-slate-800">
+                <tr>
+                  <th class="py-3 px-4">Game ID</th>
+                  <th class="py-3 px-4">Player</th>
+                  <th class="py-3 px-4">Consecutive Wins</th>
+                  <th class="py-3 px-4">Claimed Coins</th>
+                  <th class="py-3 px-4">Status</th>
+                  <th class="py-3 px-4">Started At</th>
+                </tr>
+              </thead>
+              <tbody id="recent-games-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- LIVE GAMES TAB -->
+      <section id="tab-live" class="hidden space-y-6">
+        <div class="glass rounded-2xl p-6">
+          <h2 class="text-lg font-bold text-white mb-4">Ongoing Live Sessions</h2>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs text-slate-300">
+              <thead class="text-slate-500 uppercase border-b border-slate-800">
+                <tr>
+                  <th class="py-3 px-4">Game ID</th>
+                  <th class="py-3 px-4">User</th>
+                  <th class="py-3 px-4">Current Card</th>
+                  <th class="py-3 px-4">Streak</th>
+                  <th class="py-3 px-4">Current Potential</th>
+                  <th class="py-3 px-4">Action</th>
+                </tr>
+              </thead>
+              <tbody id="live-games-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- CONFIG TAB -->
+      <section id="tab-config" class="hidden space-y-6">
+        <div class="glass rounded-2xl p-6 max-w-2xl">
+          <h2 class="text-lg font-bold text-white mb-4">Game Engine Rules</h2>
+          <div class="space-y-4 text-sm">
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Entry Fee (Coins)</label>
+              <input id="cfg-entry" type="number" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg text-white">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Min Consecutive Wins for Claim Option</label>
+              <input id="cfg-minwins" type="number" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg text-white">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Ace Ranking Rule</label>
+              <select id="cfg-ace" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg text-white">
+                <option value="HIGHEST">Ace is Highest (2 < ... < K < A)</option>
+                <option value="LOWEST">Ace is Lowest (A < 2 < ... < K)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Equal Rank (Tie) Rule</label>
+              <select id="cfg-tie" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg text-white">
+                <option value="LOSE">Tie is a Loss</option>
+                <option value="PUSH">Tie is Push (Keep Potential & Try Next)</option>
+                <option value="WIN">Tie is a Win</option>
+              </select>
+            </div>
+            <button onclick="saveConfig()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-medium mt-4">Save Engine Config</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- SANDBOX TAB -->
+      <section id="tab-sandbox" class="hidden space-y-6">
+        <div class="glass rounded-2xl p-6 max-w-xl">
+          <div class="bg-amber-500/10 border border-amber-500/20 text-amber-300 p-4 rounded-xl text-xs mb-6">
+            <i class="fa-solid fa-triangle-exclamation mr-1"></i> Sandbox Test Mode: Simulated test outcomes are isolated and never impact player balances.
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs text-slate-400 mb-1 block">Current Card Rank</label>
+              <select id="sb-cur" class="w-full bg-slate-900 border border-slate-700 p-2 rounded-lg text-white">
+                <option>A</option><option>K</option><option>Q</option><option>J</option><option>10</option><option>9</option><option>8</option><option>7</option><option>6</option><option>5</option><option>4</option><option>3</option><option>2</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400 mb-1 block">Revealed Card Rank</label>
+              <select id="sb-rev" class="w-full bg-slate-900 border border-slate-700 p-2 rounded-lg text-white">
+                <option>A</option><option>K</option><option>Q</option><option>J</option><option>10</option><option>9</option><option>8</option><option>7</option><option>6</option><option>5</option><option>4</option><option>3</option><option>2</option>
+              </select>
+            </div>
+          </div>
+          <div class="mt-4">
+            <label class="text-xs text-slate-400 mb-1 block">Prediction</label>
+            <select id="sb-pred" class="w-full bg-slate-900 border border-slate-700 p-2 rounded-lg text-white">
+              <option value="HIGHER">HIGHER</option>
+              <option value="LOWER">LOWER</option>
+            </select>
+          </div>
+          <button onclick="runSandboxTest()" class="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-xl">Execute Simulation</button>
+          <div id="sb-output" class="mt-4 p-4 glass rounded-xl text-xs font-mono text-emerald-400 hidden"></div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <script>
+    function getToken() { return document.getElementById('admin-token').value; }
+
+    function switchTab(tab) {
+      ['dashboard', 'live', 'target', 'config', 'sandbox'].forEach(t => {
+        const el = document.getElementById(`tab-${t}`);
+        const btn = document.getElementById(`nav-${t}`);
+        if (el) el.classList.add('hidden');
+        if (btn) {
+          btn.classList.remove('bg-indigo-600', 'text-white');
+          btn.classList.add('text-slate-400');
+        }
+      });
+      document.getElementById(`tab-${tab}`).classList.remove('hidden');
+      const activeBtn = document.getElementById(`nav-${tab}`);
+      if (activeBtn) {
+        activeBtn.classList.add('bg-indigo-600', 'text-white');
+        activeBtn.classList.remove('text-slate-400');
+      }
+      document.getElementById('page-title').innerText = tab.toUpperCase();
+    }
+
+    async function refreshData() {
+      const token = getToken();
+      if (!token) return alert('Enter Bearer token to authorize admin requests');
+
+      // Load Dashboard
+      try {
+        const res = await fetch('/api/admin/high-low/dashboard', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.summary) {
+          document.getElementById('stat-total-games').innerText = data.summary.total_games || 0;
+          document.getElementById('stat-coins-in').innerText = (data.summary.total_coins_collected || 0).toLocaleString();
+          document.getElementById('stat-coins-out').innerText = (data.summary.total_coins_rewarded || 0).toLocaleString();
+          document.getElementById('stat-highest-win').innerText = (data.summary.highest_reward_claimed || 0).toLocaleString();
+        }
+        if (data.recentGames) {
+          const tbody = document.getElementById('recent-games-table');
+          tbody.innerHTML = data.recentGames.map(g => `
+            <tr class="border-b border-slate-800">
+              <td class="py-3 px-4 font-mono">${g.id}</td>
+              <td class="py-3 px-4 font-semibold text-white">${g.username}</td>
+              <td class="py-3 px-4">${g.consecutive_wins}</td>
+              <td class="py-3 px-4 font-bold text-emerald-400">+${g.claimed_reward || 0}</td>
+              <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs ${g.status === 'CLAIMED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}">${g.status}</span></td>
+              <td class="py-3 px-4 text-slate-500">${g.started_at}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (e) {
+        console.error(e);
+      }
+
+      // Load Live Games
+      try {
+        const res = await fetch('/api/admin/high-low/live', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.liveGames) {
+          const tbody = document.getElementById('live-games-table');
+          tbody.innerHTML = data.liveGames.map(g => {
+            const card = JSON.parse(g.current_card || '{}');
+            return `
+              <tr class="border-b border-slate-800">
+                <td class="py-3 px-4 font-mono">${g.id}</td>
+                <td class="py-3 px-4 text-white">${g.username}</td>
+                <td class="py-3 px-4 font-bold text-amber-400">${card.display || ''}</td>
+                <td class="py-3 px-4">${g.consecutive_wins}</td>
+                <td class="py-3 px-4 font-bold text-indigo-400">${g.potential_reward}</td>
+                <td class="py-3 px-4">
+                  <button onclick="cancelGame('${g.id}')" class="bg-rose-600/80 hover:bg-rose-600 text-white px-2.5 py-1 rounded text-xs">Void & Refund</button>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+      } catch (e) {}
+
+      // Load Config
+      try {
+        const res = await fetch('/api/admin/high-low/config', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.config) {
+          document.getElementById('cfg-entry').value = data.config.entryCost || 500;
+          document.getElementById('cfg-minwins').value = data.config.minWinsForClaim || 3;
+          document.getElementById('cfg-ace').value = data.config.aceRule || 'HIGHEST';
+          document.getElementById('cfg-tie').value = data.config.tieRule || 'LOSE';
+        }
+      } catch (e) {}
+    }
+
+    async function saveConfig() {
+      const token = getToken();
+      const payload = {
+        entryCost: parseInt(document.getElementById('cfg-entry').value, 10),
+        minWinsForClaim: parseInt(document.getElementById('cfg-minwins').value, 10),
+        aceRule: document.getElementById('cfg-ace').value,
+        tieRule: document.getElementById('cfg-tie').value
+      };
+      const res = await fetch('/api/admin/high-low/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success) alert('Configuration saved successfully!');
+    }
+
+    async function cancelGame(gameId) {
+      if (!confirm(`Cancel game ${gameId} and refund the user?`)) return;
+      const token = getToken();
+      const res = await fetch('/api/admin/high-low/game/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ gameId, reason: 'Admin technical cancellation' })
+      });
+      const data = await res.json();
+      alert(data.message || 'Game cancelled');
+      refreshData();
+    }
+
+    async function runSandboxTest() {
+      const token = getToken();
+      const payload = {
+        currentRank: document.getElementById('sb-cur').value,
+        revealedRank: document.getElementById('sb-rev').value,
+        prediction: document.getElementById('sb-pred').value
+      };
+      const res = await fetch('/api/admin/high-low/sandbox/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      const out = document.getElementById('sb-output');
+      out.classList.remove('hidden');
+      out.innerText = JSON.stringify(data, null, 2);
+    }
+  </script>
+</body>
+</html>
