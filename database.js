@@ -60,7 +60,7 @@ db.serialize(() => {
   db.run('PRAGMA cache_size = -16000;', () => {});
 
   // ==========================================
-  // 2. Schema Definitions (Tables Created First)
+  // 2. Core Games Table
   // ==========================================
   db.run(`
     CREATE TABLE IF NOT EXISTS games (
@@ -72,7 +72,9 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Users Table (includes weekly_coins + FCM & activity tracking)
+  // ==========================================
+  // 3. Users Table
+  // ==========================================
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,7 +116,6 @@ db.serialize(() => {
   // Column safety migrations for Users
   addColumnIfNotExists('users', 'total_coins_earned', 'INTEGER', 100);
   addColumnIfNotExists('users', 'weekly_coins', 'INTEGER', 0, () => {
-    // Ensure trigger + index are created ONLY after weekly_coins column exists
     db.run(`
       CREATE TRIGGER IF NOT EXISTS trg_sync_weekly_coins
       AFTER UPDATE OF total_coins_earned ON users
@@ -149,7 +150,9 @@ db.serialize(() => {
   addColumnIfNotExists('users', 'fcm_updated_at', 'DATETIME', 'NULL');
   addColumnIfNotExists('users', 'registration_ip', 'TEXT', 'NULL');
 
-  // Weekly Leaderboard Winners History Table
+  // ==========================================
+  // 4. Leaderboard & Badges
+  // ==========================================
   db.run(`
     CREATE TABLE IF NOT EXISTS leaderboard_winners (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -164,7 +167,6 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Badges Table
   db.run(`
     CREATE TABLE IF NOT EXISTS badges (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,7 +182,6 @@ db.serialize(() => {
     VALUES (1, 'Official Creator', 'https://cdn-icons-png.flaticon.com/512/7653/7653930.png', 1)
   `, () => {});
 
-  // Creator Rewards Table
   db.run(`
     CREATE TABLE IF NOT EXISTS creator_rewards (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -193,7 +194,9 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Active Game Sessions Table
+  // ==========================================
+  // 5. Game Sessions & Transactions
+  // ==========================================
   db.run(`
     CREATE TABLE IF NOT EXISTS game_sessions (
       id TEXT PRIMARY KEY,
@@ -207,7 +210,6 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Transactions Table
   db.run(`
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -220,7 +222,6 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Withdrawals Table
   db.run(`
     CREATE TABLE IF NOT EXISTS withdrawals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -242,7 +243,9 @@ db.serialize(() => {
   addColumnIfNotExists('withdrawals', 'inr_amount', 'REAL', 0.0);
   addColumnIfNotExists('withdrawals', 'processed_at', 'DATETIME', 'NULL');
 
-  // Global Configuration Table
+  // ==========================================
+  // 6. Global Configuration
+  // ==========================================
   db.run(`
     CREATE TABLE IF NOT EXISTS app_config (
       key TEXT PRIMARY KEY,
@@ -269,7 +272,9 @@ db.serialize(() => {
   ]);
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('payment_methods', ?)`, [defaultGateways], () => {});
 
-  // Admins Table + Online Tracking Columns
+  // ==========================================
+  // 7. Admins & Logs
+  // ==========================================
   db.run(`
     CREATE TABLE IF NOT EXISTS admins (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -294,14 +299,12 @@ db.serialize(() => {
     addColumnIfNotExists('admins', 'total_online_seconds', 'INTEGER', 0);
     addColumnIfNotExists('admins', 'daily_online_seconds', 'INTEGER', 0);
     addColumnIfNotExists('admins', 'daily_online_date', 'TEXT', "''");
-    addColumnIfNotExists('admins', 'created_at', 'TEXT', 'NULL');
 
     db.get('SELECT COUNT(*) as count FROM admins', (err, row) => {
       if (row && row.count === 0) {
         const defaultUser = 'admin';
         const defaultPass = 'admin123';
         const hash = bcrypt.hashSync(defaultPass, 10);
-
         db.run(
           'INSERT INTO admins (username, full_name, password_hash) VALUES (?, ?, ?)',
           [defaultUser, 'Master Admin', hash],
@@ -313,7 +316,6 @@ db.serialize(() => {
     });
   });
 
-  // Admin Activity Logs Table (for Master Admin Audit)
   db.run(`
     CREATE TABLE IF NOT EXISTS admin_activity_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -329,28 +331,11 @@ db.serialize(() => {
   `, () => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_activity_logs(id DESC);`, () => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_admin ON admin_activity_logs(admin_username, id DESC);`, () => {});
-    db.run(`CREATE INDEX IF NOT EXISTS idx_admin_logs_action ON admin_activity_logs(action_type, id DESC);`, () => {});
   });
 
-  // Push Notifications History Table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS push_notifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      admin_username TEXT NOT NULL,
-      target_type TEXT NOT NULL,
-      target_user_id INTEGER DEFAULT NULL,
-      target_label TEXT DEFAULT '',
-      title TEXT NOT NULL,
-      body TEXT NOT NULL,
-      screen TEXT DEFAULT '',
-      targeted_count INTEGER DEFAULT 0,
-      success_count INTEGER DEFAULT 0,
-      failure_count INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `, () => {});
-
-  // Spin Wheel Schema
+  // ==========================================
+  // 8. Spin, Tasks & Mini-Games
+  // ==========================================
   db.run(`
     CREATE TABLE IF NOT EXISTS user_spin_state (
       user_id INTEGER NOT NULL,
@@ -382,7 +367,6 @@ db.serialize(() => {
     )
   `, () => {});
 
-  // Tasks Schema
   db.run(`
     CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -412,57 +396,6 @@ db.serialize(() => {
     )
   `, () => {});
 
-  addColumnIfNotExists('tasks', 'action_url', 'TEXT', "''");
-  addColumnIfNotExists('tasks', 'is_active', 'INTEGER', 1);
-  addColumnIfNotExists('task_submissions', 'proof_text', 'TEXT', "''");
-  addColumnIfNotExists('task_submissions', 'rejection_reason', 'TEXT', "''");
-
-  // Tic-Tac-Toe Schema
-  db.run(`
-    CREATE TABLE IF NOT EXISTS tictactoe_matches (
-      id TEXT PRIMARY KEY,
-      player_x_id INTEGER NOT NULL,
-      player_o_id INTEGER NOT NULL,
-      player_x_name TEXT NOT NULL,
-      player_o_name TEXT NOT NULL,
-      current_turn INTEGER NOT NULL,
-      board TEXT NOT NULL DEFAULT '["","","","","","","","",""]',
-      status TEXT CHECK(status IN ('IN_PROGRESS', 'COMPLETED', 'DRAW', 'ABANDONED')) DEFAULT 'IN_PROGRESS',
-      winner_id INTEGER DEFAULT NULL,
-      winning_line TEXT DEFAULT NULL,
-      pot_amount INTEGER DEFAULT 200,
-      last_move_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(player_x_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY(player_o_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `, () => {});
-
-  // Rock Paper Scissors Schema
-  db.run(`
-    CREATE TABLE IF NOT EXISTS rps_matches (
-      id TEXT PRIMARY KEY,
-      player_a_id INTEGER NOT NULL,
-      player_b_id INTEGER NOT NULL,
-      player_a_name TEXT NOT NULL,
-      player_b_name TEXT NOT NULL,
-      player_a_score INTEGER DEFAULT 0,
-      player_b_score INTEGER DEFAULT 0,
-      current_round INTEGER DEFAULT 1,
-      player_a_choice TEXT DEFAULT NULL,
-      player_b_choice TEXT DEFAULT NULL,
-      round_start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-      last_round_result TEXT DEFAULT NULL,
-      status TEXT CHECK(status IN ('IN_PROGRESS', 'ROUND_REVEAL', 'COMPLETED', 'DRAW', 'ABANDONED')) DEFAULT 'IN_PROGRESS',
-      winner_id INTEGER DEFAULT NULL,
-      pot_amount INTEGER DEFAULT 200,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(player_a_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY(player_b_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `, () => {});
-
-  // Universal Cloud Game Progress Table
   db.run(`
     CREATE TABLE IF NOT EXISTS user_game_data (
       user_id INTEGER NOT NULL,
@@ -476,11 +409,89 @@ db.serialize(() => {
     )
   `, () => {});
 
-  addColumnIfNotExists('user_game_data', 'level', 'INTEGER', 1);
-  addColumnIfNotExists('user_game_data', 'data', 'TEXT', "'{}'");
-  addColumnIfNotExists('user_game_data', 'updated_at', 'DATETIME', 'CURRENT_TIMESTAMP');
+  // ==========================================
+  // 9. ARENA POT LOTTERY SYSTEM TABLES
+  // ==========================================
 
-  // Register Allowed Games
+  // Arena Pot Lotteries
+  db.run(`
+    CREATE TABLE IF NOT EXISTS arena_pot_lotteries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      prize_title TEXT NOT NULL,
+      prize_image TEXT DEFAULT '',
+      description TEXT DEFAULT '',
+      total_seats INTEGER NOT NULL,
+      sold_seats INTEGER DEFAULT 0,
+      ticket_price INTEGER NOT NULL DEFAULT 50,
+      user_ticket_limit INTEGER DEFAULT 0,
+      start_time DATETIME NOT NULL,
+      end_time DATETIME NOT NULL,
+      winner_count INTEGER DEFAULT 1,
+      status TEXT CHECK(status IN ('DRAFT', 'UPCOMING', 'ACTIVE', 'PAUSED', 'CLOSED', 'RESULTS_PUBLISHED', 'COMPLETED', 'CANCELLED')) DEFAULT 'DRAFT',
+      is_featured INTEGER DEFAULT 0,
+      created_by INTEGER DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `, () => {});
+
+  // Arena Pot Tickets
+  db.run(`
+    CREATE TABLE IF NOT EXISTS arena_pot_tickets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lottery_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      ticket_number INTEGER NOT NULL,
+      coin_price INTEGER NOT NULL,
+      purchased_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(lottery_id) REFERENCES arena_pot_lotteries(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(lottery_id, ticket_number)
+    )
+  `, () => {});
+
+  // Arena Pot Prizes
+  db.run(`
+    CREATE TABLE IF NOT EXISTS arena_pot_prizes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lottery_id INTEGER NOT NULL,
+      winner_position INTEGER NOT NULL,
+      prize_type TEXT CHECK(prize_type IN ('COINS', 'PHYSICAL', 'CUSTOM')) DEFAULT 'COINS',
+      prize_amount INTEGER DEFAULT 0,
+      prize_title TEXT NOT NULL,
+      delivery_status TEXT DEFAULT 'PENDING',
+      FOREIGN KEY(lottery_id) REFERENCES arena_pot_lotteries(id) ON DELETE CASCADE
+    )
+  `, () => {});
+
+  // Arena Pot Winners
+  db.run(`
+    CREATE TABLE IF NOT EXISTS arena_pot_winners (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lottery_id INTEGER NOT NULL,
+      ticket_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      winner_position INTEGER NOT NULL,
+      prize_id INTEGER,
+      prize_title TEXT NOT NULL,
+      prize_type TEXT NOT NULL,
+      prize_amount INTEGER DEFAULT 0,
+      published_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(lottery_id) REFERENCES arena_pot_lotteries(id) ON DELETE CASCADE,
+      FOREIGN KEY(ticket_id) REFERENCES arena_pot_tickets(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(prize_id) REFERENCES arena_pot_prizes(id) ON DELETE SET NULL
+    )
+  `, () => {});
+
+  // Arena Pot Indexes
+  db.run(`CREATE INDEX IF NOT EXISTS idx_arena_pot_lotteries_status ON arena_pot_lotteries(status);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_arena_pot_tickets_lottery_user ON arena_pot_tickets(lottery_id, user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_arena_pot_tickets_user ON arena_pot_tickets(user_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_arena_pot_winners_lottery ON arena_pot_winners(lottery_id);`, () => {});
+
+  // Safe Standard Game Initializers
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('dot_connect', 'Dot Connect', 1000, 10.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('spin_wheel', 'Spin Wheel', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('mines', 'Mines Puzzle', 5000, 1.0, 1)`, () => {});
@@ -488,46 +499,11 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memory_match', 'Memory Match', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memoryMatch', 'Memory Match', 5000, 1.0, 1)`, () => {});
 
-  db.run(`UPDATE games SET is_enabled = 1, max_daily_reward = 5000 WHERE id IN ('color_tap', 'mines', 'memory_match', 'memoryMatch')`, () => {});
-
-  // Cleanup Unused Legacy Games
-  db.run("DELETE FROM game_sessions WHERE game_id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');", () => {});
-  db.run("DELETE FROM games WHERE id IN ('word_puzzle', 'wordpuzzle', 'word', 'arrow_puzzle', 'ball_sort', 'coin_sprint');", () => {});
-  db.run("DROP TABLE IF EXISTS word_puzzle;", () => {});
-  db.run("DROP TABLE IF EXISTS word_puzzles;", () => {});
-
-  // Safe Performance Indexes
+  // Safe General Performance Indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_id);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_users_last_active ON users(last_active_at DESC);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_users_fcm_token ON users(fcm_token);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);`, () => {});
   db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_user ON withdrawals(user_id);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals(status, id DESC);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_game_sessions_user ON game_sessions(user_id);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_creator_rewards_user ON creator_rewards(user_id);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_user_spin_state_user ON user_spin_state(user_id);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_spin_transactions_user ON spin_transactions(user_id);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(is_active);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id);`, () => {});
-  db.run(`CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON task_submissions(status, id DESC);`, () => {});
   db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_game_data_unique ON user_game_data(user_id, game_id);`, () => {});
-
-  // Backfill last_active_at safely
-  db.run(`UPDATE users SET last_active_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE last_active_at IS NULL;`, () => {});
-
-  // ==========================================
-  // AUTO-HEALING MIGRATIONS (Tasks & Screenshots)
-  // ==========================================
-  db.run(`UPDATE tasks SET is_active = 1 WHERE is_active IS NULL;`, () => {});
-
-  db.run(`
-    UPDATE task_submissions
-    SET screenshot_path = '/uploads/task_proofs/' || substr(screenshot_path, instr(screenshot_path, 'proof_'))
-    WHERE screenshot_path LIKE '%proof_%'
-      AND screenshot_path NOT LIKE '/uploads/task_proofs/%';
-  `, () => {});
 });
 
 module.exports = db;
