@@ -14,6 +14,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'arena_games_jwt_secret_key_2025';
 // ---------------------------------------------------------------------------
 
 // Auto-advance lottery status based on real-time schedule and seat capacities
+// Note: PAUSED lotteries are intentionally untouched until admin resumes them
 function syncLotteryStatuses(callback) {
   const nowIso = new Date().toISOString();
   db.serialize(() => {
@@ -180,6 +181,11 @@ router.post('/lottery/:id/buy', authenticateToken, (req, res) => {
         return res.status(404).json({ error: 'Lottery not found.' });
       }
 
+      if (lottery.status === 'PAUSED') {
+        db.run('ROLLBACK');
+        return res.status(400).json({ error: 'This lottery is currently paused by admin.' });
+      }
+
       const nowIso = new Date().toISOString();
       if (lottery.status !== 'ACTIVE' || lottery.end_time <= nowIso) {
         db.run('ROLLBACK');
@@ -332,7 +338,7 @@ router.get('/my-tickets', authenticateToken, (req, res) => {
   const query = `
     SELECT t.id, t.lottery_id, t.ticket_number, t.coin_price, t.purchased_at,
            l.title as lottery_title, l.prize_title, l.status as lottery_status,
-           l.end_time,
+           l.start_time, l.end_time,
            CASE WHEN w.id IS NOT NULL THEN 1 ELSE 0 END AS is_winner,
            w.winner_position, w.prize_title as won_prize
     FROM arena_pot_tickets t
@@ -443,29 +449,31 @@ router.get('/admin/stats', verifyAdminToken, (req, res) => {
 
 // Admin Get Lotteries List
 router.get('/admin/lotteries', verifyAdminToken, (req, res) => {
-  const { status } = req.query;
-  let sql = `
-    SELECT l.*, 
-           (l.total_seats - l.sold_seats) AS remaining_seats,
-           (SELECT COUNT(DISTINCT user_id) FROM arena_pot_tickets WHERE lottery_id = l.id) AS participant_count
-    FROM arena_pot_lotteries l
-  `;
-  const params = [];
+  syncLotteryStatuses(() => {
+    const { status } = req.query;
+    let sql = `
+      SELECT l.*, 
+             (l.total_seats - l.sold_seats) AS remaining_seats,
+             (SELECT COUNT(DISTINCT user_id) FROM arena_pot_tickets WHERE lottery_id = l.id) AS participant_count
+      FROM arena_pot_lotteries l
+    `;
+    const params = [];
 
-  if (status && status !== 'ALL') {
-    sql += ` WHERE l.status = ?`;
-    params.push(status);
-  }
+    if (status && status !== 'ALL') {
+      sql += ` WHERE l.status = ?`;
+      params.push(status);
+    }
 
-  sql += ` ORDER BY l.id DESC`;
+    sql += ` ORDER BY l.id DESC`;
 
-  db.all(sql, params, (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to fetch lotteries.' });
-    res.json({ success: true, lotteries: rows || [] });
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ error: 'Failed to fetch lotteries.' });
+      res.json({ success: true, lotteries: rows || [] });
+    });
   });
 });
 
-// Admin Get Single Lottery with Configured Prizes (Required for the winner picker)
+// Admin Get Single Lottery with Configured Prizes
 router.get('/admin/lottery/:id', verifyAdminToken, (req, res) => {
   const lotteryId = parseInt(req.params.id, 10);
   db.get('SELECT * FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (err, lottery) => {
@@ -577,7 +585,7 @@ router.post('/admin/create', verifyAdminToken, (req, res) => {
   });
 });
 
-// Admin Update Lottery Status
+// Admin Update Lottery Status (ACTIVE, PAUSED, CLOSED, CANCELLED, UPCOMING)
 router.put('/admin/lottery/:id/status', verifyAdminToken, (req, res) => {
   const { status } = req.body;
   const lotteryId = req.params.id;
@@ -597,20 +605,46 @@ router.put('/admin/lottery/:id/status', verifyAdminToken, (req, res) => {
   );
 });
 
-// Admin Delete Draft or Empty Lottery
+// Admin Delete Lottery & All Its History (Tickets, Prizes, Winners)
 router.delete('/admin/lottery/:id', verifyAdminToken, (req, res) => {
-  const lotteryId = req.params.id;
+  const lotteryId = parseInt(req.params.id, 10);
 
-  db.get('SELECT sold_seats, status FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (err, row) => {
-    if (!row) return res.status(404).json({ error: 'Lottery not found.' });
-    if (row.sold_seats > 0) {
-      return res.status(400).json({ error: 'Cannot delete lottery with tickets sold.' });
-    }
+  db.get('SELECT id, title FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (err, row) => {
+    if (err || !row) return res.status(404).json({ error: 'Lottery not found.' });
 
-    db.run('DELETE FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (dErr) => {
-      if (dErr) return res.status(500).json({ error: dErr.message });
-      res.json({ success: true, message: 'Lottery deleted successfully.' });
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      db.run('DELETE FROM arena_pot_winners WHERE lottery_id = ?', [lotteryId]);
+      db.run('DELETE FROM arena_pot_prizes WHERE lottery_id = ?', [lotteryId]);
+      db.run('DELETE FROM arena_pot_tickets WHERE lottery_id = ?', [lotteryId]);
+      db.run('DELETE FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (dErr) => {
+        if (dErr) {
+          db.run('ROLLBACK');
+          return res.status(500).json({ error: 'Failed to delete lottery: ' + dErr.message });
+        }
+        db.run('COMMIT', () => {
+          res.json({ success: true, message: `Lottery #${lotteryId} (${row.title}) and its history deleted.` });
+        });
+      });
     });
+  });
+});
+
+// Admin Delete Single Winner History Record
+router.delete('/admin/winner/:id', verifyAdminToken, (req, res) => {
+  const winnerId = parseInt(req.params.id, 10);
+  db.run('DELETE FROM arena_pot_winners WHERE id = ?', [winnerId], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Winner history record not found.' });
+    res.json({ success: true, message: `Winner history #${winnerId} deleted.` });
+  });
+});
+
+// Admin Clear All Winner History Records
+router.delete('/admin/winners/clear', verifyAdminToken, (req, res) => {
+  db.run('DELETE FROM arena_pot_winners', [], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, message: 'All winner history records cleared.' });
   });
 });
 
@@ -635,9 +669,7 @@ router.get('/admin/lottery/:id/tickets', verifyAdminToken, (req, res) => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 7. Admin Settle & Declare Multiple Winners by Seat Numbers
-// ---------------------------------------------------------------------------
+// Admin Settle & Declare Multiple Winners by Seat Numbers
 router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
   const lotteryId = parseInt(req.params.id, 10);
   const { manual_winners, winning_seat } = req.body;
