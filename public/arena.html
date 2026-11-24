@@ -127,8 +127,6 @@
     .btn-gold:hover { background: var(--gold-light); }
     .btn-outline { background: transparent; border: 1px solid var(--border); color: #fff; }
     .btn-outline:hover { background: rgba(255,255,255,0.05); border-color: var(--border-focus); }
-    .btn-purple { background: var(--purple); color: #fff; }
-    .btn-purple:hover { background: #7c3aed; }
     .btn-sm { padding: 6px 10px; font-size: 12px; }
 
     /* Modals */
@@ -140,7 +138,7 @@
     .modal.active { display: flex; }
     .modal-content {
       background: var(--panel); border: 1px solid var(--border);
-      border-radius: 18px; width: 100%; max-width: 720px;
+      border-radius: 18px; width: 100%; max-width: 650px;
       max-height: 90vh; overflow-y: auto; padding: 26px;
     }
 
@@ -152,44 +150,19 @@
     }
     .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 
-    /* Interactive Seat Grid */
-    .seat-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
-      gap: 8px;
-      max-height: 280px;
-      overflow-y: auto;
-      padding: 12px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      margin: 12px 0;
-    }
-    .seat-item {
-      aspect-ratio: 1;
-      border-radius: 8px;
-      display: flex;
-      flex-direction: column;
+    /* Sold Seats Pool Pills */
+    .seat-badge {
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(6, 182, 212, 0.15);
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      display: inline-flex;
       align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 800;
-      cursor: pointer;
-      border: 1px solid var(--border);
-      user-select: none;
-      transition: all 0.15s;
-    }
-    .seat-AVAILABLE { background: rgba(255, 255, 255, 0.05); color: #fff; }
-    .seat-AVAILABLE:hover { border-color: var(--cyan); background: rgba(6, 182, 212, 0.15); }
-    .seat-USER { background: rgba(6, 182, 212, 0.2); color: var(--cyan); border-color: var(--cyan); }
-    .seat-ADMIN { background: rgba(139, 92, 246, 0.25); color: #c084fc; border-color: var(--purple); }
-    .seat-SELECTED-ADMIN { background: var(--purple) !important; color: #fff !important; }
-    .seat-TARGET-WINNER {
-      background: var(--gold) !important;
-      color: #000 !important;
-      border: 2px solid #fff !important;
-      transform: scale(1.05);
-      box-shadow: 0 0 12px var(--gold-light);
+      gap: 4px;
     }
   </style>
 </head>
@@ -200,7 +173,7 @@
     <div class="auth-box">
       <div class="auth-logo">🎰</div>
       <h2 class="auth-title">Arena Pot Admin</h2>
-      <p class="auth-subtitle">Login to manage rounds, seats, and winners</p>
+      <p class="auth-subtitle">Login to manage rounds and select winners</p>
       <form id="loginForm" onsubmit="handleLogin(event)">
         <div class="form-group">
           <label class="form-label">Username</label>
@@ -224,7 +197,7 @@
       <div class="brand-title">ARENA POT<br><span style="font-size: 11px; color: var(--gold);">ROUND CONTROL</span></div>
     </div>
     <ul class="nav-links">
-      <li class="nav-item active" onclick="switchTab('lotteries')">📋 Lotteries & Seat Boards</li>
+      <li class="nav-item active" onclick="switchTab('lotteries')">📋 Lotteries Manager</li>
       <li class="nav-item" onclick="openCreateModal()">➕ Create New Round</li>
       <li class="nav-item" onclick="switchTab('winners')">🏆 Winners Ledger</li>
     </ul>
@@ -240,7 +213,7 @@
     <div class="topbar">
       <div>
         <h1 class="page-title">Arena Pot Rounds</h1>
-        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Choose seats for admin and manually declare winning numbers</p>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Direct multiple winner selection for lottery rounds</p>
       </div>
       <button class="btn btn-gold" onclick="openCreateModal()">+ Create New Round</button>
     </div>
@@ -258,10 +231,10 @@
               <th>ID</th>
               <th>Title</th>
               <th>Prize</th>
-              <th>Seats Taken</th>
-              <th>Ticket Price</th>
+              <th>Seats Sold</th>
+              <th>Price</th>
               <th>Status</th>
-              <th>Seat & Winner Actions</th>
+              <th>Winner Action</th>
             </tr>
           </thead>
           <tbody id="lotteries-tbody">
@@ -282,6 +255,7 @@
             <tr>
               <th>Round ID</th>
               <th>Title</th>
+              <th>Rank</th>
               <th>Winning Seat</th>
               <th>Winner Username</th>
               <th>Prize</th>
@@ -294,60 +268,43 @@
     </div>
   </main>
 
-  <!-- MODAL: SEAT BOARD & WINNER PICKER (CORE REQUIREMENT) -->
-  <div id="modal-seat-control" class="modal">
+  <!-- MODAL: MANUAL MULTIPLE WINNERS PICKER -->
+  <div id="modal-draw-winners" class="modal">
     <div class="modal-content">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h2 style="font-size: 18px; font-weight: 800; color: #fff;" id="sc-modal-title">Round Seat Board</h2>
-        <button class="btn btn-outline btn-sm" onclick="closeSeatModal()">✕</button>
+        <h2 style="font-size: 18px; font-weight: 800; color: #fff;" id="draw-modal-title">🏆 Pick Round Winners</h2>
+        <button class="btn btn-outline btn-sm" onclick="closeDrawModal()">✕</button>
       </div>
 
-      <!-- LEGEND -->
-      <div style="display: flex; gap: 14px; font-size: 11px; margin-bottom: 12px; flex-wrap: wrap;">
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:10px; height:10px; background:rgba(255,255,255,0.1); border-radius:3px;"></span> Available</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:10px; height:10px; background:var(--cyan); border-radius:3px;"></span> Player Seat</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:10px; height:10px; background:var(--purple); border-radius:3px;"></span> Admin Seat</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:10px; height:10px; background:var(--gold); border-radius:3px;"></span> Winning Seat 👑</span>
-      </div>
-
-      <!-- VISUAL SEAT GRID -->
-      <div class="seat-grid" id="seat-grid-container"></div>
-
-      <!-- SEAT ACTION CONTROLS -->
-      <div style="background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-top: 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <span style="font-size: 13px; font-weight: 700; color: var(--text-muted);">Admin Seat Selection:</span>
-          <button class="btn btn-purple btn-sm" id="btn-claim-admin-seats" onclick="claimSelectedAdminSeats()">
-            👑 Assign Clicked Available Seats to Admin
-          </button>
-        </div>
-        <p style="font-size: 11px; color: var(--text-muted);">
-          Click any gray available seat, then click the button above to give the admin that seat number.
+      <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+        <p style="font-size: 12px; color: var(--gold); line-height: 1.5;">
+          Select the winning seat number for each rank below. The players who own these seats will win their respective prizes.
         </p>
       </div>
 
-      <!-- SELECTED WINNING NUMBER BANNER -->
-      <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--gold); border-radius: 12px; padding: 14px; margin-top: 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="font-size: 11px; font-weight: 700; color: var(--gold); text-transform: uppercase;">
-              Selected Winning Number:
-            </div>
-            <div style="font-size: 18px; font-weight: 800; color: #fff; margin-top: 2px;" id="winner-seat-display">
-              None Selected (Click an occupied or admin seat to choose winner)
-            </div>
-          </div>
-          <button class="btn btn-gold" id="btn-declare-winner" onclick="publishSelectedWinner()" disabled>
-            🏆 Publish as Winner
-          </button>
-        </div>
+      <!-- SOLD SEATS OVERVIEW -->
+      <div style="margin-bottom: 16px;">
+        <label class="form-label">Sold Seats in This Round (<span id="sold-count-badge">0</span> sold):</label>
+        <div id="sold-seats-badges" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 90px; overflow-y: auto; padding: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 8px;"></div>
+      </div>
+
+      <!-- MULTIPLE WINNERS INPUT SLOTS -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <label class="form-label" style="margin: 0;">Winner Positions:</label>
+        <button type="button" class="btn btn-outline btn-sm" onclick="addWinnerSlot()">+ Add Another Winner Rank</button>
+      </div>
+      <div id="winner-slots-container"></div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);">
+        <button type="button" class="btn btn-outline" onclick="closeDrawModal()">Cancel</button>
+        <button type="button" class="btn btn-gold" onclick="confirmAndPublishWinners()">Publish Winners</button>
       </div>
     </div>
   </div>
 
   <!-- MODAL: CREATE LOTTERY -->
   <div id="modal-create" class="modal">
-    <div class="modal-content" style="max-width: 500px;">
+    <div class="modal-content" style="max-width: 520px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <h2 style="font-size: 18px; font-weight: 800;">Create New Round</h2>
         <button class="btn btn-outline btn-sm" onclick="closeCreateModal()">✕</button>
@@ -392,9 +349,9 @@
   <script>
     const API_BASE = '/api/arena-pot';
     let adminToken = localStorage.getItem('arena_pot_admin_token') || '';
-    let currentLotteryId = null;
-    let selectedWinningSeat = null;
-    let selectedAdminSeatBatch = new Set();
+    let currentDrawLotteryId = null;
+    let currentLotterySoldTickets = [];
+    let rankCounter = 1;
 
     window.addEventListener('DOMContentLoaded', () => {
       if (adminToken) {
@@ -462,9 +419,13 @@
             <td>🪙 ${l.ticket_price}</td>
             <td><span class="badge badge-${l.status}">${l.status}</span></td>
             <td>
-              <button class="btn btn-gold btn-sm" onclick="openSeatControl(${l.id})">
-                💺 Manage Seats & Winner
-              </button>
+              ${l.status !== 'RESULTS_PUBLISHED' && l.status !== 'COMPLETED' ? `
+                <button class="btn btn-gold btn-sm" onclick="openDrawModal(${l.id})">
+                  🏆 Pick Winners
+                </button>
+              ` : `
+                <span style="font-size:12px; color:var(--text-muted); font-weight:700;">Results Published</span>
+              `}
             </td>
           </tr>
         `;
@@ -472,121 +433,137 @@
     }
 
     // ==========================================
-    // VISUAL SEAT CONTROL & WINNER SELECTION
+    // MULTIPLE WINNERS MODAL LOGIC
     // ==========================================
-    async function openSeatControl(lotteryId) {
-      currentLotteryId = lotteryId;
-      selectedWinningSeat = null;
-      selectedAdminSeatBatch.clear();
-      document.getElementById('winner-seat-display').innerText = 'None Selected (Click an occupied or admin seat to choose winner)';
-      document.getElementById('btn-declare-winner').disabled = true;
+    async function openDrawModal(lotteryId) {
+      currentDrawLotteryId = lotteryId;
+      rankCounter = 1;
 
-      await renderSeatMap();
-      document.getElementById('modal-seat-control').classList.add('active');
-    }
-
-    function closeSeatModal() {
-      document.getElementById('modal-seat-control').classList.remove('active');
-    }
-
-    async function renderSeatMap() {
-      const res = await fetch(`${API_BASE}/admin/lottery/${currentLotteryId}/seat-map`, {
+      // 1. Fetch tickets for this lottery
+      const tRes = await fetch(`${API_BASE}/admin/lottery/${lotteryId}/tickets`, {
         headers: { 'Authorization': `Bearer ${adminToken}` }
       });
-      const data = await res.json();
-      if (!data.success) {
-        alert(data.error);
+      const tData = await tRes.json();
+      currentLotterySoldTickets = tData.tickets || [];
+
+      if (currentLotterySoldTickets.length === 0) {
+        alert('Cannot pick winners: No seats have been purchased for this round yet.');
         return;
       }
 
-      document.getElementById('sc-modal-title').innerText = `Round #${data.lottery.id}: ${data.lottery.title} (${data.sold_seats}/${data.total_seats} Seats Taken)`;
+      // 2. Render Sold Seats Badges
+      document.getElementById('sold-count-badge').innerText = currentLotterySoldTickets.length;
+      const badgesDiv = document.getElementById('sold-seats-badges');
+      badgesDiv.innerHTML = '';
+      currentLotterySoldTickets.forEach(t => {
+        badgesDiv.innerHTML += `
+          <span class="seat-badge" title="Owned by @${t.username}">
+            #${t.ticket_number} (@${t.username})
+          </span>
+        `;
+      });
 
-      const container = document.getElementById('seat-grid-container');
+      // 3. Fetch configured prizes to preset the ranks
+      const lRes = await fetch(`${API_BASE}/lottery/${lotteryId}`, {
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      const lData = await lRes.json();
+      const prizes = lData.prizes || [];
+
+      document.getElementById('draw-modal-title').innerText = `🏆 Pick Winners for Round #${lData.lottery.id}: ${lData.lottery.title}`;
+
+      const container = document.getElementById('winner-slots-container');
       container.innerHTML = '';
 
-      data.seat_map.forEach(s => {
-        const div = document.createElement('div');
-        div.className = `seat-item seat-${s.status}`;
-        div.id = `seat-elem-${s.seat}`;
+      if (prizes.length > 0) {
+        prizes.forEach(p => {
+          addWinnerSlot(p.winner_position, p.prize_title);
+        });
+      } else {
+        // Default to Rank 1 if no prize structure was saved
+        addWinnerSlot(1, lData.lottery.prize_title || '1st Place Prize');
+      }
 
-        if (s.is_winner) div.classList.add('seat-TARGET-WINNER');
-
-        let label = `#${s.seat}`;
-        let sub = s.status === 'AVAILABLE' ? 'Open' : (s.is_admin ? 'Admin' : `@${s.owner}`);
-        div.innerHTML = `<span>${label}</span><span style="font-size:9px; font-weight:600; opacity:0.8;">${sub}</span>`;
-
-        div.onclick = () => onSeatClicked(s, div);
-        container.appendChild(div);
-      });
+      document.getElementById('modal-draw-winners').classList.add('active');
     }
 
-    function onSeatClicked(seatObj, el) {
-      // If clicking an AVAILABLE seat: Stage it for Admin Claim
-      if (seatObj.status === 'AVAILABLE') {
-        if (selectedAdminSeatBatch.has(seatObj.seat)) {
-          selectedAdminSeatBatch.remove(seatObj.seat);
-          el.classList.remove('seat-SELECTED-ADMIN');
-        } else {
-          selectedAdminSeatBatch.add(seatObj.seat);
-          el.classList.add('seat-SELECTED-ADMIN');
+    function closeDrawModal() {
+      document.getElementById('modal-draw-winners').classList.remove('active');
+    }
+
+    function addWinnerSlot(position = null, prizeLabel = '') {
+      const pos = position || rankCounter;
+      const container = document.getElementById('winner-slots-container');
+
+      let options = `<option value="">-- Choose Winning Seat Number --</option>`;
+      currentLotterySoldTickets.forEach(t => {
+        options += `<option value="${t.ticket_number}">Seat #${t.ticket_number} — Owned by @${t.username}</option>`;
+      });
+
+      const div = document.createElement('div');
+      div.className = 'winner-slot-row';
+      div.style = 'background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:10px;';
+      div.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <span style="font-weight:700; color:var(--gold);">Rank #${pos} Winner</span>
+          ${prizeLabel ? `<span style="font-size:12px; color:var(--text-muted);">${prizeLabel}</span>` : ''}
+          ${pos > 1 ? `<button type="button" class="btn btn-outline btn-sm" style="padding:2px 8px;" onclick="this.closest('.winner-slot-row').remove()">Remove</button>` : ''}
+        </div>
+        <select class="form-control winner-seat-select" data-pos="${pos}">
+          ${options}
+        </select>
+      `;
+
+      container.appendChild(div);
+      rankCounter = Math.max(rankCounter, pos) + 1;
+    }
+
+    async function confirmAndPublishWinners() {
+      const selects = document.querySelectorAll('.winner-seat-select');
+      const manual_winners = [];
+      const chosenSeats = new Set();
+
+      for (const sel of selects) {
+        const val = sel.value;
+        const pos = parseInt(sel.getAttribute('data-pos'), 10);
+
+        if (!val) {
+          alert(`Please select a winning seat number for Rank #${pos}.`);
+          return;
         }
+
+        if (chosenSeats.has(val)) {
+          alert(`Seat #${val} is selected more than once. Each winning rank must have a unique seat number.`);
+          return;
+        }
+
+        chosenSeats.add(val);
+        manual_winners.push({ position: pos, winningSeat: parseInt(val, 10) });
+      }
+
+      if (manual_winners.length === 0) {
+        alert('Please specify at least one winner.');
         return;
       }
 
-      // If clicking an OCCUPIED (Player or Admin) seat: Select it as the WINNING NUMBER
-      document.querySelectorAll('.seat-TARGET-WINNER').forEach(item => item.classList.remove('seat-TARGET-WINNER'));
-      el.classList.add('seat-TARGET-WINNER');
-
-      selectedWinningSeat = seatObj.seat;
-      document.getElementById('winner-seat-display').innerText = `Seat #${seatObj.seat} (Owner: ${seatObj.is_admin ? '👑 Admin' : '@' + seatObj.owner})`;
-      document.getElementById('btn-declare-winner').disabled = false;
-    }
-
-    async function claimSelectedAdminSeats() {
-      if (selectedAdminSeatBatch.size === 0) {
-        alert('Please click on at least one gray available seat to assign to the admin.');
+      const summary = manual_winners.map(w => `Rank #${w.position} -> Seat #${w.winningSeat}`).join('\n');
+      if (!confirm(`Declare these winning seats?\n\n${summary}\n\nPrizes will be published and credited to winners immediately.`)) {
         return;
       }
 
-      const seats = Array.from(selectedAdminSeatBatch);
-      const res = await fetch(`${API_BASE}/admin/lottery/${currentLotteryId}/claim-seats`, {
+      const res = await fetch(`${API_BASE}/admin/lottery/${currentDrawLotteryId}/draw`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
-        body: JSON.stringify({ seats })
+        body: JSON.stringify({ manual_winners })
       });
 
       const data = await res.json();
       if (data.success) {
         alert(data.message);
-        selectedAdminSeatBatch.clear();
-        await renderSeatMap();
+        closeDrawModal();
         loadLotteries();
       } else {
-        alert(data.error);
-      }
-    }
-
-    async function publishSelectedWinner() {
-      if (!selectedWinningSeat) {
-        alert('Please select a seat number to declare as the winner.');
-        return;
-      }
-
-      if (!confirm(`Confirm declaring Seat #${selectedWinningSeat} as the official round winner?`)) return;
-
-      const res = await fetch(`${API_BASE}/admin/lottery/${currentLotteryId}/draw`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
-        body: JSON.stringify({ winning_seat: selectedWinningSeat })
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        alert(data.message);
-        closeSeatModal();
-        loadLotteries();
-      } else {
-        alert(data.error);
+        alert(data.error || 'Failed to publish winners');
       }
     }
 
@@ -604,6 +581,7 @@
           <tr>
             <td>#${w.lottery_id}</td>
             <td style="font-weight: 700;">${w.lottery_title}</td>
+            <td><span class="badge badge-ACTIVE">Rank #${w.winner_position}</span></td>
             <td style="font-family: var(--font-mono); color: var(--gold); font-weight:800;">Seat #${w.winning_seat}</td>
             <td>@${w.username}</td>
             <td>${w.prize_title}</td>
@@ -635,7 +613,11 @@
         start_time: new Date(document.getElementById('p-start').value).toISOString(),
         end_time: new Date(document.getElementById('p-end').value).toISOString(),
         winner_count: 1,
-        prizes: [{ winner_position: 1, prize_title: document.getElementById('p-prize').value, prize_type: 'COINS', prize_amount: 10000 }]
+        prizes: [
+          { winner_position: 1, prize_title: '1st Place: ' + document.getElementById('p-prize').value, prize_type: 'COINS', prize_amount: 10000 },
+          { winner_position: 2, prize_title: '2nd Place: 5,000 Coins', prize_type: 'COINS', prize_amount: 5000 },
+          { winner_position: 3, prize_title: '3rd Place: 2,500 Coins', prize_type: 'COINS', prize_amount: 2500 }
+        ]
       };
 
       const res = await fetch(`${API_BASE}/admin/create`, {
