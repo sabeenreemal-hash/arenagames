@@ -18,12 +18,6 @@ router.get('/dashboard-stats', async (req, res) => {
     const coinsSpent = (await dbGet("SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE type = 'MULTIPLAYER_ENTRY'")).s;
     const coinsRewarded = (await dbGet("SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE type = 'MULTIPLAYER_WIN'")).s;
 
-    const gameStats = await dbAll(`
-      SELECT game_id, COUNT(*) as matches, 
-        SUM(CASE WHEN is_bot_match = 1 THEN 1 ELSE 0 END) as bot_matches
-      FROM multiplayer_matches GROUP BY game_id
-    `);
-
     res.json({
       totalMatches,
       realMatches,
@@ -31,15 +25,14 @@ router.get('/dashboard-stats', async (req, res) => {
       activeMatches,
       totalCoinsCollected: Math.abs(coinsSpent),
       totalCoinsPaidOut: coinsRewarded,
-      netDifference: Math.abs(coinsSpent) - coinsRewarded,
-      gameStats
+      netDifference: Math.abs(coinsSpent) - coinsRewarded
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 2. Live Matches
+// 2. Live Active Matches
 router.get('/live-matches', async (req, res) => {
   try {
     const rows = await dbAll(`
@@ -57,36 +50,64 @@ router.get('/live-matches', async (req, res) => {
   }
 });
 
-// 3. Bot Management (Get & Update)
-router.get('/bots', async (req, res) => {
-  const bots = await dbAll('SELECT * FROM multiplayer_bots ORDER BY id DESC');
-  res.json(bots);
-});
-
-router.post('/bots', async (req, res) => {
-  const { username, avatar_url, difficulty } = req.body;
-  await dbRun(
-    'INSERT INTO multiplayer_bots (username, avatar_url, difficulty) VALUES (?, ?, ?)',
-    [username, avatar_url, difficulty || 'HARD']
-  );
-  res.json({ success: true });
-});
-
-// 4. Game Configuration
+// 3. Fetch & Update Game Configurations
 router.get('/configs', async (req, res) => {
-  const configs = await dbAll('SELECT * FROM multiplayer_game_configs');
-  res.json(configs);
+  try {
+    const configs = await dbAll('SELECT * FROM multiplayer_game_configs ORDER BY game_id ASC');
+    res.json(configs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.post('/configs', async (req, res) => {
   const { game_id, entry_fee, winner_reward, turn_timer, bot_difficulty, is_enabled } = req.body;
-  await dbRun(
-    `UPDATE multiplayer_game_configs 
-     SET entry_fee = ?, winner_reward = ?, turn_timer = ?, bot_difficulty = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP 
-     WHERE game_id = ?`,
-    [entry_fee, winner_reward, turn_timer, bot_difficulty, is_enabled, game_id]
-  );
-  res.json({ success: true });
+  try {
+    await dbRun(
+      `UPDATE multiplayer_game_configs 
+       SET entry_fee = ?, winner_reward = ?, turn_timer = ?, bot_difficulty = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP 
+       WHERE game_id = ?`,
+      [
+        parseInt(entry_fee, 10),
+        parseInt(winner_reward, 10),
+        parseInt(turn_timer, 10),
+        bot_difficulty || 'HARD',
+        is_enabled ? 1 : 0,
+        game_id
+      ]
+    );
+    res.json({ success: true, message: `Configuration updated for ${game_id}!` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Fetch, Create & Edit Bot Profiles
+router.get('/bots', async (req, res) => {
+  try {
+    const bots = await dbAll('SELECT * FROM multiplayer_bots ORDER BY id ASC');
+    res.json(bots);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/bots/edit', async (req, res) => {
+  const { id, username, avatar_url, difficulty, is_active } = req.body;
+  try {
+    if (!id || !username) {
+      return res.status(400).json({ error: 'Bot ID and Username are required' });
+    }
+    await dbRun(
+      `UPDATE multiplayer_bots 
+       SET username = ?, avatar_url = ?, difficulty = ?, is_active = ? 
+       WHERE id = ?`,
+      [username, avatar_url, difficulty || 'HARD', is_active !== undefined ? is_active : 1, id]
+    );
+    res.json({ success: true, message: `Bot ${username} updated successfully!` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
