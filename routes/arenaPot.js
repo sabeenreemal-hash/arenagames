@@ -56,6 +56,24 @@ function verifyAdminToken(req, res, next) {
   });
 }
 
+// Helper: Ensure the admin has a linked user profile for seat ownership
+function getOrCreateAdminUserId(adminUsername, callback) {
+  db.get('SELECT id FROM users WHERE username = ?', [adminUsername], (err, user) => {
+    if (user) return callback(null, user.id);
+
+    const refCode = 'ADM_' + Math.random().toString(36).substring(2, 7).toUpperCase();
+    db.run(
+      `INSERT INTO users (full_name, username, email, password_hash, referral_code, balance) 
+       VALUES (?, ?, ?, 'ADMIN_PROXY_PASS', ?, 100000)`,
+      ['Admin Account', adminUsername, `${adminUsername}@arenagames.com`, refCode],
+      function (insErr) {
+        if (insErr) return callback(insErr);
+        callback(null, this.lastID);
+      }
+    );
+  });
+}
+
 // ==========================================
 // USER ENDPOINTS (App Integration)
 // ==========================================
@@ -628,144 +646,324 @@ router.get('/admin/lottery/:id/tickets', verifyAdminToken, (req, res) => {
   });
 });
 
-// Admin Settle & Draw Winners (Supports manual seat choice or auto random pick)
+// ---------------------------------------------------------------------------
+// 7. Admin: Visual Seat Map (All seats, user seats, admin seats, winning seats)
+// ---------------------------------------------------------------------------
+router.get('/admin/lottery/:id/seat-map', verifyAdminToken, (req, res) => {
+  const lotteryId = parseInt(req.params.id, 10);
+
+  db.get('SELECT * FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (err, lottery) => {
+    if (err || !lottery) return res.status(404).json({ error: 'Lottery not found.' });
+
+    db.all(
+      `SELECT t.id, t.ticket_number, t.user_id, u.username,
+              CASE WHEN w.id IS NOT NULL THEN 1 ELSE 0 END AS is_winner,
+              w.winner_position
+       FROM arena_pot_tickets t
+       JOIN users u ON t.user_id = u.id
+       LEFT JOIN arena_pot_winners w ON (t.id = w.ticket_id)
+       WHERE t.lottery_id = ?
+       ORDER BY t.ticket_number ASC`,
+      [lotteryId],
+      (tErr, tickets) => {
+        const ticketMap = {};
+        (tickets || []).forEach((t) => {
+          ticketMap[t.ticket_number] = t;
+        });
+
+        const seatMap = [];
+        for (let i = 1; i <= lottery.total_seats; i++) {
+          const t = ticketMap[i];
+          if (!t) {
+            seatMap.push({ seat: i, status: 'AVAILABLE', owner: null, is_admin: false, is_winner: false });
+          } else {
+            const isAdmin = t.username === req.admin.username;
+            seatMap.push({
+              seat: i,
+              status: isAdmin ? 'ADMIN' : 'USER',
+              owner: t.username,
+              user_id: t.user_id,
+              ticket_id: t.id,
+              is_admin: isAdmin,
+              is_winner: t.is_winner === 1,
+              winner_position: t.winner_position || null,
+            });
+          }
+        }
+
+        res.json({
+          success: true,
+          lottery,
+          seat_map: seatMap,
+          total_seats: lottery.total_seats,
+          sold_seats: lottery.sold_seats,
+        });
+      }
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Admin: Claim/Book Own Seat Numbers
+// ---------------------------------------------------------------------------
+router.post('/admin/lottery/:id/claim-seats', verifyAdminToken, (req, res) => {
+  const lotteryId = parseInt(req.params.id, 10);
+  const { seats } = req.body; // e.g. [7, 12, 45]
+
+  if (!Array.isArray(seats) || seats.length === 0) {
+    return res.status(400).json({ error: 'Select at least one available seat number.' });
+  }
+
+  const seatNumbers = [...new Set(seats.map((n) => parseInt(n, 10)))];
+
+  getOrCreateAdminUserId(req.admin.username, (uErr, adminUserId) => {
+    if (uErr) return res.status(500).json({ error: 'Failed to resolve admin account.' });
+
+    db.serialize(() => {
+      db.run('BEGIN IMMEDIATE TRANSACTION');
+
+      db.get('SELECT * FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (err, lottery) => {
+        if (err || !lottery) {
+          db.run('ROLLBACK');
+          return res.status(404).json({ error: 'Lottery not found.' });
+        }
+
+        const outOfBounds = seatNumbers.find((s) => s < 1 || s > lottery.total_seats);
+        if (outOfBounds) {
+          db.run('ROLLBACK');
+          return res.status(400).json({ error: `Seat #${outOfBounds} is outside 1 to ${lottery.total_seats}.` });
+        }
+
+        const placeholders = seatNumbers.map(() => '?').join(',');
+        db.all(
+          `SELECT ticket_number FROM arena_pot_tickets WHERE lottery_id = ? AND ticket_number IN (${placeholders})`,
+          [lotteryId, ...seatNumbers],
+          (collErr, collisionRows) => {
+            if (collisionRows && collisionRows.length > 0) {
+              db.run('ROLLBACK');
+              const taken = collisionRows.map((r) => `#${r.ticket_number}`).join(', ');
+              return res.status(400).json({ error: `Seat(s) ${taken} are already occupied.` });
+            }
+
+            const valuesSql = [];
+            const params = [];
+            for (const s of seatNumbers) {
+              valuesSql.push('(?, ?, ?, ?)');
+              params.push(lotteryId, adminUserId, s, 0); // 0 coin price for admin reservation
+            }
+
+            db.run(
+              `INSERT INTO arena_pot_tickets (lottery_id, user_id, ticket_number, coin_price) VALUES ${valuesSql.join(', ')}`,
+              params,
+              function (tErr) {
+                if (tErr) {
+                  db.run('ROLLBACK');
+                  return res.status(500).json({ error: tErr.message });
+                }
+
+                const newSold = lottery.sold_seats + seatNumbers.length;
+                db.run(
+                  `UPDATE arena_pot_lotteries SET sold_seats = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                  [newSold, lotteryId],
+                  (upErr) => {
+                    if (upErr) {
+                      db.run('ROLLBACK');
+                      return res.status(500).json({ error: upErr.message });
+                    }
+
+                    db.run('COMMIT', () => {
+                      res.json({
+                        success: true,
+                        message: `Admin claimed seat(s): ${seatNumbers.map((s) => '#' + s).join(', ')}`,
+                        claimed_seats: seatNumbers,
+                      });
+                    });
+                  }
+                );
+              }
+            );
+          }
+        );
+      });
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Admin Settle & Draw Winners (Manual Chosen Seat Numbers Only)
+// ---------------------------------------------------------------------------
 router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
   const lotteryId = parseInt(req.params.id, 10);
-  const { manual_winners } = req.body;
-  // manual_winners format: [ { position: 1, winningSeat: 42 }, { position: 2, winningSeat: 15 } ]
+  const { winning_seat, manual_winners } = req.body;
 
-  db.serialize(() => {
-    db.run('BEGIN TRANSACTION');
+  // Support single winning seat or positional winners
+  let winnersList = [];
+  if (Array.isArray(manual_winners) && manual_winners.length > 0) {
+    winnersList = manual_winners;
+  } else if (winning_seat !== undefined && winning_seat !== null) {
+    winnersList = [{ position: 1, winningSeat: parseInt(winning_seat, 10) }];
+  } else {
+    return res.status(400).json({ error: 'Please select a winning seat number.' });
+  }
 
-    db.get('SELECT * FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (err, lottery) => {
-      if (err || !lottery) {
-        db.run('ROLLBACK');
-        return res.status(404).json({ error: 'Lottery not found.' });
-      }
+  getOrCreateAdminUserId(req.admin.username, (adminUserErr, adminUserId) => {
+    if (adminUserErr) return res.status(500).json({ error: 'Failed to resolve admin identity.' });
 
-      if (lottery.status === 'RESULTS_PUBLISHED' || lottery.status === 'COMPLETED') {
-        db.run('ROLLBACK');
-        return res.status(400).json({ error: 'Winners have already been drawn for this lottery.' });
-      }
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
 
-      db.all(
-        'SELECT * FROM arena_pot_prizes WHERE lottery_id = ? ORDER BY winner_position ASC',
-        [lotteryId],
-        (pErr, prizes) => {
-          if (!prizes || prizes.length === 0) {
-            db.run('ROLLBACK');
-            return res.status(400).json({ error: 'No prizes configured.' });
-          }
+      db.get('SELECT * FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (err, lottery) => {
+        if (err || !lottery) {
+          db.run('ROLLBACK');
+          return res.status(404).json({ error: 'Lottery not found.' });
+        }
 
-          db.all(
-            'SELECT id, ticket_number, user_id FROM arena_pot_tickets WHERE lottery_id = ?',
-            [lotteryId],
-            (tErr, soldTickets) => {
-              if (!soldTickets || soldTickets.length === 0) {
-                db.run('ROLLBACK');
-                return res.status(400).json({ error: 'No seats were purchased for this lottery.' });
-              }
+        if (lottery.status === 'RESULTS_PUBLISHED' || lottery.status === 'COMPLETED') {
+          db.run('ROLLBACK');
+          return res.status(400).json({ error: 'Winner already declared for this lottery.' });
+        }
 
-              const selectedWinners = [];
-              const usedTicketIds = new Set();
+        db.all(
+          'SELECT * FROM arena_pot_prizes WHERE lottery_id = ? ORDER BY winner_position ASC',
+          [lotteryId],
+          (pErr, prizes) => {
+            const prizeTiers = (prizes && prizes.length > 0)
+              ? prizes
+              : [{ id: null, winner_position: 1, prize_type: 'CUSTOM', prize_amount: 0, prize_title: lottery.prize_title }];
 
-              for (const prize of prizes) {
-                let chosenTicket = null;
+            db.all(
+              `SELECT t.id, t.ticket_number, t.user_id, u.username 
+               FROM arena_pot_tickets t 
+               JOIN users u ON t.user_id = u.id 
+               WHERE t.lottery_id = ?`,
+              [lotteryId],
+              (tErr, soldTickets) => {
+                let ticketsPool = [...(soldTickets || [])];
+                const selectedWinners = [];
+                const usedSeats = new Set();
 
-                // 1. Check if admin manually designated a winning seat for this position
-                if (Array.isArray(manual_winners)) {
-                  const assignment = manual_winners.find((m) => m.position === prize.winner_position);
-                  if (assignment && assignment.winningSeat) {
-                    chosenTicket = soldTickets.find(
-                      (t) => t.ticket_number === parseInt(assignment.winningSeat, 10) && !usedTicketIds.has(t.id)
+                for (const tier of prizeTiers) {
+                  const target = winnersList.find((w) => w.position === tier.winner_position) || winnersList[0];
+                  if (!target || !target.winningSeat) {
+                    db.run('ROLLBACK');
+                    return res.status(400).json({ error: `No winning seat specified for Rank #${tier.winner_position}.` });
+                  }
+
+                  const seatNum = parseInt(target.winningSeat, 10);
+                  if (usedSeats.has(seatNum)) {
+                    db.run('ROLLBACK');
+                    return res.status(400).json({ error: `Seat #${seatNum} cannot win multiple ranks.` });
+                  }
+
+                  if (seatNum < 1 || seatNum > lottery.total_seats) {
+                    db.run('ROLLBACK');
+                    return res.status(400).json({ error: `Seat #${seatNum} is out of bounds (1-${lottery.total_seats}).` });
+                  }
+
+                  let ticket = ticketsPool.find((t) => t.ticket_number === seatNum);
+
+                  // If admin chose an available seat that wasn't claimed yet, auto-assign to admin!
+                  if (!ticket) {
+                    db.run(
+                      `INSERT INTO arena_pot_tickets (lottery_id, user_id, ticket_number, coin_price) VALUES (?, ?, ?, 0)`,
+                      [lotteryId, adminUserId, seatNum],
+                      function (autoInsErr) {
+                        if (autoInsErr) {
+                          db.run('ROLLBACK');
+                          return res.status(500).json({ error: 'Failed to assign empty seat to admin.' });
+                        }
+                      }
                     );
-                    if (!chosenTicket) {
-                      db.run('ROLLBACK');
-                      return res.status(400).json({
-                        error: `Seat #${assignment.winningSeat} for Rank #${prize.winner_position} is either not purchased or already assigned to another rank.`,
-                      });
-                    }
+                    ticket = {
+                      id: null, // will be resolved or inserted
+                      ticket_number: seatNum,
+                      user_id: adminUserId,
+                      username: req.admin.username,
+                    };
                   }
-                }
 
-                // 2. Fall back to automatic random draw from available seats if not manually assigned
-                if (!chosenTicket) {
-                  const available = soldTickets.filter((t) => !usedTicketIds.has(t.id));
-                  if (available.length > 0) {
-                    const rnd = Math.floor(Math.random() * available.length);
-                    chosenTicket = available[rnd];
-                  }
-                }
-
-                if (chosenTicket) {
-                  usedTicketIds.add(chosenTicket.id);
+                  usedSeats.add(seatNum);
                   selectedWinners.push({
                     lottery_id: lotteryId,
-                    ticket_id: chosenTicket.id,
-                    user_id: chosenTicket.user_id,
-                    winning_seat: chosenTicket.ticket_number,
-                    winner_position: prize.winner_position,
-                    prize_id: prize.id,
-                    prize_title: prize.prize_title,
-                    prize_type: prize.prize_type,
-                    prize_amount: prize.prize_amount,
+                    ticket_id: ticket.id,
+                    user_id: ticket.user_id,
+                    username: ticket.username,
+                    winning_seat: seatNum,
+                    winner_position: tier.winner_position,
+                    prize_id: tier.id,
+                    prize_title: tier.prize_title,
+                    prize_type: tier.prize_type,
+                    prize_amount: tier.prize_amount || 0,
                   });
                 }
-              }
 
-              // Record Winners and credit coin balances
-              for (const win of selectedWinners) {
-                db.run(
-                  `INSERT INTO arena_pot_winners 
-                   (lottery_id, ticket_id, user_id, winner_position, prize_id, prize_title, prize_type, prize_amount)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                  [
-                    win.lottery_id,
-                    win.ticket_id,
-                    win.user_id,
-                    win.winner_position,
-                    win.prize_id,
-                    win.prize_title,
-                    win.prize_type,
-                    win.prize_amount,
-                  ]
-                );
-
-                if (win.prize_type === 'COINS' && win.prize_amount > 0) {
-                  db.run(
-                    `UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?`,
-                    [win.prize_amount, win.prize_amount, win.user_id]
-                  );
-
-                  const refId = `POT_WIN_${lotteryId}_SEAT_${win.winning_seat}`;
-                  db.run(
-                    `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'ARENA_POT_WIN', ?, ?)`,
-                    [win.user_id, win.prize_amount, refId]
-                  );
-                }
-              }
-
-              db.run(
-                `UPDATE arena_pot_lotteries SET status = 'RESULTS_PUBLISHED', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-                [lotteryId],
-                () => {
-                  db.run('COMMIT', (commitErr) => {
-                    if (commitErr) {
-                      db.run('ROLLBACK');
-                      return res.status(500).json({ error: 'Commit failed.' });
-                    }
-                    res.json({
-                      success: true,
-                      message: `Results published! Winning seats: ${selectedWinners.map((w) => `#${w.winning_seat} (Rank ${w.winner_position})`).join(', ')}`,
-                      winners: selectedWinners,
+                // Process records sequentially
+                db.all(
+                  `SELECT id, ticket_number FROM arena_pot_tickets WHERE lottery_id = ?`,
+                  [lotteryId],
+                  (refreshErr, allUpdatedTickets) => {
+                    const ticketIdMap = {};
+                    (allUpdatedTickets || []).forEach((item) => {
+                      ticketIdMap[item.ticket_number] = item.id;
                     });
-                  });
-                }
-              );
-            }
-          );
-        }
-      );
+
+                    for (const win of selectedWinners) {
+                      const finalTicketId = win.ticket_id || ticketIdMap[win.winning_seat] || 0;
+
+                      db.run(
+                        `INSERT INTO arena_pot_winners 
+                         (lottery_id, ticket_id, user_id, winner_position, prize_id, prize_title, prize_type, prize_amount)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                          win.lottery_id,
+                          finalTicketId,
+                          win.user_id,
+                          win.winner_position,
+                          win.prize_id,
+                          win.prize_title,
+                          win.prize_type,
+                          win.prize_amount,
+                        ]
+                      );
+
+                      if (win.prize_type === 'COINS' && win.prize_amount > 0) {
+                        db.run(
+                          `UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?`,
+                          [win.prize_amount, win.prize_amount, win.user_id]
+                        );
+
+                        const refId = `POT_WIN_${lotteryId}_SEAT_${win.winning_seat}`;
+                        db.run(
+                          `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'ARENA_POT_WIN', ?, ?)`,
+                          [win.user_id, win.prize_amount, refId]
+                        );
+                      }
+                    }
+
+                    db.run(
+                      `UPDATE arena_pot_lotteries 
+                       SET status = 'RESULTS_PUBLISHED', 
+                           sold_seats = (SELECT COUNT(*) FROM arena_pot_tickets WHERE lottery_id = ?), 
+                           updated_at = CURRENT_TIMESTAMP 
+                       WHERE id = ?`,
+                      [lotteryId, lotteryId],
+                      () => {
+                        db.run('COMMIT', () => {
+                          res.json({
+                            success: true,
+                            message: `Declared Winner! Winning Seat: ${selectedWinners.map((w) => `#${w.winning_seat} (@${w.username})`).join(', ')}`,
+                            winners: selectedWinners,
+                          });
+                        });
+                      }
+                    );
+                  }
+                );
+              }
+            );
+          }
+        );
+      });
     });
   });
 });
