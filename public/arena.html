@@ -102,10 +102,10 @@
     }
     table { width: 100%; border-collapse: collapse; text-align: left; }
     th {
-      padding: 14px 18px; font-size: 12px; color: var(--text-muted);
+      padding: 14px 16px; font-size: 12px; color: var(--text-muted);
       text-transform: uppercase; font-weight: 700; background: rgba(0,0,0,0.2);
     }
-    td { padding: 16px 18px; font-size: 13px; border-bottom: 1px solid var(--border); }
+    td { padding: 14px 16px; font-size: 13px; border-bottom: 1px solid var(--border); }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: rgba(255, 255, 255, 0.02); }
 
@@ -116,6 +116,7 @@
     .badge-ACTIVE { background: rgba(16, 185, 129, 0.15); color: var(--green); }
     .badge-UPCOMING { background: rgba(245, 158, 11, 0.15); color: var(--gold); }
     .badge-CLOSED { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
+    .badge-PAUSED { background: rgba(239, 68, 68, 0.15); color: #f87171; }
     .badge-RESULTS_PUBLISHED { background: rgba(139, 92, 246, 0.2); color: #c084fc; }
 
     .btn {
@@ -130,6 +131,8 @@
     .btn-sm { padding: 6px 10px; font-size: 12px; }
     .btn-red { background: rgba(239, 68, 68, 0.2); color: var(--red); }
     .btn-red:hover { background: var(--red); color: #fff; }
+    .btn-green { background: rgba(16, 185, 129, 0.2); color: var(--green); }
+    .btn-green:hover { background: var(--green); color: #000; }
 
     /* Modals */
     .modal {
@@ -186,7 +189,7 @@
     <div class="auth-box">
       <div class="auth-logo">🎰</div>
       <h2 class="auth-title">Arena Pot Admin</h2>
-      <p class="auth-subtitle">Login to configure prize distributions and manage rounds</p>
+      <p class="auth-subtitle">Login to configure prize distributions, pause rounds, or manage history</p>
       <form id="loginForm" onsubmit="handleLogin(event)">
         <div class="form-group">
           <label class="form-label">Username</label>
@@ -212,7 +215,7 @@
     <ul class="nav-links">
       <li class="nav-item active" onclick="switchTab('lotteries')">📋 Lotteries Manager</li>
       <li class="nav-item" onclick="openCreateModal()">➕ Create New Round</li>
-      <li class="nav-item" onclick="switchTab('winners')">🏆 Winners Ledger</li>
+      <li class="nav-item" onclick="switchTab('winners')">🏆 Winners History</li>
     </ul>
     <div style="padding: 16px; border-top: 1px solid var(--border);">
       <button class="btn btn-outline" style="width: 100%; justify-content: center;" onclick="logout()">
@@ -226,7 +229,7 @@
     <div class="topbar">
       <div>
         <h1 class="page-title">Arena Pot Rounds</h1>
-        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Configurable prize distribution and multiple winner selection</p>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Configurable schedules, pause controls, prize tiers & history management</p>
       </div>
       <button class="btn btn-gold" onclick="openCreateModal()">+ Create New Round</button>
     </div>
@@ -242,13 +245,13 @@
           <thead>
             <tr>
               <th>ID</th>
-              <th>Title</th>
+              <th>Title & Schedule</th>
               <th>Main Prize</th>
-              <th>Winners Count</th>
+              <th>Winners</th>
               <th>Seats Sold</th>
               <th>Price</th>
               <th>Status</th>
-              <th>Winner Action</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="lotteries-tbody">
@@ -258,11 +261,12 @@
       </div>
     </div>
 
-    <!-- WINNERS LEDGER -->
+    <!-- WINNERS HISTORY LEDGER -->
     <div id="tab-winners" class="tab-pane" style="display: none;">
       <div class="table-container">
         <div class="table-header">
-          <span style="font-weight: 700;">Completed Winners Ledger</span>
+          <span style="font-weight: 700;">Completed Winners History</span>
+          <button class="btn btn-red btn-sm" onclick="clearAllWinnerHistory()">🗑️ Clear All Winner History</button>
         </div>
         <table>
           <thead>
@@ -274,6 +278,7 @@
               <th>Winner Username</th>
               <th>Prize</th>
               <th>Published Date</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody id="winners-tbody"></tbody>
@@ -344,11 +349,11 @@
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Start Time</label>
+            <label class="form-label">Start Date & Time (Local)</label>
             <input type="datetime-local" id="p-start" class="form-control" required>
           </div>
           <div class="form-group">
-            <label class="form-label">End Time</label>
+            <label class="form-label">End Date & Time (Local)</label>
             <input type="datetime-local" id="p-end" class="form-control" required>
           </div>
         </div>
@@ -389,6 +394,12 @@
         loadLotteries();
       }
     });
+
+    // Helper: Format Date to local YYYY-MM-DDTHH:mm for datetime-local input
+    function toLocalDatetimeInput(date) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
 
     async function handleLogin(e) {
       e.preventDefault();
@@ -440,30 +451,93 @@
         const tbody = document.getElementById('lotteries-tbody');
         tbody.innerHTML = '';
 
-        (json.lotteries || []).forEach(l => {
+        if (!json.lotteries || json.lotteries.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No rounds created yet.</td></tr>`;
+          return;
+        }
+
+        json.lotteries.forEach(l => {
+          const startStr = new Date(l.start_time).toLocaleString();
+          const endStr = new Date(l.end_time).toLocaleString();
+
+          let actionButtons = '';
+          if (l.status !== 'RESULTS_PUBLISHED' && l.status !== 'COMPLETED') {
+            actionButtons += `<button class="btn btn-gold btn-sm" onclick="openDrawModal(${l.id})">🏆 Pick Winners</button> `;
+          }
+          if (l.status === 'ACTIVE') {
+            actionButtons += `<button class="btn btn-outline btn-sm" onclick="changeLotteryStatus(${l.id}, 'PAUSED')">⏸️ Pause</button> `;
+          } else if (l.status === 'PAUSED') {
+            actionButtons += `<button class="btn btn-green btn-sm" onclick="changeLotteryStatus(${l.id}, 'ACTIVE')">▶️ Resume</button> `;
+          }
+          actionButtons += `<button class="btn btn-red btn-sm" onclick="deleteLotteryAndHistory(${l.id}, '${l.title.replace(/'/g, "\\'")}')">🗑️ Delete</button>`;
+
           tbody.innerHTML += `
             <tr>
               <td>#${l.id}</td>
-              <td style="font-weight: 700;">${l.title}</td>
-              <td style="color: var(--gold);">${l.prize_title}</td>
+              <td>
+                <div style="font-weight: 700;">${l.title}</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">
+                  Start: ${startStr}<br>End: ${endStr}
+                </div>
+              </td>
+              <td style="color: var(--gold); font-weight: 600;">${l.prize_title}</td>
               <td><span class="badge" style="background:rgba(245,158,11,0.15); color:var(--gold);">${l.winner_count || 1} Winners</span></td>
               <td>${l.sold_seats} / ${l.total_seats}</td>
               <td>🪙 ${l.ticket_price}</td>
               <td><span class="badge badge-${l.status}">${l.status}</span></td>
               <td>
-                ${l.status !== 'RESULTS_PUBLISHED' && l.status !== 'COMPLETED' ? `
-                  <button class="btn btn-gold btn-sm" onclick="openDrawModal(${l.id})">
-                    🏆 Pick Winners
-                  </button>
-                ` : `
-                  <span style="font-size:12px; color:var(--text-muted); font-weight:700;">Results Published</span>
-                `}
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  ${actionButtons}
+                </div>
               </td>
             </tr>
           `;
         });
       } catch (e) {
         console.error('Failed to load lotteries:', e);
+      }
+    }
+
+    async function changeLotteryStatus(lotteryId, newStatus) {
+      const actionName = newStatus === 'PAUSED' ? 'PAUSE' : 'RESUME';
+      if (!confirm(`Are you sure you want to ${actionName} Round #${lotteryId}?`)) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/admin/lottery/${lotteryId}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+          body: JSON.stringify({ status: newStatus })
+        });
+        const data = await res.json();
+        if (data.success) {
+          loadLotteries();
+        } else {
+          alert(data.error || 'Failed to update status');
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function deleteLotteryAndHistory(lotteryId, title) {
+      if (!confirm(`⚠️ DELETE ROUND #${lotteryId} ("${title}")?\n\nThis will permanently delete the lottery along with its tickets, prize tiers, and winner history records.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/admin/lottery/${lotteryId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message);
+          loadLotteries();
+        } else {
+          alert(data.error || 'Failed to delete lottery');
+        }
+      } catch (e) {
+        alert('Error deleting lottery: ' + e.message);
       }
     }
 
@@ -523,8 +597,8 @@
     function openCreateModal() {
       const now = new Date();
       const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      document.getElementById('p-start').value = now.toISOString().slice(0, 16);
-      document.getElementById('p-end').value = nextWeek.toISOString().slice(0, 16);
+      document.getElementById('p-start').value = toLocalDatetimeInput(now);
+      document.getElementById('p-end').value = toLocalDatetimeInput(nextWeek);
       initCreatePrizeDefaults();
       document.getElementById('modal-create').classList.add('active');
     }
@@ -558,16 +632,21 @@
         return;
       }
 
-      const mainTitle = prizes[0].prize_title;
+      const startIso = new Date(document.getElementById('p-start').value).toISOString();
+      const endIso = new Date(document.getElementById('p-end').value).toISOString();
+      if (endIso <= startIso) {
+        alert('End time must be after Start time.');
+        return;
+      }
 
       const payload = {
         title: document.getElementById('p-title').value,
-        prize_title: mainTitle,
+        prize_title: prizes[0].prize_title,
         total_seats: parseInt(document.getElementById('p-seats').value, 10),
         ticket_price: parseInt(document.getElementById('p-price').value, 10),
         user_ticket_limit: parseInt(document.getElementById('p-limit').value, 10) || 0,
-        start_time: new Date(document.getElementById('p-start').value).toISOString(),
-        end_time: new Date(document.getElementById('p-end').value).toISOString(),
+        start_time: startIso,
+        end_time: endIso,
         winner_count: prizes.length,
         prizes: prizes
       };
@@ -600,7 +679,6 @@
         currentDrawLotteryId = lotteryId;
         rankCounter = 1;
 
-        // 1. Fetch round details via dedicated admin endpoint
         const lRes = await fetch(`${API_BASE}/admin/lottery/${lotteryId}`, {
           headers: { 'Authorization': `Bearer ${adminToken}` }
         });
@@ -613,18 +691,15 @@
         const lottery = lData.lottery;
         const prizes = lData.prizes || [];
 
-        // 2. Fetch sold tickets for this lottery
         const tRes = await fetch(`${API_BASE}/admin/lottery/${lotteryId}/tickets`, {
           headers: { 'Authorization': `Bearer ${adminToken}` }
         });
         const tData = await tRes.json();
         currentLotterySoldTickets = tData.tickets || [];
 
-        // 3. Set modal header & badge
         document.getElementById('draw-modal-title').innerText = `🏆 Pick Winners — Round #${lottery.id}: ${lottery.title}`;
         document.getElementById('sold-count-badge').innerText = currentLotterySoldTickets.length;
 
-        // 4. Populate sold seats preview
         const badgesDiv = document.getElementById('sold-seats-badges');
         badgesDiv.innerHTML = '';
         if (currentLotterySoldTickets.length === 0) {
@@ -639,7 +714,6 @@
           });
         }
 
-        // 5. Populate winner input slots from configured prizes
         const container = document.getElementById('winner-slots-container');
         container.innerHTML = '';
 
@@ -652,7 +726,6 @@
           addWinnerSlot(1, lottery.prize_title || '1st Place Prize');
         }
 
-        // 6. Open modal
         document.getElementById('modal-draw-winners').classList.add('active');
       } catch (err) {
         console.error('Error opening draw modal:', err);
@@ -767,7 +840,7 @@
     }
 
     // ==========================================
-    // WINNERS LEDGER
+    // WINNERS HISTORY LEDGER + DELETE OPTIONS
     // ==========================================
     async function loadWinnersLedger() {
       try {
@@ -776,7 +849,12 @@
         const tbody = document.getElementById('winners-tbody');
         tbody.innerHTML = '';
 
-        (json.winners || []).forEach(w => {
+        if (!json.winners || json.winners.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No winner history records found.</td></tr>`;
+          return;
+        }
+
+        json.winners.forEach(w => {
           tbody.innerHTML += `
             <tr>
               <td>#${w.lottery_id}</td>
@@ -786,11 +864,51 @@
               <td>@${w.username}</td>
               <td>${w.prize_title}</td>
               <td style="font-size: 12px; color: var(--text-muted);">${new Date(w.published_at).toLocaleString()}</td>
+              <td>
+                <button class="btn btn-red btn-sm" onclick="deleteWinnerRecord(${w.id})">🗑️ Delete</button>
+              </td>
             </tr>
           `;
         });
       } catch (e) {
         console.error('Failed to load winners ledger:', e);
+      }
+    }
+
+    async function deleteWinnerRecord(winnerId) {
+      if (!confirm(`Delete winner history record #${winnerId}?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/admin/winner/${winnerId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          loadWinnersLedger();
+        } else {
+          alert(data.error || 'Failed to delete record');
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function clearAllWinnerHistory() {
+      if (!confirm('⚠️ Are you sure you want to delete ALL winner history records? This cannot be undone.')) return;
+      try {
+        const res = await fetch(`${API_BASE}/admin/winners/clear`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message);
+          loadWinnersLedger();
+        } else {
+          alert(data.error || 'Failed to clear history');
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
       }
     }
   </script>
