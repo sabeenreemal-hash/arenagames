@@ -129,7 +129,7 @@ router.get('/lottery/:id', authenticateToken, (req, res) => {
                 const occupiedSeats = (allTickets || []).map((t) => t.ticket_number);
                 const myTickets = (allTickets || []).filter((t) => t.user_id === userId);
 
-                // Fetch published winning seats if lottery is drawn
+                // Fetch published winning seats if lottery is completed
                 db.all(
                   `SELECT w.winner_position, w.prize_title, w.prize_amount, w.prize_type,
                           t.ticket_number AS winning_seat, u.username
@@ -315,14 +315,15 @@ router.post('/lottery/:id/buy', authenticateToken, (req, res) => {
   });
 });
 
-// 4. View Participants
+// 4. View Participants with Bought Seats List
 router.get('/lottery/:id/participants', authenticateToken, (req, res) => {
   const lotteryId = parseInt(req.params.id, 10);
   const query = `
     SELECT u.id as user_id, u.username, 
            COUNT(t.id) as ticket_count, 
            SUM(t.coin_price) as total_spent,
-           MIN(t.purchased_at) as joined_at
+           MIN(t.purchased_at) as joined_at,
+           GROUP_CONCAT(t.ticket_number, ', ') as seat_numbers
     FROM arena_pot_tickets t
     JOIN users u ON t.user_id = u.id
     WHERE t.lottery_id = ?
