@@ -8,20 +8,23 @@ const authenticateToken = require('../middleware/auth');
 
 const SPIN_COST = 500;
 
-// Default initial prizes as specified in PRD
+// Official PRD Initial Prize Distribution
 const DEFAULT_PRIZES = [
   { prize_key: 'try_again', label: 'Try Again', amount: 0, probability: 57.0, is_enabled: 1, color_hex: '#4A5568', icon: '❌', segment_index: 0 },
   { prize_key: 'coins_50', label: '50 Coins', amount: 50, probability: 29.0, is_enabled: 1, color_hex: '#3B82F6', icon: '🪙', segment_index: 1 },
   { prize_key: 'coins_100', label: '100 Coins', amount: 100, probability: 11.0, is_enabled: 1, color_hex: '#10B981', icon: '💰', segment_index: 2 },
-  { prize_key: 'coins_500', label: '500 Coins', amount: 500, probability: 0.0, is_enabled: 0, color_hex: '#6366F1', icon: '💎', segment_index: 3 },
+  { prize_key: 'coins_500', label: '500 Coins', amount: 500, probability: 0.0, is_enabled: 0, color_hex: '#6366F1', icon: '💎', segment_index: 3 }, // 0% Disabled as per PRD
   { prize_key: 'coins_1000', label: '1,000 Coins', amount: 1000, probability: 1.0, is_enabled: 1, color_hex: '#F59E0B', icon: '⭐', segment_index: 4 },
   { prize_key: 'coins_5000', label: '5,000 Coins', amount: 5000, probability: 1.0, is_enabled: 1, color_hex: '#EC4899', icon: '👑', segment_index: 5 },
   { prize_key: 'coins_10000', label: '10,000 Coins', amount: 10000, probability: 1.0, is_enabled: 1, color_hex: '#8B5CF6', icon: '🏆', segment_index: 6 },
 ];
 
-// Ensure tables exist & auto-seed prizes if missing
-function ensurePrizesAndTargets(callback) {
+// ==========================================
+// 0. Auto-Migration & Table Verifier
+// ==========================================
+function ensureSpinSchema(callback) {
   db.serialize(() => {
+    // 1. Prizes table
     db.run(`
       CREATE TABLE IF NOT EXISTS spin_prizes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +40,7 @@ function ensurePrizesAndTargets(callback) {
       )
     `);
 
+    // 2. User Target Overrides
     db.run(`
       CREATE TABLE IF NOT EXISTS spin_user_targets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,13 +54,29 @@ function ensurePrizesAndTargets(callback) {
       )
     `);
 
+    // 3. Spin History Ledger
+    db.run(`
+      CREATE TABLE IF NOT EXISTS spin_history (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        username TEXT NOT NULL,
+        spin_cost INTEGER NOT NULL DEFAULT 500,
+        prize_id INTEGER NOT NULL,
+        prize_label TEXT NOT NULL,
+        reward_amount INTEGER NOT NULL DEFAULT 0,
+        config_version INTEGER DEFAULT 1,
+        is_demo INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Check seed status
     db.get('SELECT COUNT(*) as count FROM spin_prizes', (err, row) => {
       if (!err && row && row.count >= 7) {
         if (callback) callback();
         return;
       }
 
-      // Seed default prizes if empty or missing
       const stmt = db.prepare(`
         INSERT OR REPLACE INTO spin_prizes 
         (prize_key, label, amount, probability, is_enabled, color_hex, icon, segment_index)
@@ -66,16 +86,17 @@ function ensurePrizesAndTargets(callback) {
       for (const p of DEFAULT_PRIZES) {
         stmt.run([p.prize_key, p.label, p.amount, p.probability, p.is_enabled, p.color_hex, p.icon, p.segment_index]);
       }
+
       stmt.finalize(() => {
-        console.log('✅ [SPIN WHEEL] Automatically seeded default spin_prizes.');
+        console.log('✅ [SPIN WHEEL] Seeded 7 standard prize tiers into spin_prizes.');
         if (callback) callback();
       });
     });
   });
 }
 
-// Run setup immediately on load
-ensurePrizesAndTargets();
+// Initialize tables on startup
+ensureSpinSchema();
 
 // Cryptographically secure PRNG weighted selection
 function selectPrizeCryptographically(prizes) {
@@ -96,16 +117,26 @@ function selectPrizeCryptographically(prizes) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Get Wheel Config
+// 1. Get Wheel Config & Segments
 // ---------------------------------------------------------------------------
 router.get('/wheel-info', (req, res) => {
-  ensurePrizesAndTargets(() => {
+  ensureSpinSchema(() => {
     db.all('SELECT * FROM spin_prizes ORDER BY segment_index ASC', [], (err, prizes) => {
       if (err || !prizes || prizes.length === 0) {
         return res.json({
           success: true,
           spinCost: SPIN_COST,
-          prizes: DEFAULT_PRIZES,
+          prizes: DEFAULT_PRIZES.map((p, idx) => ({
+            id: idx + 1,
+            key: p.prize_key,
+            label: p.label,
+            amount: p.amount,
+            probability: p.probability,
+            isEnabled: p.is_enabled === 1,
+            colorHex: p.color_hex,
+            icon: p.icon,
+            segmentIndex: p.segment_index,
+          })),
         });
       }
 
@@ -129,28 +160,35 @@ router.get('/wheel-info', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Execute Spin (with Target User Check & 500 Coin Deduction)
+// 2. Execute Spin (500-Coin Deduction + Target Outcome Handling)
 // ---------------------------------------------------------------------------
 router.post('/execute', authenticateToken, (req, res) => {
-  const userId = req.user.id;
+  const userId = req.user ? (req.user.id || req.user.userId) : null;
 
-  ensurePrizesAndTargets(() => {
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Invalid token' });
+  }
+
+  ensureSpinSchema(() => {
     db.all('SELECT * FROM spin_prizes ORDER BY segment_index ASC', [], (err, allPrizes) => {
       if (err || !allPrizes || allPrizes.length === 0) {
-        return res.status(500).json({ error: 'Wheel configuration unavailable. Please try again in a moment.' });
+        return res.status(500).json({ success: false, error: 'Wheel configuration is unavailable. Please retry.' });
       }
 
       db.get('SELECT id, username, balance FROM users WHERE id = ?', [userId], (uErr, user) => {
-        if (uErr || !user) return res.status(404).json({ error: 'User profile not found' });
+        if (uErr || !user) {
+          return res.status(404).json({ success: false, error: 'User profile not found.' });
+        }
 
-        if (user.balance < SPIN_COST) {
+        if ((user.balance || 0) < SPIN_COST) {
           return res.status(400).json({
-            error: `Insufficient coins. You have ${user.balance} coins, but ${SPIN_COST} coins are required.`,
-            balance: user.balance,
+            success: false,
+            error: `Insufficient coins. You have ${user.balance || 0} coins, but ${SPIN_COST} coins are required.`,
+            balance: user.balance || 0,
           });
         }
 
-        // Check if there is an active admin target set for this user
+        // Check if an admin target rule exists for this user
         db.get(
           'SELECT * FROM spin_user_targets WHERE user_id = ? AND is_active = 1 AND spins_remaining > 0',
           [userId],
@@ -162,47 +200,50 @@ router.post('/execute', authenticateToken, (req, res) => {
               selectedPrize = allPrizes.find((p) => p.prize_key === activeTarget.target_prize_key);
               if (selectedPrize) {
                 consumedTargetId = activeTarget.id;
-                console.log(`🎯 [TARGET EXECUTION] User: ${user.username} received forced target: ${selectedPrize.label}`);
+                console.log(`🎯 [ADMIN TARGET APPLIED] User: ${user.username} -> Forced: ${selectedPrize.label}`);
               }
             }
 
-            // Normal PRNG fallback if no active target
+            // Fallback to cryptographic PRNG if no target rule matched
             if (!selectedPrize) {
               selectedPrize = selectPrizeCryptographically(allPrizes);
             }
 
             const spinId = `SPIN_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-            const rewardAmount = selectedPrize.amount;
+            const rewardAmount = selectedPrize.amount || 0;
             const netChange = rewardAmount - SPIN_COST;
-            const finalBalance = user.balance + netChange;
+            const finalBalance = (user.balance || 0) + netChange;
 
+            // Execute Database Writes Atomically
             db.serialize(() => {
               db.run('BEGIN IMMEDIATE TRANSACTION');
 
-              // Deduct cost and credit win
+              // 1. Update User Balance & Total Coins
               db.run(
                 `UPDATE users 
                  SET balance = balance + ?, 
-                     total_coins_earned = total_coins_earned + ? 
+                     total_coins_earned = COALESCE(total_coins_earned, 0) + ? 
                  WHERE id = ?`,
                 [netChange, rewardAmount > 0 ? rewardAmount : 0, userId]
               );
 
-              // Deduct 500 Entry
+              // 2. Audit Entry Fee Transaction (-500)
               db.run(
-                `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'SPIN_ENTRY', ?, ?)`,
+                `INSERT INTO transactions (user_id, type, amount, reference_id) 
+                 VALUES (?, 'SPIN_ENTRY', ?, ?)`,
                 [userId, -SPIN_COST, `${spinId}_COST`]
               );
 
-              // Credit Reward if > 0
+              // 3. Audit Win Transaction (+Reward)
               if (rewardAmount > 0) {
                 db.run(
-                  `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, ?, ?, ?)`,
+                  `INSERT INTO transactions (user_id, type, amount, reference_id) 
+                   VALUES (?, ?, ?, ?)`,
                   [userId, `SPIN_REWARD_${rewardAmount}`, rewardAmount, `${spinId}_WIN`]
                 );
               }
 
-              // Audit in spin_history
+              // 4. Audit in spin_history
               db.run(
                 `INSERT INTO spin_history 
                   (id, user_id, username, spin_cost, prize_id, prize_label, reward_amount, is_demo) 
@@ -210,7 +251,7 @@ router.post('/execute', authenticateToken, (req, res) => {
                 [spinId, userId, user.username, SPIN_COST, selectedPrize.id, selectedPrize.label, rewardAmount]
               );
 
-              // Update target quota if consumed
+              // 5. Decrement Target Quota if applicable
               if (consumedTargetId) {
                 db.run(
                   `UPDATE spin_user_targets 
@@ -224,8 +265,11 @@ router.post('/execute', authenticateToken, (req, res) => {
               db.run('COMMIT', (commitErr) => {
                 if (commitErr) {
                   db.run('ROLLBACK');
-                  return res.status(500).json({ error: 'Failed to complete spin transaction' });
+                  console.error('[SPIN TRANSACTION ROLLBACK]', commitErr.message);
+                  return res.status(500).json({ success: false, error: 'Database transaction failed during spin' });
                 }
+
+                console.log(`🎰 [SPIN COMPLETED] User: ${user.username} Won: ${selectedPrize.label} New Balance: ${finalBalance}`);
 
                 res.json({
                   success: true,
@@ -251,7 +295,7 @@ router.post('/execute', authenticateToken, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. User History, Recent Winners, Leaderboard
+// 3. Recent Winners
 // ---------------------------------------------------------------------------
 router.get('/recent-winners', (req, res) => {
   db.all(
@@ -262,26 +306,33 @@ router.get('/recent-winners', (req, res) => {
      ORDER BY sh.created_at DESC LIMIT 20`,
     [],
     (err, rows) => {
-      if (err) return res.status(500).json({ error: 'Failed to fetch winners' });
+      if (err) return res.status(500).json({ success: false, error: 'Failed to fetch winners' });
       res.json({ success: true, winners: rows || [] });
     }
   );
 });
 
+// ---------------------------------------------------------------------------
+// 4. My Spin History
+// ---------------------------------------------------------------------------
 router.get('/my-history', authenticateToken, (req, res) => {
+  const userId = req.user ? (req.user.id || req.user.userId) : null;
   db.all(
     `SELECT id, spin_cost, prize_label, reward_amount, created_at 
      FROM spin_history 
      WHERE user_id = ? AND is_demo = 0 
      ORDER BY created_at DESC LIMIT 50`,
-    [req.user.id],
+    [userId],
     (err, rows) => {
-      if (err) return res.status(500).json({ error: 'Failed to load history' });
+      if (err) return res.status(500).json({ success: false, error: 'Failed to load history' });
       res.json({ success: true, history: rows || [] });
     }
   );
 });
 
+// ---------------------------------------------------------------------------
+// 5. Spin Leaderboard
+// ---------------------------------------------------------------------------
 router.get('/leaderboard', (req, res) => {
   const timeframe = req.query.type || 'weekly';
   let dateFilter = "DATETIME('now', '-7 days')";
@@ -300,17 +351,50 @@ router.get('/leaderboard', (req, res) => {
   `;
 
   db.all(query, [], (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to fetch leaderboard' });
+    if (err) return res.status(500).json({ success: false, error: 'Failed to fetch leaderboard' });
     res.json({ success: true, leaderboard: rows || [] });
   });
 });
 
 // ---------------------------------------------------------------------------
-// 4. Admin Target Users API
+// 6. Demo Spin Sandbox (Virtual 100k Balance)
+// ---------------------------------------------------------------------------
+router.post('/demo/execute', (req, res) => {
+  const demoBalance = parseInt(req.body.demoBalance, 10) || 100000;
+
+  if (demoBalance < SPIN_COST) {
+    return res.status(400).json({ success: false, error: 'Insufficient demo coins. Please reset demo wallet.' });
+  }
+
+  ensureSpinSchema(() => {
+    db.all('SELECT * FROM spin_prizes WHERE is_enabled = 1 AND probability > 0', [], (err, prizes) => {
+      if (err || !prizes || prizes.length === 0) {
+        return res.status(500).json({ success: false, error: 'Prizes unavailable' });
+      }
+
+      const selectedPrize = selectPrizeCryptographically(prizes);
+      const rewardAmount = selectedPrize.amount;
+      const newDemoBalance = demoBalance - SPIN_COST + rewardAmount;
+      const spinId = `DEMO_${Date.now()}`;
+
+      res.json({
+        success: true,
+        spinId,
+        selectedSegment: selectedPrize.segment_index,
+        prize: selectedPrize,
+        newBalance: newDemoBalance,
+        isWin: rewardAmount > 0,
+      });
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Admin: User Targets Management
 // ---------------------------------------------------------------------------
 router.get('/admin/targets', (req, res) => {
   db.all('SELECT * FROM spin_user_targets ORDER BY created_at DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, targets: rows || [] });
   });
 });
@@ -319,12 +403,12 @@ router.post('/admin/targets', (req, res) => {
   const { username, targetPrizeKey, spinsCount = 1, adminNote = '' } = req.body;
 
   if (!username || !targetPrizeKey) {
-    return res.status(400).json({ error: 'Username and Target Prize Key are required' });
+    return res.status(400).json({ success: false, error: 'Username and target outcome are required' });
   }
 
   db.get('SELECT id, username FROM users WHERE username = ? COLLATE NOCASE', [username.trim()], (err, user) => {
     if (err || !user) {
-      return res.status(404).json({ error: `User '${username}' not found in Arena Games database.` });
+      return res.status(404).json({ success: false, error: `User '${username}' not found in database.` });
     }
 
     db.run(
@@ -337,9 +421,9 @@ router.post('/admin/targets', (req, res) => {
          admin_note = excluded.admin_note`,
       [user.id, user.username, targetPrizeKey, parseInt(spinsCount, 10) || 1, adminNote],
       (insErr) => {
-        if (insErr) return res.status(500).json({ error: insErr.message });
-        console.log(`🎯 [TARGET SET] Admin set target for ${user.username} -> ${targetPrizeKey} (${spinsCount} spins)`);
-        res.json({ success: true, message: `Target set successfully for user ${user.username}!` });
+        if (insErr) return res.status(500).json({ success: false, error: insErr.message });
+        console.log(`🎯 [TARGET SET] User: ${user.username} -> Prize: ${targetPrizeKey} (${spinsCount} spins)`);
+        res.json({ success: true, message: `Target rule active for user ${user.username}!` });
       }
     );
   });
@@ -347,21 +431,21 @@ router.post('/admin/targets', (req, res) => {
 
 router.delete('/admin/targets/:id', (req, res) => {
   db.run('DELETE FROM spin_user_targets WHERE id = ?', [req.params.id], (err) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true, message: 'Target removed successfully' });
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    res.json({ success: true, message: 'Target rule deleted successfully' });
   });
 });
 
 router.get('/admin/search-users', (req, res) => {
   const q = req.query.q ? `%${req.query.q.trim()}%` : '%';
   db.all('SELECT id, username, balance FROM users WHERE username LIKE ? LIMIT 10', [q], (err, users) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, users: users || [] });
   });
 });
 
 // ---------------------------------------------------------------------------
-// 5. Admin Dashboard & Odds Settings
+// 8. Admin: Dashboard Stats & Odds Update
 // ---------------------------------------------------------------------------
 router.get('/admin/dashboard', (req, res) => {
   db.get(
@@ -375,7 +459,7 @@ router.get('/admin/dashboard', (req, res) => {
     FROM spin_history WHERE is_demo = 0`,
     [],
     (err, stats) => {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) return res.status(500).json({ success: false, error: err.message });
       const spent = (stats && stats.total_coins_spent) || 0;
       const rewarded = (stats && stats.total_coins_rewarded) || 0;
 
@@ -397,7 +481,7 @@ router.get('/admin/dashboard', (req, res) => {
 
 router.put('/admin/prizes', (req, res) => {
   const { prizes } = req.body;
-  if (!Array.isArray(prizes)) return res.status(400).json({ error: 'Prizes array is required' });
+  if (!Array.isArray(prizes)) return res.status(400).json({ success: false, error: 'Prizes array is required' });
 
   let enabledSum = 0;
   for (const p of prizes) {
@@ -405,7 +489,7 @@ router.put('/admin/prizes', (req, res) => {
   }
 
   if (Math.abs(enabledSum - 100.0) > 0.1) {
-    return res.status(400).json({ error: `Enabled probabilities must equal 100%. Current sum: ${enabledSum.toFixed(1)}%` });
+    return res.status(400).json({ success: false, error: `Enabled probabilities must equal 100%. Current sum: ${enabledSum.toFixed(1)}%` });
   }
 
   db.serialize(() => {
@@ -416,8 +500,8 @@ router.put('/admin/prizes', (req, res) => {
     }
     stmt.finalize();
     db.run('COMMIT', (commitErr) => {
-      if (commitErr) return res.status(500).json({ error: 'Failed to update odds' });
-      res.json({ success: true, message: 'Odds updated successfully!' });
+      if (commitErr) return res.status(500).json({ success: false, error: 'Failed to update odds in database' });
+      res.json({ success: true, message: 'Prize odds updated and published successfully!' });
     });
   });
 });
