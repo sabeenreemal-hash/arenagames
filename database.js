@@ -272,14 +272,13 @@ db.serialize(() => {
   ]);
   db.run(`INSERT OR IGNORE INTO app_config (key, value) VALUES ('payment_methods', ?)`, [defaultGateways], () => {});
 
-  // Default High or Low Engine Configuration
   const defaultHighLowConfig = JSON.stringify({
     entryCost: 500,
     startingReward: 500,
     multiplier: 2.0,
     minWinsForClaim: 3,
-    aceRule: 'HIGHEST', // 'HIGHEST' or 'LOWEST'
-    tieRule: 'LOSE',    // 'LOSE', 'PUSH', or 'WIN'
+    aceRule: 'HIGHEST',
+    tieRule: 'LOSE',
     isEnabled: true,
     version: 1
   });
@@ -576,6 +575,160 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memory_match', 'Memory Match', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('memoryMatch', 'Memory Match', 5000, 1.0, 1)`, () => {});
   db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('high_low', 'High or Low', 500000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('tictactoe', 'Tic Tac Toe (Multiplayer)', 50000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('rps', 'Rock Paper Scissors (Multiplayer)', 50000, 1.0, 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO games (id, name, max_daily_reward, reward_multiplier, is_enabled) VALUES ('head_tail', 'Head or Tails (Multiplayer)', 50000, 1.0, 1)`, () => {});
+
+  // ==========================================
+  // 12. MULTIPLAYER MINI-GAMES TABLES
+  // ==========================================
+
+  // Game Specific Settings (Entry fees, rewards, timers)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS multiplayer_game_configs (
+      game_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      entry_fee INTEGER DEFAULT 100,
+      winner_reward INTEGER DEFAULT 200,
+      turn_timer INTEGER DEFAULT 30,
+      bot_difficulty TEXT DEFAULT 'HARD',
+      is_enabled INTEGER DEFAULT 1,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `, () => {});
+
+  db.run(`INSERT OR IGNORE INTO multiplayer_game_configs (game_id, name, entry_fee, winner_reward, turn_timer, bot_difficulty, is_enabled)
+    VALUES ('tictactoe', 'Tic Tac Toe', 100, 200, 30, 'HARD', 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO multiplayer_game_configs (game_id, name, entry_fee, winner_reward, turn_timer, bot_difficulty, is_enabled)
+    VALUES ('rps', 'Rock Paper Scissors', 100, 200, 10, 'HARD', 1)`, () => {});
+  db.run(`INSERT OR IGNORE INTO multiplayer_game_configs (game_id, name, entry_fee, winner_reward, turn_timer, bot_difficulty, is_enabled)
+    VALUES ('head_tail', 'Coin Head or Tails', 100, 200, 10, 'HARD', 1)`, () => {});
+
+  // Bots Profile Registry
+  db.run(`
+    CREATE TABLE IF NOT EXISTS multiplayer_bots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      avatar_url TEXT NOT NULL,
+      difficulty TEXT DEFAULT 'HARD',
+      is_active INTEGER DEFAULT 1,
+      games_played INTEGER DEFAULT 0,
+      wins INTEGER DEFAULT 0,
+      losses INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `, () => {
+    const defaultBots = [
+      { name: 'CyberTitan (Bot)', avatar: 'https://api.dicebear.com/7.x/bottts/png?seed=CyberTitan', diff: 'HARD' },
+      { name: 'NeonViper (Bot)', avatar: 'https://api.dicebear.com/7.x/bottts/png?seed=NeonViper', diff: 'HARD' },
+      { name: 'ShadowMaster (Bot)', avatar: 'https://api.dicebear.com/7.x/bottts/png?seed=ShadowMaster', diff: 'EXPERT' },
+      { name: 'BlazeRider (Bot)', avatar: 'https://api.dicebear.com/7.x/bottts/png?seed=BlazeRider', diff: 'MEDIUM' },
+      { name: 'PixelNova (Bot)', avatar: 'https://api.dicebear.com/7.x/bottts/png?seed=PixelNova', diff: 'EASY' }
+    ];
+    defaultBots.forEach(bot => {
+      db.run(
+        `INSERT OR IGNORE INTO multiplayer_bots (username, avatar_url, difficulty, is_active) VALUES (?, ?, ?, 1)`,
+        [bot.name, bot.avatar, bot.diff]
+      );
+    });
+  });
+
+  // Matchmaking Queue
+  db.run(`
+    CREATE TABLE IF NOT EXISTS multiplayer_queue (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      game_id TEXT NOT NULL,
+      entry_fee INTEGER NOT NULL DEFAULT 100,
+      status TEXT CHECK(status IN ('WAITING', 'MATCHED', 'TIMEOUT', 'CANCELLED')) DEFAULT 'WAITING',
+      match_id TEXT DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mp_queue_lookup ON multiplayer_queue(game_id, status, created_at);`, () => {});
+
+  // Multiplayer Matches Active & Historical Records
+  db.run(`
+    CREATE TABLE IF NOT EXISTS multiplayer_matches (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL,
+      player1_id INTEGER NOT NULL,
+      player2_id INTEGER DEFAULT NULL,
+      is_bot_match INTEGER DEFAULT 0,
+      bot_id INTEGER DEFAULT NULL,
+      entry_fee INTEGER NOT NULL DEFAULT 100,
+      winner_reward INTEGER NOT NULL DEFAULT 200,
+      status TEXT CHECK(status IN ('ACTIVE', 'COMPLETED', 'CANCELLED', 'FORFEITED')) DEFAULT 'ACTIVE',
+      winner_id INTEGER DEFAULT NULL,
+      current_round INTEGER DEFAULT 1,
+      p1_score INTEGER DEFAULT 0,
+      p2_score INTEGER DEFAULT 0,
+      turn_user_id INTEGER DEFAULT NULL,
+      turn_deadline DATETIME DEFAULT NULL,
+      game_state TEXT NOT NULL DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME DEFAULT NULL,
+      FOREIGN KEY(player1_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mp_matches_p1_p2 ON multiplayer_matches(player1_id, player2_id);`, () => {});
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mp_matches_status ON multiplayer_matches(status);`, () => {});
+
+  // Bot Consecutive Limits & 10-Minute Cooldowns
+  db.run(`
+    CREATE TABLE IF NOT EXISTS multiplayer_cooldowns (
+      user_id INTEGER PRIMARY KEY,
+      consecutive_bot_matches INTEGER DEFAULT 0,
+      cooldown_until DATETIME DEFAULT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, () => {});
+
+  // Aggregated Player Stats for Multiplayer
+  db.run(`
+    CREATE TABLE IF NOT EXISTS multiplayer_user_stats (
+      user_id INTEGER NOT NULL,
+      game_id TEXT NOT NULL,
+      total_matches INTEGER DEFAULT 0,
+      real_matches INTEGER DEFAULT 0,
+      bot_matches INTEGER DEFAULT 0,
+      wins INTEGER DEFAULT 0,
+      losses INTEGER DEFAULT 0,
+      draws INTEGER DEFAULT 0,
+      coins_spent INTEGER DEFAULT 0,
+      coins_won INTEGER DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, game_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, () => {});
+
+  // Target User Monitoring
+  db.run(`
+    CREATE TABLE IF NOT EXISTS multiplayer_target_users (
+      user_id INTEGER PRIMARY KEY,
+      reason TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, () => {});
+
+  // Match Moves & Action History Audit Log
+  db.run(`
+    CREATE TABLE IF NOT EXISTS multiplayer_match_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      match_id TEXT NOT NULL,
+      round_number INTEGER DEFAULT 1,
+      actor_id INTEGER NOT NULL,
+      action_type TEXT NOT NULL,
+      action_payload TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(match_id) REFERENCES multiplayer_matches(id) ON DELETE CASCADE
+    )
+  `, () => {});
 
   // Safe General Performance Indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);`, () => {});
