@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Arena Pot — Admin Control Desk</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -34,26 +34,28 @@
       font-family: var(--font-main);
       min-height: 100vh;
       display: flex;
+      overflow-x: hidden;
     }
 
     /* Auth Screen Overlay */
     #auth-screen {
       position: fixed; inset: 0;
       background: radial-gradient(circle at 50% 20%, #1e1b4b 0%, #090a16 80%);
-      z-index: 1000;
+      z-index: 3000;
       display: flex; align-items: center; justify-content: center;
+      padding: 16px;
     }
     .auth-box {
       width: 100%; max-width: 420px;
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 20px;
-      padding: 36px;
+      padding: 32px 24px;
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
     }
-    .auth-logo { font-size: 40px; margin-bottom: 12px; }
+    .auth-logo { font-size: 38px; margin-bottom: 12px; }
     .auth-title { font-size: 22px; font-weight: 800; color: #fff; }
-    .auth-subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 24px; }
+    .auth-subtitle { color: var(--text-muted); font-size: 13px; margin-bottom: 24px; line-height: 1.4; }
 
     /* Layout */
     #sidebar {
@@ -62,13 +64,35 @@
       border-right: 1px solid var(--border);
       display: flex; flex-direction: column;
       flex-shrink: 0;
+      transition: transform 0.3s ease;
+      z-index: 2100;
     }
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(3px);
+      z-index: 2050;
+    }
+    .sidebar-overlay.active { display: block; }
+
     .brand {
-      padding: 24px 20px;
+      padding: 22px 20px;
       border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; gap: 12px;
+      display: flex; align-items: center; justify-content: space-between;
     }
-    .brand-title { font-weight: 800; font-size: 17px; letter-spacing: 0.5px; }
+    .brand-content { display: flex; align-items: center; gap: 12px; }
+    .brand-title { font-weight: 800; font-size: 17px; letter-spacing: 0.5px; line-height: 1.2; }
+    .sidebar-close-btn {
+      display: none;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 22px;
+      cursor: pointer;
+    }
+
     .nav-links { list-style: none; padding: 16px 12px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
     .nav-item {
       display: flex; align-items: center; gap: 12px;
@@ -80,30 +104,48 @@
     .nav-item.active { color: #000; background: var(--gold); box-shadow: 0 4px 14px var(--gold-glow); font-weight: 700; }
 
     #main {
-      flex: 1; overflow-y: auto; padding: 28px 36px;
-      display: flex; flex-direction: column; gap: 28px;
+      flex: 1; min-width: 0;
+      overflow-y: auto; padding: 28px 36px;
+      display: flex; flex-direction: column; gap: 24px;
     }
 
     .topbar {
       display: flex; justify-content: space-between; align-items: center;
-      background: var(--panel); padding: 16px 24px; border-radius: 14px;
-      border: 1px solid var(--border);
+      background: var(--panel); padding: 16px 20px; border-radius: 14px;
+      border: 1px solid var(--border); gap: 14px;
     }
-    .page-title { font-size: 22px; font-weight: 800; }
+    .topbar-header-group { display: flex; align-items: center; gap: 12px; }
+    .menu-toggle-btn {
+      display: none;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: #fff;
+      font-size: 18px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .page-title { font-size: 20px; font-weight: 800; }
 
-    /* Tables */
+    /* Tables & Responsive Wrapper */
     .table-container {
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 14px; overflow: hidden;
     }
     .table-header {
       padding: 16px 20px; display: flex; justify-content: space-between; align-items: center;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--border); gap: 10px; flex-wrap: wrap;
     }
-    table { width: 100%; border-collapse: collapse; text-align: left; }
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    table { width: 100%; min-width: 700px; border-collapse: collapse; text-align: left; }
     th {
       padding: 14px 16px; font-size: 12px; color: var(--text-muted);
       text-transform: uppercase; font-weight: 700; background: rgba(0,0,0,0.2);
+      white-space: nowrap;
     }
     td { padding: 14px 16px; font-size: 13px; border-bottom: 1px solid var(--border); }
     tr:last-child td { border-bottom: none; }
@@ -112,6 +154,7 @@
     .badge {
       display: inline-block; padding: 4px 10px; border-radius: 6px;
       font-size: 11px; font-weight: 700; text-transform: uppercase;
+      white-space: nowrap;
     }
     .badge-ACTIVE { background: rgba(16, 185, 129, 0.15); color: var(--green); }
     .badge-UPCOMING { background: rgba(245, 158, 11, 0.15); color: var(--gold); }
@@ -120,9 +163,10 @@
     .badge-RESULTS_PUBLISHED { background: rgba(139, 92, 246, 0.2); color: #c084fc; }
 
     .btn {
-      padding: 9px 16px; border-radius: 8px; border: none; font-size: 13px;
+      padding: 9px 15px; border-radius: 8px; border: none; font-size: 13px;
       font-weight: 700; cursor: pointer; transition: all 0.2s; display: inline-flex;
-      align-items: center; gap: 6px; text-decoration: none;
+      align-items: center; justify-content: center; gap: 6px; text-decoration: none;
+      white-space: nowrap;
     }
     .btn-gold { background: var(--gold); color: #000; }
     .btn-gold:hover { background: var(--gold-light); }
@@ -137,14 +181,14 @@
     /* Modals */
     .modal {
       position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85);
-      z-index: 2000; display: none; align-items: center; justify-content: center;
-      padding: 20px;
+      z-index: 2500; display: none; align-items: center; justify-content: center;
+      padding: 16px;
     }
     .modal.active { display: flex; }
     .modal-content {
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 18px; width: 100%; max-width: 680px;
-      max-height: 90vh; overflow-y: auto; padding: 26px;
+      max-height: 90vh; overflow-y: auto; padding: 24px;
     }
 
     .form-group { margin-bottom: 14px; }
@@ -179,10 +223,66 @@
       display: flex;
       gap: 10px;
       align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* -------------------------------------------
+       MOBILE & RESPONSIVE BREAKPOINTS
+       ------------------------------------------- */
+    @media (max-width: 860px) {
+      #sidebar {
+        position: fixed;
+        top: 0; left: 0; bottom: 0;
+        transform: translateX(-100%);
+        box-shadow: 10px 0 30px rgba(0, 0, 0, 0.7);
+      }
+      #sidebar.open {
+        transform: translateX(0);
+      }
+      .sidebar-close-btn { display: inline-block; }
+      .menu-toggle-btn { display: inline-flex; }
+
+      #main {
+        padding: 16px;
+        gap: 16px;
+      }
+      .topbar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .topbar .btn {
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 580px) {
+      .page-title { font-size: 18px; }
+      .auth-box { padding: 24px 18px; }
+      .modal-content { padding: 18px 14px; }
+      
+      .prize-tier-card {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .prize-tier-card .form-control {
+        width: 100% !important;
+      }
+      .prize-tier-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .winner-slot-row-inputs {
+        flex-direction: column !important;
+      }
     }
   </style>
 </head>
 <body>
+
+  <!-- MOBILE SIDEBAR BACKDROP OVERLAY -->
+  <div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleSidebar(false)"></div>
 
   <!-- 1. LOGIN OVERLAY -->
   <div id="auth-screen">
@@ -199,7 +299,7 @@
           <label class="form-label">Password</label>
           <input type="password" id="adminPass" class="form-control" value="admin123" required>
         </div>
-        <button type="submit" class="btn btn-gold" style="width: 100%; justify-content: center; padding: 12px;">
+        <button type="submit" class="btn btn-gold" style="width: 100%; padding: 12px;">
           Unlock Desk
         </button>
       </form>
@@ -209,16 +309,19 @@
   <!-- 2. SIDEBAR -->
   <aside id="sidebar">
     <div class="brand">
-      <span style="font-size: 26px;">🎰</span>
-      <div class="brand-title">ARENA POT<br><span style="font-size: 11px; color: var(--gold);">ROUND CONTROL</span></div>
+      <div class="brand-content">
+        <span style="font-size: 26px;">🎰</span>
+        <div class="brand-title">ARENA POT<br><span style="font-size: 11px; color: var(--gold);">ROUND CONTROL</span></div>
+      </div>
+      <button class="sidebar-close-btn" onclick="toggleSidebar(false)">✕</button>
     </div>
     <ul class="nav-links">
-      <li class="nav-item active" onclick="switchTab('lotteries')">📋 Lotteries Manager</li>
-      <li class="nav-item" onclick="openCreateModal()">➕ Create New Round</li>
-      <li class="nav-item" onclick="switchTab('winners')">🏆 Winners History</li>
+      <li class="nav-item active" onclick="handleNavClick('lotteries', event)">📋 Lotteries Manager</li>
+      <li class="nav-item" onclick="openCreateModal(); toggleSidebar(false);">➕ Create New Round</li>
+      <li class="nav-item" onclick="handleNavClick('winners', event)">🏆 Winners History</li>
     </ul>
     <div style="padding: 16px; border-top: 1px solid var(--border);">
-      <button class="btn btn-outline" style="width: 100%; justify-content: center;" onclick="logout()">
+      <button class="btn btn-outline" style="width: 100%;" onclick="logout()">
         🚪 Sign Out
       </button>
     </div>
@@ -227,9 +330,12 @@
   <!-- 3. MAIN WORKSPACE -->
   <main id="main">
     <div class="topbar">
-      <div>
-        <h1 class="page-title">Arena Pot Rounds</h1>
-        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Configurable schedules, pause controls, prize tiers & history management</p>
+      <div class="topbar-header-group">
+        <button class="menu-toggle-btn" onclick="toggleSidebar(true)" aria-label="Open Menu">☰</button>
+        <div>
+          <h1 class="page-title">Arena Pot Rounds</h1>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">Configurable schedules, pause controls, prize tiers & history</p>
+        </div>
       </div>
       <button class="btn btn-gold" onclick="openCreateModal()">+ Create New Round</button>
     </div>
@@ -241,23 +347,25 @@
           <span style="font-weight: 700;">All Rounds</span>
           <button class="btn btn-outline btn-sm" onclick="loadLotteries()">Refresh</button>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Title & Schedule</th>
-              <th>Main Prize</th>
-              <th>Winners</th>
-              <th>Seats Sold</th>
-              <th>Price</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="lotteries-tbody">
-            <tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Loading rounds...</td></tr>
-          </tbody>
-        </table>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Title & Schedule</th>
+                <th>Main Prize</th>
+                <th>Winners</th>
+                <th>Seats Sold</th>
+                <th>Price</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="lotteries-tbody">
+              <tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Loading rounds...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -268,21 +376,23 @@
           <span style="font-weight: 700;">Completed Winners History</span>
           <button class="btn btn-red btn-sm" onclick="clearAllWinnerHistory()">🗑️ Clear All Winner History</button>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Round ID</th>
-              <th>Title</th>
-              <th>Rank</th>
-              <th>Winning Seat</th>
-              <th>Winner Username</th>
-              <th>Prize</th>
-              <th>Published Date</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="winners-tbody"></tbody>
-        </table>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Round ID</th>
+                <th>Title</th>
+                <th>Rank</th>
+                <th>Winning Seat</th>
+                <th>Winner Username</th>
+                <th>Prize</th>
+                <th>Published Date</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="winners-tbody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </main>
@@ -291,7 +401,7 @@
   <div id="modal-draw-winners" class="modal">
     <div class="modal-content">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h2 style="font-size: 18px; font-weight: 800; color: #fff;" id="draw-modal-title">🏆 Pick Round Winners</h2>
+        <h2 style="font-size: 17px; font-weight: 800; color: #fff;" id="draw-modal-title">🏆 Pick Round Winners</h2>
         <button class="btn btn-outline btn-sm" onclick="closeDrawModal()">✕</button>
       </div>
 
@@ -308,9 +418,9 @@
       </div>
 
       <!-- MULTIPLE WINNERS INPUT SLOTS -->
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; flex-wrap: wrap;">
         <label class="form-label" style="margin: 0;">Configured Winner Positions:</label>
-        <button type="button" class="btn btn-outline btn-sm" onclick="addWinnerSlot()">+ Add Another Winner Rank</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="addWinnerSlot()">+ Add Rank</button>
       </div>
       <div id="winner-slots-container"></div>
 
@@ -323,7 +433,7 @@
 
   <!-- MODAL: CREATE LOTTERY WITH DYNAMIC PRIZE DISTRIBUTION -->
   <div id="modal-create" class="modal">
-    <div class="modal-content" style="max-width: 680px;">
+    <div class="modal-content">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <h2 style="font-size: 18px; font-weight: 800;">Create Round with Prize Distribution</h2>
         <button class="btn btn-outline btn-sm" onclick="closeCreateModal()">✕</button>
@@ -343,7 +453,7 @@
             <input type="number" id="p-price" class="form-control" value="50" min="1" required>
           </div>
           <div class="form-group">
-            <label class="form-label">Seat Limit / User (0 = Unltd)</label>
+            <label class="form-label">Seat Limit / User</label>
             <input type="number" id="p-limit" class="form-control" value="0" min="0">
           </div>
         </div>
@@ -360,11 +470,11 @@
 
         <!-- PRIZE DISTRIBUTION BUILDER -->
         <div style="margin: 20px 0; border-top: 1px solid var(--border); padding-top: 16px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; flex-wrap: wrap;">
             <div>
               <span style="font-size: 14px; font-weight: 700; color: #fff;">🏆 Prize Distribution Tiers</span>
               <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
-                Configure the prizes for each rank. The number of ranks determines the total number of winners.
+                Configure the prizes for each rank. The number of ranks determines total winners.
               </p>
             </div>
             <button type="button" class="btn btn-outline btn-sm" onclick="addPrizeTier()">+ Add Rank</button>
@@ -395,7 +505,24 @@
       }
     });
 
-    // Helper: Format Date to local YYYY-MM-DDTHH:mm for datetime-local input
+    // Mobile Sidebar Drawer Controller
+    function toggleSidebar(open) {
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebar-overlay');
+      if (open) {
+        sidebar.classList.add('open');
+        overlay.classList.add('active');
+      } else {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('active');
+      }
+    }
+
+    function handleNavClick(tabId, ev) {
+      switchTab(tabId, ev.currentTarget);
+      toggleSidebar(false);
+    }
+
     function toLocalDatetimeInput(date) {
       const pad = (n) => String(n).padStart(2, '0');
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -431,12 +558,12 @@
       location.reload();
     }
 
-    function switchTab(tabId) {
+    function switchTab(tabId, targetEl) {
       document.querySelectorAll('.tab-pane').forEach(el => el.style.display = 'none');
       document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
 
       document.getElementById(`tab-${tabId}`).style.display = 'block';
-      event.currentTarget.classList.add('active');
+      if (targetEl) targetEl.classList.add('active');
 
       if (tabId === 'lotteries') loadLotteries();
       if (tabId === 'winners') loadWinnersLedger();
@@ -520,7 +647,7 @@
     }
 
     async function deleteLotteryAndHistory(lotteryId, title) {
-      if (!confirm(`⚠️ DELETE ROUND #${lotteryId} ("${title}")?\n\nThis will permanently delete the lottery along with its tickets, prize tiers, and winner history records.`)) {
+      if (!confirm(`⚠️ DELETE ROUND #${lotteryId} ("${title}")?\n\nThis will permanently delete the round along with tickets and winners.`)) {
         return;
       }
 
@@ -560,14 +687,16 @@
       const card = document.createElement('div');
       card.className = 'prize-tier-card create-prize-row';
       card.innerHTML = `
-        <span style="font-size: 12px; font-weight: 800; color: var(--gold); min-width: 65px;">Rank #${pos}</span>
-        <input type="text" class="form-control p-tier-title" value="${defaultTitle || 'Rank #' + pos + ' Prize'}" placeholder="Prize Label" style="flex: 2;" required>
-        <select class="form-control p-tier-type" style="flex: 1;" onchange="toggleCoinAmountField(this)">
+        <div class="prize-tier-card-header" style="width: 100%;">
+          <span style="font-size: 12px; font-weight: 800; color: var(--gold);">Rank #${pos}</span>
+          ${pos > 1 ? `<button type="button" class="btn btn-red btn-sm" onclick="this.closest('.create-prize-row').remove(); renumberPrizeTiers();">✕ Remove</button>` : `<span></span>`}
+        </div>
+        <input type="text" class="form-control p-tier-title" value="${defaultTitle || 'Rank #' + pos + ' Prize'}" placeholder="Prize Label" style="flex: 2; min-width: 150px;" required>
+        <select class="form-control p-tier-type" style="flex: 1; min-width: 120px;" onchange="toggleCoinAmountField(this)">
           <option value="COINS" ${defaultType === 'COINS' ? 'selected' : ''}>Coins</option>
           <option value="CUSTOM" ${defaultType === 'CUSTOM' ? 'selected' : ''}>Physical / Custom</option>
         </select>
-        <input type="number" class="form-control p-tier-amount" value="${defaultAmount}" placeholder="Coins" style="flex: 1; ${defaultType === 'COINS' ? '' : 'display:none;'}" min="0">
-        ${pos > 1 ? `<button type="button" class="btn btn-red btn-sm" onclick="this.closest('.create-prize-row').remove(); renumberPrizeTiers();">✕</button>` : `<span style="width:30px;"></span>`}
+        <input type="number" class="form-control p-tier-amount" value="${defaultAmount}" placeholder="Coins" style="flex: 1; min-width: 100px; ${defaultType === 'COINS' ? '' : 'display:none;'}" min="0">
       `;
 
       container.appendChild(card);
@@ -588,8 +717,8 @@
       const rows = document.querySelectorAll('.create-prize-row');
       createPrizeRankCounter = 1;
       rows.forEach(r => {
-        const label = r.querySelector('span');
-        label.innerText = `Rank #${createPrizeRankCounter}`;
+        const label = r.querySelector('.prize-tier-card-header span');
+        if (label) label.innerText = `Rank #${createPrizeRankCounter}`;
         createPrizeRankCounter++;
       });
     }
@@ -703,12 +832,12 @@
         const badgesDiv = document.getElementById('sold-seats-badges');
         badgesDiv.innerHTML = '';
         if (currentLotterySoldTickets.length === 0) {
-          badgesDiv.innerHTML = `<span style="font-size:12px; color:var(--text-muted); font-style:italic;">No seats purchased yet. Users must buy seats before you can select them as winners.</span>`;
+          badgesDiv.innerHTML = `<span style="font-size:12px; color:var(--text-muted); font-style:italic;">No seats purchased yet. Users must buy seats before you can select winners.</span>`;
         } else {
           currentLotterySoldTickets.forEach(t => {
             badgesDiv.innerHTML += `
               <span class="seat-badge" title="Owned by @${t.username}">
-                Seat #${t.ticket_number} (@${t.username})
+                #${t.ticket_number} (@${t.username})
               </span>
             `;
           });
@@ -754,12 +883,12 @@
       div.className = 'winner-slot-row';
       div.style = 'background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:10px;';
       div.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
           <span style="font-weight:700; color:var(--gold);">Rank #${pos} Winner</span>
-          ${prizeLabel ? `<span style="font-size:12px; color:var(--text-muted); font-weight:600;">${prizeLabel}</span>` : ''}
+          ${prizeLabel ? `<span style="font-size:11px; color:var(--text-muted); font-weight:600;">${prizeLabel}</span>` : ''}
           ${pos > 1 ? `<button type="button" class="btn btn-outline btn-sm" style="padding:2px 8px;" onclick="this.closest('.winner-slot-row').remove()">Remove</button>` : ''}
         </div>
-        <div style="display:flex; gap:8px;">
+        <div class="winner-slot-row-inputs" style="display:flex; gap:8px;">
           <select class="form-control winner-seat-select" data-pos="${pos}" style="flex:2;" onchange="syncFromSelect(this)">
             ${options}
           </select>
