@@ -1656,7 +1656,7 @@ router.post('/payment-methods', adminAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// G. Withdrawals Pipeline (Includes rejection_reason & Prompt Support)
+// G. Withdrawals Pipeline (Includes rejection_reason & Auto 'Rejected by admin' Fallback)
 // ---------------------------------------------------------------------------
 router.get('/withdrawals', adminAuth, (req, res) => {
   const hasPagination = req.query.page !== undefined;
@@ -1755,10 +1755,6 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
     return res.status(400).json({ error: 'Invalid status' });
   }
 
-  if (status === 'REJECTED' && (!reason || !String(reason).trim())) {
-    return res.status(400).json({ error: 'Rejection reason is required' });
-  }
-
   db.get(
     `SELECT w.*, u.username FROM withdrawals w LEFT JOIN users u ON w.user_id = u.id WHERE w.id = ?`,
     [withdrawalId],
@@ -1768,7 +1764,6 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
 
       const nowIso = new Date().toISOString();
       const targetUser = record.username ? `@${record.username}` : `User #${record.user_id}`;
-      const cleanReason = reason ? String(reason).trim() : null;
 
       if (status === 'APPROVED') {
         db.run(
@@ -1795,10 +1790,20 @@ router.post('/withdrawals/:id/status', adminAuth, (req, res) => {
           }
         );
       } else {
+        // If frontend passes reason, use it; otherwise default safely to "Rejected by admin"
+        const cleanReason = (reason && String(reason).trim().length > 0)
+          ? String(reason).trim()
+          : 'Rejected by admin';
+
         db.run(
           'UPDATE withdrawals SET status = ?, rejection_reason = ?, processed_at = ? WHERE id = ?',
           ['REJECTED', cleanReason, nowIso, withdrawalId],
-          () => {
+          (rejErr) => {
+            if (rejErr) {
+              console.error('[Withdrawal Reject DB Error]:', rejErr);
+              return res.status(500).json({ error: 'Failed to reject withdrawal' });
+            }
+
             logAdminActivity(
               req,
               'WITHDRAWAL_REJECTED',
@@ -2093,7 +2098,9 @@ router.post('/task-submissions/:id/reject', adminAuth, (req, res) => {
       if (err || !sub) return res.status(404).json({ error: 'Submission not found' });
       if (sub.status !== 'pending') return res.status(400).json({ error: 'Already reviewed' });
 
-      const cleanReason = reason ? reason.trim() : 'Rejected';
+      const cleanReason = (reason && String(reason).trim().length > 0)
+        ? String(reason).trim()
+        : 'Rejected';
       const nowIso = new Date().toISOString();
 
       db.run(
