@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Arena Pot — Central Lottery Command Center</title>
+  <title>Arena Pot — Admin Control Desk</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -36,7 +36,7 @@
       display: flex;
     }
 
-    /* Auth Screen Overlay */
+    /* Auth Screen */
     #auth-screen {
       position: fixed; inset: 0;
       background: radial-gradient(circle at 50% 20%, #1e1b4b 0%, #090a16 80%);
@@ -84,28 +84,12 @@
       display: flex; flex-direction: column; gap: 28px;
     }
 
-    /* Top Bar */
     .topbar {
       display: flex; justify-content: space-between; align-items: center;
       background: var(--panel); padding: 16px 24px; border-radius: 14px;
       border: 1px solid var(--border);
     }
     .page-title { font-size: 22px; font-weight: 800; }
-
-    /* Stats Grid */
-    .stats-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;
-    }
-    .stat-card {
-      background: var(--panel); border: 1px solid var(--border);
-      border-radius: 14px; padding: 20px;
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    .stat-label { font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
-    .stat-value { font-size: 26px; font-weight: 800; font-family: var(--font-mono); color: #fff; }
-    .stat-val-gold { color: var(--gold-light); }
-    .stat-val-cyan { color: var(--cyan); }
-    .stat-val-green { color: var(--green); }
 
     /* Tables */
     .table-container {
@@ -125,7 +109,6 @@
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: rgba(255, 255, 255, 0.02); }
 
-    /* Badges & Buttons */
     .badge {
       display: inline-block; padding: 4px 10px; border-radius: 6px;
       font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -133,7 +116,6 @@
     .badge-ACTIVE { background: rgba(16, 185, 129, 0.15); color: var(--green); }
     .badge-UPCOMING { background: rgba(245, 158, 11, 0.15); color: var(--gold); }
     .badge-CLOSED { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
-    .badge-PAUSED { background: rgba(239, 68, 68, 0.15); color: var(--red); }
     .badge-RESULTS_PUBLISHED { background: rgba(139, 92, 246, 0.2); color: #c084fc; }
 
     .btn {
@@ -145,8 +127,8 @@
     .btn-gold:hover { background: var(--gold-light); }
     .btn-outline { background: transparent; border: 1px solid var(--border); color: #fff; }
     .btn-outline:hover { background: rgba(255,255,255,0.05); border-color: var(--border-focus); }
-    .btn-red { background: rgba(239, 68, 68, 0.2); color: var(--red); }
-    .btn-red:hover { background: var(--red); color: #fff; }
+    .btn-purple { background: var(--purple); color: #fff; }
+    .btn-purple:hover { background: #7c3aed; }
     .btn-sm { padding: 6px 10px; font-size: 12px; }
 
     /* Modals */
@@ -158,21 +140,56 @@
     .modal.active { display: flex; }
     .modal-content {
       background: var(--panel); border: 1px solid var(--border);
-      border-radius: 18px; width: 100%; max-width: 650px;
-      max-height: 90vh; overflow-y: auto; padding: 28px;
+      border-radius: 18px; width: 100%; max-width: 720px;
+      max-height: 90vh; overflow-y: auto; padding: 26px;
     }
 
-    .form-group { margin-bottom: 16px; }
+    .form-group { margin-bottom: 14px; }
     .form-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text-muted); }
     .form-control {
-      width: 100%; padding: 11px 14px; background: var(--card); border: 1px solid var(--border);
+      width: 100%; padding: 10px 14px; background: var(--card); border: 1px solid var(--border);
       border-radius: 8px; color: #fff; font-family: var(--font-main); font-size: 14px;
     }
-    .form-control:focus { outline: none; border-color: var(--gold); }
-    .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+    .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 
-    .prize-row {
-      display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+    /* Interactive Seat Grid */
+    .seat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+      gap: 8px;
+      max-height: 280px;
+      overflow-y: auto;
+      padding: 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin: 12px 0;
+    }
+    .seat-item {
+      aspect-ratio: 1;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      user-select: none;
+      transition: all 0.15s;
+    }
+    .seat-AVAILABLE { background: rgba(255, 255, 255, 0.05); color: #fff; }
+    .seat-AVAILABLE:hover { border-color: var(--cyan); background: rgba(6, 182, 212, 0.15); }
+    .seat-USER { background: rgba(6, 182, 212, 0.2); color: var(--cyan); border-color: var(--cyan); }
+    .seat-ADMIN { background: rgba(139, 92, 246, 0.25); color: #c084fc; border-color: var(--purple); }
+    .seat-SELECTED-ADMIN { background: var(--purple) !important; color: #fff !important; }
+    .seat-TARGET-WINNER {
+      background: var(--gold) !important;
+      color: #000 !important;
+      border: 2px solid #fff !important;
+      transform: scale(1.05);
+      box-shadow: 0 0 12px var(--gold-light);
     }
   </style>
 </head>
@@ -183,18 +200,18 @@
     <div class="auth-box">
       <div class="auth-logo">🎰</div>
       <h2 class="auth-title">Arena Pot Admin</h2>
-      <p class="auth-subtitle">Enter master credentials to access lotteries</p>
+      <p class="auth-subtitle">Login to manage rounds, seats, and winners</p>
       <form id="loginForm" onsubmit="handleLogin(event)">
         <div class="form-group">
-          <label class="form-label">Admin Username</label>
-          <input type="text" id="adminUser" class="form-control" placeholder="admin" required value="admin">
+          <label class="form-label">Username</label>
+          <input type="text" id="adminUser" class="form-control" value="admin" required>
         </div>
         <div class="form-group">
           <label class="form-label">Password</label>
-          <input type="password" id="adminPass" class="form-control" placeholder="••••••••" required value="admin123">
+          <input type="password" id="adminPass" class="form-control" value="admin123" required>
         </div>
         <button type="submit" class="btn btn-gold" style="width: 100%; justify-content: center; padding: 12px;">
-          Unlock Command Center
+          Unlock Desk
         </button>
       </form>
     </div>
@@ -204,13 +221,11 @@
   <aside id="sidebar">
     <div class="brand">
       <span style="font-size: 26px;">🎰</span>
-      <div class="brand-title">ARENA POT<br><span style="font-size: 11px; color: var(--gold);">CONTROL DESK</span></div>
+      <div class="brand-title">ARENA POT<br><span style="font-size: 11px; color: var(--gold);">ROUND CONTROL</span></div>
     </div>
     <ul class="nav-links">
-      <li class="nav-item active" onclick="switchTab('dashboard')">📊 Dashboard</li>
-      <li class="nav-item" onclick="switchTab('lotteries')">📋 Lotteries Manager</li>
-      <li class="nav-item" onclick="openCreateModal()">➕ Create New Pot</li>
-      <li class="nav-item" onclick="switchTab('inspector')">🎟️ Seat & Ticket Inspector</li>
+      <li class="nav-item active" onclick="switchTab('lotteries')">📋 Lotteries & Seat Boards</li>
+      <li class="nav-item" onclick="openCreateModal()">➕ Create New Round</li>
       <li class="nav-item" onclick="switchTab('winners')">🏆 Winners Ledger</li>
     </ul>
     <div style="padding: 16px; border-top: 1px solid var(--border);">
@@ -224,139 +239,53 @@
   <main id="main">
     <div class="topbar">
       <div>
-        <h1 class="page-title" id="page-heading">Dashboard Overview</h1>
-        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Live state synchronization active</p>
+        <h1 class="page-title">Arena Pot Rounds</h1>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Choose seats for admin and manually declare winning numbers</p>
       </div>
-      <button class="btn btn-gold" onclick="openCreateModal()">+ Create Pot Lottery</button>
+      <button class="btn btn-gold" onclick="openCreateModal()">+ Create New Round</button>
     </div>
 
-    <!-- TAB: DASHBOARD -->
-    <div id="tab-dashboard" class="tab-pane">
-      <div class="stats-grid">
-        <div class="stat-card">
-          <span class="stat-label">Total Lotteries</span>
-          <span class="stat-value" id="stat-total-pots">0</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Active Running</span>
-          <span class="stat-value stat-val-green" id="stat-active-pots">0</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Seats Sold</span>
-          <span class="stat-value stat-val-cyan" id="stat-tickets-sold">0</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Coin Revenue</span>
-          <span class="stat-value stat-val-gold" id="stat-coin-revenue">0</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Prizes Distributed</span>
-          <span class="stat-value stat-val-gold" id="stat-prizes-coins">0</span>
-        </div>
-      </div>
-
-      <div class="table-container" style="margin-top: 24px;">
-        <div class="table-header">
-          <span style="font-weight: 700;">Active & Upcoming Lotteries</span>
-          <button class="btn btn-outline btn-sm" onclick="loadDashboard()">Refresh</button>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Lottery Title</th>
-              <th>Prize</th>
-              <th>Seats Sold</th>
-              <th>Price</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="dashboard-lotteries-tbody">
-            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading active lotteries...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- TAB: LOTTERIES MANAGER -->
-    <div id="tab-lotteries" class="tab-pane" style="display: none;">
+    <!-- LOTTERIES TABLE -->
+    <div id="tab-lotteries" class="tab-pane">
       <div class="table-container">
         <div class="table-header">
-          <span style="font-weight: 700;">All Published Lotteries</span>
-          <div style="display: flex; gap: 8px;">
-            <select id="filter-status" class="form-control" style="width: 160px; padding: 6px 10px;" onchange="loadLotteries()">
-              <option value="ALL">All Status</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="UPCOMING">UPCOMING</option>
-              <option value="CLOSED">CLOSED</option>
-              <option value="RESULTS_PUBLISHED">RESULTS PUBLISHED</option>
-            </select>
-          </div>
+          <span style="font-weight: 700;">All Rounds</span>
+          <button class="btn btn-outline btn-sm" onclick="loadLotteries()">Refresh</button>
         </div>
         <table>
           <thead>
             <tr>
               <th>ID</th>
               <th>Title</th>
-              <th>Main Prize</th>
-              <th>Seats</th>
-              <th>Price</th>
+              <th>Prize</th>
+              <th>Seats Taken</th>
+              <th>Ticket Price</th>
               <th>Status</th>
-              <th>Schedule</th>
-              <th>Operations</th>
+              <th>Seat & Winner Actions</th>
             </tr>
           </thead>
-          <tbody id="all-lotteries-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- TAB: TICKET & SEAT INSPECTOR -->
-    <div id="tab-inspector" class="tab-pane" style="display: none;">
-      <div class="table-container">
-        <div class="table-header">
-          <span style="font-weight: 700;">Sold Seats & Participant Ledger</span>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <label style="font-size: 13px; color: var(--text-muted);">Select Pot:</label>
-            <select id="inspector-pot-select" class="form-control" style="width: 260px; padding: 6px 10px;" onchange="loadInspectorTickets()">
-            </select>
-          </div>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Seat #</th>
-              <th>Username</th>
-              <th>User ID</th>
-              <th>Coin Paid</th>
-              <th>Purchase Date</th>
-              <th>Winner Status</th>
-            </tr>
-          </thead>
-          <tbody id="inspector-tickets-tbody">
-            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Select a lottery to inspect sold seat numbers</td></tr>
+          <tbody id="lotteries-tbody">
+            <tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Loading rounds...</td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <!-- TAB: WINNERS LEDGER -->
+    <!-- WINNERS LEDGER -->
     <div id="tab-winners" class="tab-pane" style="display: none;">
       <div class="table-container">
         <div class="table-header">
-          <span style="font-weight: 700;">Complete Winners Hall of Fame</span>
+          <span style="font-weight: 700;">Completed Winners Ledger</span>
         </div>
         <table>
           <thead>
             <tr>
-              <th>Pot ID</th>
-              <th>Lottery Name</th>
-              <th>Rank</th>
-              <th>Winner Username</th>
+              <th>Round ID</th>
+              <th>Title</th>
               <th>Winning Seat</th>
-              <th>Awarded Prize</th>
-              <th>Published At</th>
+              <th>Winner Username</th>
+              <th>Prize</th>
+              <th>Published Date</th>
             </tr>
           </thead>
           <tbody id="winners-tbody"></tbody>
@@ -365,38 +294,81 @@
     </div>
   </main>
 
+  <!-- MODAL: SEAT BOARD & WINNER PICKER (CORE REQUIREMENT) -->
+  <div id="modal-seat-control" class="modal">
+    <div class="modal-content">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="font-size: 18px; font-weight: 800; color: #fff;" id="sc-modal-title">Round Seat Board</h2>
+        <button class="btn btn-outline btn-sm" onclick="closeSeatModal()">✕</button>
+      </div>
+
+      <!-- LEGEND -->
+      <div style="display: flex; gap: 14px; font-size: 11px; margin-bottom: 12px; flex-wrap: wrap;">
+        <span style="display:flex; align-items:center; gap:5px;"><span style="width:10px; height:10px; background:rgba(255,255,255,0.1); border-radius:3px;"></span> Available</span>
+        <span style="display:flex; align-items:center; gap:5px;"><span style="width:10px; height:10px; background:var(--cyan); border-radius:3px;"></span> Player Seat</span>
+        <span style="display:flex; align-items:center; gap:5px;"><span style="width:10px; height:10px; background:var(--purple); border-radius:3px;"></span> Admin Seat</span>
+        <span style="display:flex; align-items:center; gap:5px;"><span style="width:10px; height:10px; background:var(--gold); border-radius:3px;"></span> Winning Seat 👑</span>
+      </div>
+
+      <!-- VISUAL SEAT GRID -->
+      <div class="seat-grid" id="seat-grid-container"></div>
+
+      <!-- SEAT ACTION CONTROLS -->
+      <div style="background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-top: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <span style="font-size: 13px; font-weight: 700; color: var(--text-muted);">Admin Seat Selection:</span>
+          <button class="btn btn-purple btn-sm" id="btn-claim-admin-seats" onclick="claimSelectedAdminSeats()">
+            👑 Assign Clicked Available Seats to Admin
+          </button>
+        </div>
+        <p style="font-size: 11px; color: var(--text-muted);">
+          Click any gray available seat, then click the button above to give the admin that seat number.
+        </p>
+      </div>
+
+      <!-- SELECTED WINNING NUMBER BANNER -->
+      <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--gold); border-radius: 12px; padding: 14px; margin-top: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-size: 11px; font-weight: 700; color: var(--gold); text-transform: uppercase;">
+              Selected Winning Number:
+            </div>
+            <div style="font-size: 18px; font-weight: 800; color: #fff; margin-top: 2px;" id="winner-seat-display">
+              None Selected (Click an occupied or admin seat to choose winner)
+            </div>
+          </div>
+          <button class="btn btn-gold" id="btn-declare-winner" onclick="publishSelectedWinner()" disabled>
+            🏆 Publish as Winner
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL: CREATE LOTTERY -->
   <div id="modal-create" class="modal">
-    <div class="modal-content">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h2 style="font-size: 18px; font-weight: 800;">Create Pot Lottery</h2>
+    <div class="modal-content" style="max-width: 500px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2 style="font-size: 18px; font-weight: 800;">Create New Round</h2>
         <button class="btn btn-outline btn-sm" onclick="closeCreateModal()">✕</button>
       </div>
       <form id="createPotForm" onsubmit="submitCreatePot(event)">
         <div class="form-group">
-          <label class="form-label">Lottery Title</label>
-          <input type="text" id="p-title" class="form-control" placeholder="e.g. Weekend Mega Ruby Pot" required>
+          <label class="form-label">Round Title</label>
+          <input type="text" id="p-title" class="form-control" placeholder="e.g. Gold Ruby Pot" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Main Prize Title</label>
-          <input type="text" id="p-prize" class="form-control" placeholder="e.g. 50,000 Coins / iPhone 15" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Description / Rules</label>
-          <textarea id="p-desc" class="form-control" rows="2" placeholder="Rules or notes..."></textarea>
+          <label class="form-label">Prize Description</label>
+          <input type="text" id="p-prize" class="form-control" placeholder="e.g. 10,000 Coins" required>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Total Seats</label>
-            <input type="number" id="p-seats" class="form-control" value="100" min="2" required>
+            <label class="form-label">Total Seats in Round</label>
+            <input type="number" id="p-seats" class="form-control" value="50" min="2" required>
           </div>
           <div class="form-group">
-            <label class="form-label">Ticket Price (Coins)</label>
+            <label class="form-label">Coin Price / Seat</label>
             <input type="number" id="p-price" class="form-control" value="50" min="1" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Seat Limit Per User (0 = Unltd)</label>
-            <input type="number" id="p-limit" class="form-control" value="0" min="0">
           </div>
         </div>
         <div class="form-row">
@@ -409,71 +381,25 @@
             <input type="datetime-local" id="p-end" class="form-control" required>
           </div>
         </div>
-        <div class="form-group">
-          <label><input type="checkbox" id="p-featured"> Feature on Home Carousel</label>
-        </div>
-
-        <!-- PRIZE BUILDER -->
-        <div style="margin: 20px 0; border-top: 1px solid var(--border); padding-top: 16px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <label class="form-label" style="margin:0;">Prize Distribution Tiers</label>
-            <button type="button" class="btn btn-outline btn-sm" onclick="addPrizeTier()">+ Add Rank</button>
-          </div>
-          <div id="prize-tiers-container"></div>
-        </div>
-
-        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
           <button type="button" class="btn btn-outline" onclick="closeCreateModal()">Cancel</button>
-          <button type="submit" class="btn btn-gold">Publish Lottery</button>
+          <button type="submit" class="btn btn-gold">Publish Round</button>
         </div>
       </form>
-    </div>
-  </div>
-
-  <!-- MODAL: MANUAL & AUTO WINNING SEAT DRAW -->
-  <div id="modal-draw-winners" class="modal">
-    <div class="modal-content" style="max-width: 620px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-        <h2 style="font-size:18px; font-weight:800; color:#fff;">🏆 Select Winning Seats Manually</h2>
-        <button class="btn btn-outline btn-sm" onclick="closeDrawModal()">✕</button>
-      </div>
-      
-      <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
-        <p style="font-size:12px; color:var(--gold); line-height: 1.5;">
-          <strong>Admin Selection Rule:</strong> Choose the exact seat number for each winning position. The player holding that seat number will be crowned winner and receive the coins immediately.
-        </p>
-      </div>
-
-      <!-- POOL OF SOLD SEATS PREVIEW -->
-      <div style="margin-bottom: 16px;">
-        <label class="form-label">Available Sold Seats Pool (<span id="sold-seats-count">0</span> sold):</label>
-        <div id="sold-seats-badges" style="display:flex; flex-wrap:wrap; gap:6px; max-height:80px; overflow-y:auto; padding:8px; background:var(--card); border:1px solid var(--border); border-radius:8px;"></div>
-      </div>
-
-      <!-- MANUAL RANK-BY-RANK PICKER -->
-      <div id="draw-prizes-list"></div>
-
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
-        <button type="button" class="btn btn-outline btn-sm" onclick="autoPickRandomSeats()">🎲 Auto-Fill Random</button>
-        <div style="display:flex; gap:8px;">
-          <button type="button" class="btn btn-outline" onclick="closeDrawModal()">Cancel</button>
-          <button type="button" class="btn btn-gold" onclick="confirmAndPublishWinners()">Publish Winners</button>
-        </div>
-      </div>
     </div>
   </div>
 
   <script>
     const API_BASE = '/api/arena-pot';
     let adminToken = localStorage.getItem('arena_pot_admin_token') || '';
-    let currentDrawLotteryId = null;
-    let currentLotterySoldTickets = [];
+    let currentLotteryId = null;
+    let selectedWinningSeat = null;
+    let selectedAdminSeatBatch = new Set();
 
-    // Check Authentication on Page Load
     window.addEventListener('DOMContentLoaded', () => {
       if (adminToken) {
         document.getElementById('auth-screen').style.display = 'none';
-        initApp();
+        loadLotteries();
       }
     });
 
@@ -493,23 +419,18 @@
           adminToken = data.token;
           localStorage.setItem('arena_pot_admin_token', adminToken);
           document.getElementById('auth-screen').style.display = 'none';
-          initApp();
+          loadLotteries();
         } else {
           alert(data.error || 'Login failed');
         }
       } catch (err) {
-        alert('Cannot connect to server: ' + err.message);
+        alert('Cannot connect: ' + err.message);
       }
     }
 
     function logout() {
       localStorage.removeItem('arena_pot_admin_token');
       location.reload();
-    }
-
-    function initApp() {
-      loadDashboard();
-      initPrizeDefaults();
     }
 
     function switchTab(tabId) {
@@ -519,69 +440,16 @@
       document.getElementById(`tab-${tabId}`).style.display = 'block';
       event.currentTarget.classList.add('active');
 
-      if (tabId === 'dashboard') loadDashboard();
       if (tabId === 'lotteries') loadLotteries();
-      if (tabId === 'inspector') loadInspectorDropdown();
       if (tabId === 'winners') loadWinnersLedger();
     }
 
-    // Load Dashboard Overview
-    async function loadDashboard() {
-      try {
-        const res = await fetch(`${API_BASE}/admin/stats`, {
-          headers: { 'Authorization': `Bearer ${adminToken}` }
-        });
-        const json = await res.json();
-        if (json.success) {
-          const s = json.stats;
-          document.getElementById('stat-total-pots').innerText = s.total_lotteries;
-          document.getElementById('stat-active-pots').innerText = s.active_lotteries;
-          document.getElementById('stat-tickets-sold').innerText = s.total_tickets_sold;
-          document.getElementById('stat-coin-revenue').innerText = s.total_revenue.toLocaleString();
-          document.getElementById('stat-prizes-coins').innerText = s.total_prizes_distributed.toLocaleString();
-        }
-
-        // Active Pots
-        const potsRes = await fetch(`${API_BASE}/admin/lotteries?status=ACTIVE`, {
-          headers: { 'Authorization': `Bearer ${adminToken}` }
-        });
-        const potsJson = await potsRes.json();
-        const tbody = document.getElementById('dashboard-lotteries-tbody');
-        tbody.innerHTML = '';
-
-        if (!potsJson.lotteries || potsJson.lotteries.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No active lotteries running</td></tr>`;
-          return;
-        }
-
-        potsJson.lotteries.forEach(l => {
-          tbody.innerHTML += `
-            <tr>
-              <td>#${l.id}</td>
-              <td style="font-weight: 700;">${l.title}</td>
-              <td style="color: var(--gold);">${l.prize_title}</td>
-              <td>${l.sold_seats} / ${l.total_seats} (${l.remaining_seats} left)</td>
-              <td>🪙 ${l.ticket_price}</td>
-              <td><span class="badge badge-${l.status}">${l.status}</span></td>
-              <td>
-                <button class="btn btn-gold btn-sm" onclick="triggerDraw(${l.id})">🏆 Draw Winners</button>
-              </td>
-            </tr>
-          `;
-        });
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    // Load Lotteries Manager
     async function loadLotteries() {
-      const status = document.getElementById('filter-status').value;
-      const res = await fetch(`${API_BASE}/admin/lotteries?status=${status}`, {
+      const res = await fetch(`${API_BASE}/admin/lotteries?status=ALL`, {
         headers: { 'Authorization': `Bearer ${adminToken}` }
       });
       const json = await res.json();
-      const tbody = document.getElementById('all-lotteries-tbody');
+      const tbody = document.getElementById('lotteries-tbody');
       tbody.innerHTML = '';
 
       (json.lotteries || []).forEach(l => {
@@ -589,230 +457,142 @@
           <tr>
             <td>#${l.id}</td>
             <td style="font-weight: 700;">${l.title}</td>
-            <td>${l.prize_title}</td>
+            <td style="color: var(--gold);">${l.prize_title}</td>
             <td>${l.sold_seats} / ${l.total_seats}</td>
             <td>🪙 ${l.ticket_price}</td>
             <td><span class="badge badge-${l.status}">${l.status}</span></td>
-            <td style="font-size: 11px; color: var(--text-muted);">
-              ${new Date(l.start_time).toLocaleDateString()} - ${new Date(l.end_time).toLocaleDateString()}
-            </td>
             <td>
-              <div style="display: flex; gap: 4px;">
-                ${l.status === 'ACTIVE' || l.status === 'CLOSED' ? `<button class="btn btn-gold btn-sm" onclick="triggerDraw(${l.id})">Draw</button>` : ''}
-                ${l.status === 'ACTIVE' ? `<button class="btn btn-outline btn-sm" onclick="updateStatus(${l.id}, 'PAUSED')">Pause</button>` : ''}
-                ${l.status === 'PAUSED' ? `<button class="btn btn-outline btn-sm" onclick="updateStatus(${l.id}, 'ACTIVE')">Resume</button>` : ''}
-                ${l.sold_seats === 0 ? `<button class="btn btn-red btn-sm" onclick="deleteLottery(${l.id})">Delete</button>` : ''}
-              </div>
+              <button class="btn btn-gold btn-sm" onclick="openSeatControl(${l.id})">
+                💺 Manage Seats & Winner
+              </button>
             </td>
           </tr>
         `;
       });
     }
 
-    async function updateStatus(id, newStatus) {
-      if (!confirm(`Set Lottery #${id} to ${newStatus}?`)) return;
-      await fetch(`${API_BASE}/admin/lottery/${id}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
-        body: JSON.stringify({ status: newStatus })
-      });
-      loadLotteries();
+    // ==========================================
+    // VISUAL SEAT CONTROL & WINNER SELECTION
+    // ==========================================
+    async function openSeatControl(lotteryId) {
+      currentLotteryId = lotteryId;
+      selectedWinningSeat = null;
+      selectedAdminSeatBatch.clear();
+      document.getElementById('winner-seat-display').innerText = 'None Selected (Click an occupied or admin seat to choose winner)';
+      document.getElementById('btn-declare-winner').disabled = true;
+
+      await renderSeatMap();
+      document.getElementById('modal-seat-control').classList.add('active');
     }
 
-    async function deleteLottery(id) {
-      if (!confirm(`Delete Lottery #${id}?`)) return;
-      const res = await fetch(`${API_BASE}/admin/lottery/${id}`, {
-        method: 'DELETE',
+    function closeSeatModal() {
+      document.getElementById('modal-seat-control').classList.remove('active');
+    }
+
+    async function renderSeatMap() {
+      const res = await fetch(`${API_BASE}/admin/lottery/${currentLotteryId}/seat-map`, {
         headers: { 'Authorization': `Bearer ${adminToken}` }
       });
       const data = await res.json();
-      if (!data.success) alert(data.error);
-      loadLotteries();
-    }
-
-    // ==========================================
-    // WINNER SELECTION MODAL LOGIC
-    // ==========================================
-    async function triggerDraw(lotteryId) {
-      currentDrawLotteryId = lotteryId;
-
-      // 1. Fetch sold seats & participant names
-      const tRes = await fetch(`${API_BASE}/admin/lottery/${lotteryId}/tickets`, {
-        headers: { 'Authorization': `Bearer ${adminToken}` }
-      });
-      const tData = await tRes.json();
-      currentLotterySoldTickets = tData.tickets || [];
-
-      if (currentLotterySoldTickets.length === 0) {
-        alert('Cannot draw winners: No seats have been purchased for this lottery yet.');
+      if (!data.success) {
+        alert(data.error);
         return;
       }
 
-      // 2. Render Sold Seats Badges
-      document.getElementById('sold-seats-count').innerText = currentLotterySoldTickets.length;
-      const badgesDiv = document.getElementById('sold-seats-badges');
-      badgesDiv.innerHTML = '';
-      currentLotterySoldTickets.forEach(t => {
-        badgesDiv.innerHTML += `
-          <span style="font-size:11px; font-weight:700; background:rgba(255,255,255,0.06); border:1px solid var(--border); padding:3px 7px; border-radius:4px; font-family:var(--font-mono); color:#fff;" title="Owned by @${t.username}">
-            #${t.ticket_number} (@${t.username})
-          </span>
-        `;
+      document.getElementById('sc-modal-title').innerText = `Round #${data.lottery.id}: ${data.lottery.title} (${data.sold_seats}/${data.total_seats} Seats Taken)`;
+
+      const container = document.getElementById('seat-grid-container');
+      container.innerHTML = '';
+
+      data.seat_map.forEach(s => {
+        const div = document.createElement('div');
+        div.className = `seat-item seat-${s.status}`;
+        div.id = `seat-elem-${s.seat}`;
+
+        if (s.is_winner) div.classList.add('seat-TARGET-WINNER');
+
+        let label = `#${s.seat}`;
+        let sub = s.status === 'AVAILABLE' ? 'Open' : (s.is_admin ? 'Admin' : `@${s.owner}`);
+        div.innerHTML = `<span>${label}</span><span style="font-size:9px; font-weight:600; opacity:0.8;">${sub}</span>`;
+
+        div.onclick = () => onSeatClicked(s, div);
+        container.appendChild(div);
       });
-
-      // 3. Fetch configured prizes
-      const lRes = await fetch(`${API_BASE}/lottery/${lotteryId}`, {
-        headers: { 'Authorization': `Bearer ${adminToken}` }
-      });
-      const lData = await lRes.json();
-      const prizes = lData.prizes || [];
-
-      const listDiv = document.getElementById('draw-prizes-list');
-      listDiv.innerHTML = '';
-
-      prizes.forEach(p => {
-        let options = `<option value="">-- Choose Winning Seat Number --</option>`;
-        currentLotterySoldTickets.forEach(t => {
-          options += `<option value="${t.ticket_number}">Seat #${t.ticket_number} — Owned by @${t.username}</option>`;
-        });
-
-        listDiv.innerHTML += `
-          <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:12px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <span style="font-weight:700; color:var(--gold);">Rank #${p.winner_position} Winner</span>
-              <span style="font-size:12px; color:var(--text-muted); font-weight:600;">
-                Prize: ${p.prize_type === 'COINS' ? '🪙 ' + p.prize_amount.toLocaleString() + ' Coins' : p.prize_title}
-              </span>
-            </div>
-            <select class="form-control draw-seat-select" data-pos="${p.winner_position}" onchange="updateOwnerPreview(this)">
-              ${options}
-            </select>
-            <div class="owner-preview" style="font-size:11px; color:var(--green); margin-top:4px; font-weight:600;"></div>
-          </div>
-        `;
-      });
-
-      document.getElementById('modal-draw-winners').classList.add('active');
     }
 
-    function updateOwnerPreview(selectEl) {
-      const seatNum = parseInt(selectEl.value, 10);
-      const previewDiv = selectEl.parentElement.querySelector('.owner-preview');
-      if (!seatNum) {
-        previewDiv.innerText = '';
-        return;
-      }
-      const ticket = currentLotterySoldTickets.find(t => t.ticket_number === seatNum);
-      if (ticket) {
-        previewDiv.innerText = `✓ Selected: Seat #${ticket.ticket_number} (Player: @${ticket.username}, User ID: ${ticket.user_id})`;
-      }
-    }
-
-    function closeDrawModal() {
-      document.getElementById('modal-draw-winners').classList.remove('active');
-    }
-
-    function autoPickRandomSeats() {
-      const selects = document.querySelectorAll('.draw-seat-select');
-      const pool = [...currentLotterySoldTickets];
-
-      selects.forEach(sel => {
-        if (pool.length > 0) {
-          const idx = Math.floor(Math.random() * pool.length);
-          sel.value = pool[idx].ticket_number;
-          updateOwnerPreview(sel);
-          pool.splice(idx, 1); // Ensure unique seat per rank
+    function onSeatClicked(seatObj, el) {
+      // If clicking an AVAILABLE seat: Stage it for Admin Claim
+      if (seatObj.status === 'AVAILABLE') {
+        if (selectedAdminSeatBatch.has(seatObj.seat)) {
+          selectedAdminSeatBatch.remove(seatObj.seat);
+          el.classList.remove('seat-SELECTED-ADMIN');
+        } else {
+          selectedAdminSeatBatch.add(seatObj.seat);
+          el.classList.add('seat-SELECTED-ADMIN');
         }
-      });
-    }
-
-    async function confirmAndPublishWinners() {
-      const selects = document.querySelectorAll('.draw-seat-select');
-      const manual_winners = [];
-      const chosenSeats = new Set();
-
-      for (const sel of selects) {
-        const val = sel.value;
-        const pos = parseInt(sel.getAttribute('data-pos'), 10);
-        if (!val) {
-          alert(`Please manually pick a winning seat number for Rank #${pos}.`);
-          return;
-        }
-        if (chosenSeats.has(val)) {
-          alert(`Seat #${val} has been selected more than once. Each winning rank must have a unique seat.`);
-          return;
-        }
-        chosenSeats.add(val);
-        manual_winners.push({ position: pos, winningSeat: parseInt(val, 10) });
-      }
-
-      const confirmMsg = manual_winners.map(w => `Rank #${w.position} -> Seat #${w.winningSeat}`).join('\n');
-      if (!confirm(`Confirm and publish these winning seats?\n\n${confirmMsg}\n\nPrizes will be credited to players immediately.`)) {
         return;
       }
 
-      const res = await fetch(`${API_BASE}/admin/lottery/${currentDrawLotteryId}/draw`, {
+      // If clicking an OCCUPIED (Player or Admin) seat: Select it as the WINNING NUMBER
+      document.querySelectorAll('.seat-TARGET-WINNER').forEach(item => item.classList.remove('seat-TARGET-WINNER'));
+      el.classList.add('seat-TARGET-WINNER');
+
+      selectedWinningSeat = seatObj.seat;
+      document.getElementById('winner-seat-display').innerText = `Seat #${seatObj.seat} (Owner: ${seatObj.is_admin ? '👑 Admin' : '@' + seatObj.owner})`;
+      document.getElementById('btn-declare-winner').disabled = false;
+    }
+
+    async function claimSelectedAdminSeats() {
+      if (selectedAdminSeatBatch.size === 0) {
+        alert('Please click on at least one gray available seat to assign to the admin.');
+        return;
+      }
+
+      const seats = Array.from(selectedAdminSeatBatch);
+      const res = await fetch(`${API_BASE}/admin/lottery/${currentLotteryId}/claim-seats`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
-        body: JSON.stringify({ manual_winners })
+        body: JSON.stringify({ seats })
       });
 
       const data = await res.json();
       if (data.success) {
         alert(data.message);
-        closeDrawModal();
-        loadDashboard();
+        selectedAdminSeatBatch.clear();
+        await renderSeatMap();
         loadLotteries();
       } else {
-        alert(data.error || 'Failed to draw winners');
+        alert(data.error);
       }
     }
 
-    // ==========================================
-    // INSPECTOR & WINNERS LEDGER
-    // ==========================================
-    async function loadInspectorDropdown() {
-      const res = await fetch(`${API_BASE}/admin/lotteries?status=ALL`, {
-        headers: { 'Authorization': `Bearer ${adminToken}` }
-      });
-      const json = await res.json();
-      const sel = document.getElementById('inspector-pot-select');
-      sel.innerHTML = '<option value="">-- Choose Lottery --</option>';
-      (json.lotteries || []).forEach(l => {
-        sel.innerHTML += `<option value="${l.id}">#${l.id} - ${l.title} (${l.sold_seats} seats sold)</option>`;
-      });
-    }
-
-    async function loadInspectorTickets() {
-      const id = document.getElementById('inspector-pot-select').value;
-      if (!id) return;
-
-      const res = await fetch(`${API_BASE}/admin/lottery/${id}/tickets`, {
-        headers: { 'Authorization': `Bearer ${adminToken}` }
-      });
-      const json = await res.json();
-      const tbody = document.getElementById('inspector-tickets-tbody');
-      tbody.innerHTML = '';
-
-      if (!json.tickets || json.tickets.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No seats purchased for this lottery yet.</td></tr>`;
+    async function publishSelectedWinner() {
+      if (!selectedWinningSeat) {
+        alert('Please select a seat number to declare as the winner.');
         return;
       }
 
-      json.tickets.forEach(t => {
-        tbody.innerHTML += `
-          <tr>
-            <td style="font-weight: 800; font-family: var(--font-mono); color: var(--gold);">Seat #${t.ticket_number}</td>
-            <td style="font-weight: 600;">@${t.username}</td>
-            <td>${t.user_id}</td>
-            <td>🪙 ${t.coin_price}</td>
-            <td>${new Date(t.purchased_at).toLocaleString()}</td>
-            <td>${t.is_winner ? `<span class="badge badge-ACTIVE">WINNER (Rank #${t.winner_position})</span>` : 'Participant'}</td>
-          </tr>
-        `;
+      if (!confirm(`Confirm declaring Seat #${selectedWinningSeat} as the official round winner?`)) return;
+
+      const res = await fetch(`${API_BASE}/admin/lottery/${currentLotteryId}/draw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+        body: JSON.stringify({ winning_seat: selectedWinningSeat })
       });
+
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        closeSeatModal();
+        loadLotteries();
+      } else {
+        alert(data.error);
+      }
     }
 
+    // ==========================================
+    // WINNERS LEDGER & CREATE MODAL
+    // ==========================================
     async function loadWinnersLedger() {
       const res = await fetch(`${API_BASE}/winners/all`);
       const json = await res.json();
@@ -824,9 +604,8 @@
           <tr>
             <td>#${w.lottery_id}</td>
             <td style="font-weight: 700;">${w.lottery_title}</td>
-            <td><span class="badge badge-ACTIVE">Rank #${w.winner_position}</span></td>
-            <td style="font-weight: 700;">@${w.username}</td>
-            <td style="font-family: var(--font-mono); color: var(--gold);">Seat #${w.winning_seat}</td>
+            <td style="font-family: var(--font-mono); color: var(--gold); font-weight:800;">Seat #${w.winning_seat}</td>
+            <td>@${w.username}</td>
             <td>${w.prize_title}</td>
             <td style="font-size: 12px; color: var(--text-muted);">${new Date(w.published_at).toLocaleString()}</td>
           </tr>
@@ -834,9 +613,6 @@
       });
     }
 
-    // ==========================================
-    // CREATE LOTTERY MODAL & PRIZE BUILDER
-    // ==========================================
     function openCreateModal() {
       const now = new Date();
       const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -849,76 +625,32 @@
       document.getElementById('modal-create').classList.remove('active');
     }
 
-    let rankCounter = 1;
-    function initPrizeDefaults() {
-      const container = document.getElementById('prize-tiers-container');
-      container.innerHTML = '';
-      rankCounter = 1;
-      addPrizeTier(10000);
-      addPrizeTier(5000);
-      addPrizeTier(2500);
-    }
-
-    function addPrizeTier(defaultCoin = 1000) {
-      const container = document.getElementById('prize-tiers-container');
-      const div = document.createElement('div');
-      div.className = 'prize-row';
-      div.innerHTML = `
-        <span style="font-size: 12px; font-weight: 700; width: 60px;">Rank #${rankCounter}</span>
-        <input type="number" class="form-control p-rank-pos" value="${rankCounter}" style="display:none;">
-        <input type="text" class="form-control p-rank-title" value="Rank #${rankCounter} Prize" style="flex:2;" placeholder="Prize Label">
-        <input type="number" class="form-control p-rank-coin" value="${defaultCoin}" style="flex:1;" placeholder="Coins">
-        <button type="button" class="btn btn-red btn-sm" onclick="this.parentElement.remove()">✕</button>
-      `;
-      container.appendChild(div);
-      rankCounter++;
-    }
-
     async function submitCreatePot(e) {
       e.preventDefault();
-
-      const prizeRows = document.querySelectorAll('.prize-row');
-      const prizes = [];
-      prizeRows.forEach(row => {
-        prizes.push({
-          winner_position: parseInt(row.querySelector('.p-rank-pos').value, 10),
-          prize_title: row.querySelector('.p-rank-title').value,
-          prize_type: 'COINS',
-          prize_amount: parseInt(row.querySelector('.p-rank-coin').value, 10) || 0
-        });
-      });
-
       const payload = {
         title: document.getElementById('p-title').value,
         prize_title: document.getElementById('p-prize').value,
-        description: document.getElementById('p-desc').value,
         total_seats: parseInt(document.getElementById('p-seats').value, 10),
         ticket_price: parseInt(document.getElementById('p-price').value, 10),
-        user_ticket_limit: parseInt(document.getElementById('p-limit').value, 10),
         start_time: new Date(document.getElementById('p-start').value).toISOString(),
         end_time: new Date(document.getElementById('p-end').value).toISOString(),
-        is_featured: document.getElementById('p-featured').checked,
-        winner_count: prizes.length,
-        prizes
+        winner_count: 1,
+        prizes: [{ winner_position: 1, prize_title: document.getElementById('p-prize').value, prize_type: 'COINS', prize_amount: 10000 }]
       };
 
       const res = await fetch(`${API_BASE}/admin/create`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${adminToken}`
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
         body: JSON.stringify(payload)
       });
 
       const data = await res.json();
       if (data.success) {
-        alert('🎉 Lottery published successfully!');
+        alert('🎉 Round created successfully!');
         closeCreateModal();
-        loadDashboard();
         loadLotteries();
       } else {
-        alert(data.error || 'Failed to create lottery');
+        alert(data.error);
       }
     }
   </script>
