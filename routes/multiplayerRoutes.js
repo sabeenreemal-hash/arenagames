@@ -173,7 +173,7 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
       }
 
       // If user reached 3 bot matches, DO NOT assign a bot.
-      // Refund the 100 coins and display the 10-minute notice.
+      // Refund the 100 coins and return BOT_LIMIT_REACHED.
       if (isBotRestricted) {
         const cooldownDeadline = new Date(Date.now() + remainingCooldownSec * 1000).toISOString();
 
@@ -338,7 +338,7 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
     if (match.is_bot_match) {
       p2User = await dbGet('SELECT id, username, avatar_url FROM multiplayer_bots WHERE id = ?', [match.bot_id]);
       if (p2User) {
-        // Strip any residual (Bot) marker so it looks like a real human player
+        // Strip any residual (Bot) marker so it looks like a genuine real player
         p2User.username = p2User.username.replace(/\s*\(Bot\)\s*/gi, '').trim();
       }
     } else if (match.player2_id) {
@@ -388,7 +388,7 @@ async function executeDelayedBotMove(match, state) {
       state.board[botMove] = botSymbol;
 
       if (botEngine.evaluateTttWin(state.board, botSymbol)) {
-        await completeMatch(match, -match.bot_id, 'Bot Win');
+        await completeMatch(match, -match.bot_id, 'Bot Win', state);
         return;
       }
 
@@ -415,10 +415,10 @@ async function executeDelayedBotMove(match, state) {
     }
 
     if (match.p1_score >= 2) {
-      await completeMatch(match, match.player1_id, 'Best of 3 Win');
+      await completeMatch(match, match.player1_id, 'Best of 3 Win', state);
       return;
     } else if (match.p2_score >= 2) {
-      await completeMatch(match, -match.bot_id, 'Best of 3 Win');
+      await completeMatch(match, -match.bot_id, 'Best of 3 Win', state);
       return;
     }
 
@@ -518,7 +518,7 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
       state.board[cellIndex] = playerSymbol;
 
       if (botEngine.evaluateTttWin(state.board, playerSymbol)) {
-        await completeMatch(match, userId, 'Player Win');
+        await completeMatch(match, userId, 'Player Win', state);
         return res.json({ success: true, message: 'Game won!' });
       }
 
@@ -576,10 +576,10 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
         else evaluateHeadTailRound(match, state);
 
         if (match.p1_score >= 2) {
-          await completeMatch(match, match.player1_id, 'Best of 3 Win');
+          await completeMatch(match, match.player1_id, 'Best of 3 Win', state);
           return res.json({ success: true, message: 'Match completed!' });
         } else if (match.p2_score >= 2) {
-          await completeMatch(match, match.player2_id, 'Best of 3 Win');
+          await completeMatch(match, match.player2_id, 'Best of 3 Win', state);
           return res.json({ success: true, message: 'Match completed!' });
         }
       }
@@ -663,22 +663,24 @@ function evaluateHeadTailRound(match, state) {
 async function handleTurnTimeout(match, state) {
   if (match.turn_user_id === match.player1_id) {
     const winner = match.is_bot_match ? -match.bot_id : match.player2_id;
-    await completeMatch(match, winner, 'P1 Timeout');
+    await completeMatch(match, winner, 'P1 Timeout', state);
   } else {
-    await completeMatch(match, match.player1_id, 'P2 Timeout');
+    await completeMatch(match, match.player1_id, 'P2 Timeout', state);
   }
 }
 
-async function completeMatch(match, winnerId, reason) {
+// Complete Match and Settle (Persists final game_state and round results)
+async function completeMatch(match, winnerId, reason, state) {
   const isHumanWinner = winnerId > 0;
   const reward = match.winner_reward || 200;
+  const finalStateJson = state ? JSON.stringify(state) : match.game_state;
 
   await dbRun('BEGIN TRANSACTION');
   await dbRun(
     `UPDATE multiplayer_matches 
-     SET status = 'COMPLETED', winner_id = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+     SET status = 'COMPLETED', winner_id = ?, p1_score = ?, p2_score = ?, game_state = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
      WHERE id = ?`,
-    [winnerId, match.id]
+    [winnerId, match.p1_score, match.p2_score, finalStateJson, match.id]
   );
 
   if (isHumanWinner) {
