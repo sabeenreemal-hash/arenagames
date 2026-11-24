@@ -158,17 +158,17 @@ router.get('/lottery/:id', authenticateToken, (req, res) => {
   });
 });
 
-// 3. Buy Specific Seat Numbers (User Choice with Atomic Transaction)
+// 3. Buy Specific Seat Numbers (User Choice with Atomic Concurrency Protection)
 router.post('/lottery/:id/buy', authenticateToken, (req, res) => {
   const lotteryId = parseInt(req.params.id, 10);
   const userId = req.user.id;
-  const { selected_seats } = req.body;
+  const rawSeats = req.body.selected_seats || req.body.selectedSeats;
 
-  if (!Array.isArray(selected_seats) || selected_seats.length === 0) {
+  if (!Array.isArray(rawSeats) || rawSeats.length === 0) {
     return res.status(400).json({ error: 'Please choose at least one seat number.' });
   }
 
-  const seatNumbers = [...new Set(selected_seats.map((n) => parseInt(n, 10)))];
+  const seatNumbers = [...new Set(rawSeats.map((n) => parseInt(n, 10)))];
   const count = seatNumbers.length;
 
   db.serialize(() => {
@@ -465,6 +465,21 @@ router.get('/admin/lotteries', verifyAdminToken, (req, res) => {
   });
 });
 
+// Admin Get Single Lottery with Configured Prizes (Required for the winner picker)
+router.get('/admin/lottery/:id', verifyAdminToken, (req, res) => {
+  const lotteryId = parseInt(req.params.id, 10);
+  db.get('SELECT * FROM arena_pot_lotteries WHERE id = ?', [lotteryId], (err, lottery) => {
+    if (err || !lottery) return res.status(404).json({ error: 'Lottery round not found.' });
+    db.all(
+      'SELECT * FROM arena_pot_prizes WHERE lottery_id = ? ORDER BY winner_position ASC',
+      [lotteryId],
+      (pErr, prizes) => {
+        res.json({ success: true, lottery, prizes: prizes || [] });
+      }
+    );
+  });
+});
+
 // Admin Create New Lottery
 router.post('/admin/create', verifyAdminToken, (req, res) => {
   const {
@@ -622,10 +637,14 @@ router.get('/admin/lottery/:id/tickets', verifyAdminToken, (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
   const lotteryId = parseInt(req.params.id, 10);
-  const { manual_winners } = req.body;
-  // Expected format: [ { position: 1, winningSeat: 14 }, { position: 2, winningSeat: 32 }, ... ]
+  const { manual_winners, winning_seat } = req.body;
 
-  if (!Array.isArray(manual_winners) || manual_winners.length === 0) {
+  let winnersList = [];
+  if (Array.isArray(manual_winners) && manual_winners.length > 0) {
+    winnersList = manual_winners;
+  } else if (winning_seat !== undefined && winning_seat !== null) {
+    winnersList = [{ position: 1, winningSeat: parseInt(winning_seat, 10) }];
+  } else {
     return res.status(400).json({ error: 'Please select at least one winning seat number.' });
   }
 
@@ -643,12 +662,10 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
         return res.status(400).json({ error: 'Winners have already been declared for this round.' });
       }
 
-      // Fetch prizes configured for this lottery
       db.all(
         'SELECT * FROM arena_pot_prizes WHERE lottery_id = ? ORDER BY winner_position ASC',
         [lotteryId],
         (pErr, prizes) => {
-          // Fetch all sold seats for this lottery
           db.all(
             `SELECT t.id, t.ticket_number, t.user_id, u.username 
              FROM arena_pot_tickets t 
@@ -664,7 +681,7 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
               const selectedWinners = [];
               const usedSeats = new Set();
 
-              for (const entry of manual_winners) {
+              for (const entry of winnersList) {
                 const pos = parseInt(entry.position, 10);
                 const seatNum = parseInt(entry.winningSeat, 10);
 
@@ -678,7 +695,6 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
                   return res.status(400).json({ error: `Seat #${seatNum} is assigned more than once.` });
                 }
 
-                // Verify the seat was actually bought by a user
                 const ticket = soldTickets.find((t) => t.ticket_number === seatNum);
                 if (!ticket) {
                   db.run('ROLLBACK');
@@ -689,7 +705,6 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
 
                 usedSeats.add(seatNum);
 
-                // Match prize by rank position
                 const matchedPrize = (prizes || []).find((p) => p.winner_position === pos);
                 const prizeTitle = matchedPrize ? matchedPrize.prize_title : (lottery.prize_title || `Rank #${pos} Prize`);
                 const prizeType = matchedPrize ? matchedPrize.prize_type : 'COINS';
@@ -710,7 +725,6 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
                 });
               }
 
-              // Insert winner records & credit coins
               for (const win of selectedWinners) {
                 db.run(
                   `INSERT INTO arena_pot_winners 
@@ -742,7 +756,6 @@ router.post('/admin/lottery/:id/draw', verifyAdminToken, (req, res) => {
                 }
               }
 
-              // Mark round completed and published
               db.run(
                 `UPDATE arena_pot_lotteries SET status = 'RESULTS_PUBLISHED', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
                 [lotteryId],
