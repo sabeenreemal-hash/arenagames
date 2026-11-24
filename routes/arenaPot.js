@@ -480,7 +480,7 @@ router.get('/admin/lottery/:id', verifyAdminToken, (req, res) => {
   });
 });
 
-// Admin Create New Lottery
+// Admin Create New Lottery with Dynamic Prizes
 router.post('/admin/create', verifyAdminToken, (req, res) => {
   const {
     title,
@@ -497,13 +497,16 @@ router.post('/admin/create', verifyAdminToken, (req, res) => {
     prizes,
   } = req.body;
 
-  if (!title || !prize_title || !total_seats || !start_time || !end_time) {
-    return res.status(400).json({ error: 'Please provide all required fields.' });
+  const mainPrizeTitle = prize_title || (Array.isArray(prizes) && prizes[0] ? prizes[0].prize_title : 'Grand Prize');
+
+  if (!title || !total_seats || !start_time || !end_time) {
+    return res.status(400).json({ error: 'Please provide all required fields (title, seats, dates).' });
   }
 
   const now = new Date();
   const startDate = new Date(start_time);
   const status = startDate <= now ? 'ACTIVE' : 'UPCOMING';
+  const computedWinnerCount = (Array.isArray(prizes) && prizes.length > 0) ? prizes.length : parseInt(winner_count || 1, 10);
 
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
@@ -515,7 +518,7 @@ router.post('/admin/create', verifyAdminToken, (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title,
-        prize_title,
+        mainPrizeTitle,
         prize_image || '',
         description || '',
         parseInt(total_seats, 10),
@@ -523,7 +526,7 @@ router.post('/admin/create', verifyAdminToken, (req, res) => {
         parseInt(user_ticket_limit || 0, 10),
         start_time,
         end_time,
-        parseInt(winner_count || 1, 10),
+        computedWinnerCount,
         status,
         is_featured ? 1 : 0,
         req.admin.id,
