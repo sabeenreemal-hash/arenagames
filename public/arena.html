@@ -36,7 +36,7 @@
       display: flex;
     }
 
-    /* Auth Screen */
+    /* Auth Screen Overlay */
     #auth-screen {
       position: fixed; inset: 0;
       background: radial-gradient(circle at 50% 20%, #1e1b4b 0%, #090a16 80%);
@@ -128,6 +128,8 @@
     .btn-outline { background: transparent; border: 1px solid var(--border); color: #fff; }
     .btn-outline:hover { background: rgba(255,255,255,0.05); border-color: var(--border-focus); }
     .btn-sm { padding: 6px 10px; font-size: 12px; }
+    .btn-red { background: rgba(239, 68, 68, 0.2); color: var(--red); }
+    .btn-red:hover { background: var(--red); color: #fff; }
 
     /* Modals */
     .modal {
@@ -148,6 +150,7 @@
       width: 100%; padding: 10px 14px; background: var(--card); border: 1px solid var(--border);
       border-radius: 8px; color: #fff; font-family: var(--font-main); font-size: 14px;
     }
+    .form-control:focus { outline: none; border-color: var(--gold); }
     .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 
     .seat-badge {
@@ -162,6 +165,18 @@
       display: inline-flex;
       align-items: center;
     }
+
+    /* Prize Builder Row */
+    .prize-tier-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
   </style>
 </head>
 <body>
@@ -171,7 +186,7 @@
     <div class="auth-box">
       <div class="auth-logo">🎰</div>
       <h2 class="auth-title">Arena Pot Admin</h2>
-      <p class="auth-subtitle">Login to manage rounds and select winners</p>
+      <p class="auth-subtitle">Login to configure prize distributions and manage rounds</p>
       <form id="loginForm" onsubmit="handleLogin(event)">
         <div class="form-group">
           <label class="form-label">Username</label>
@@ -211,7 +226,7 @@
     <div class="topbar">
       <div>
         <h1 class="page-title">Arena Pot Rounds</h1>
-        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Manual multiple winner selection by seat numbers</p>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Configurable prize distribution and multiple winner selection</p>
       </div>
       <button class="btn btn-gold" onclick="openCreateModal()">+ Create New Round</button>
     </div>
@@ -228,7 +243,8 @@
             <tr>
               <th>ID</th>
               <th>Title</th>
-              <th>Prize</th>
+              <th>Main Prize</th>
+              <th>Winners Count</th>
               <th>Seats Sold</th>
               <th>Price</th>
               <th>Status</th>
@@ -236,7 +252,7 @@
             </tr>
           </thead>
           <tbody id="lotteries-tbody">
-            <tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Loading rounds...</td></tr>
+            <tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Loading rounds...</td></tr>
           </tbody>
         </table>
       </div>
@@ -276,19 +292,19 @@
 
       <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
         <p style="font-size: 12px; color: var(--gold); line-height: 1.5;">
-          Select or enter the winning seat numbers below. Each selected seat number will win the specified prize and receive coins immediately.
+          Choose the winning seat number for each prize rank. Winning players will receive their coin prizes in their wallets immediately upon publishing.
         </p>
       </div>
 
       <!-- SOLD SEATS OVERVIEW -->
       <div style="margin-bottom: 16px;">
-        <label class="form-label">Available Sold Seats (<span id="sold-count-badge">0</span> sold):</label>
+        <label class="form-label">Available Sold Seats Pool (<span id="sold-count-badge">0</span> sold):</label>
         <div id="sold-seats-badges" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 90px; overflow-y: auto; padding: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 8px;"></div>
       </div>
 
       <!-- MULTIPLE WINNERS INPUT SLOTS -->
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <label class="form-label" style="margin: 0;">Winner Positions:</label>
+        <label class="form-label" style="margin: 0;">Configured Winner Positions:</label>
         <button type="button" class="btn btn-outline btn-sm" onclick="addWinnerSlot()">+ Add Another Winner Rank</button>
       </div>
       <div id="winner-slots-container"></div>
@@ -300,30 +316,30 @@
     </div>
   </div>
 
-  <!-- MODAL: CREATE LOTTERY -->
+  <!-- MODAL: CREATE LOTTERY WITH DYNAMIC PRIZE DISTRIBUTION -->
   <div id="modal-create" class="modal">
-    <div class="modal-content" style="max-width: 520px;">
+    <div class="modal-content" style="max-width: 680px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-        <h2 style="font-size: 18px; font-weight: 800;">Create New Round</h2>
+        <h2 style="font-size: 18px; font-weight: 800;">Create Round with Prize Distribution</h2>
         <button class="btn btn-outline btn-sm" onclick="closeCreateModal()">✕</button>
       </div>
       <form id="createPotForm" onsubmit="submitCreatePot(event)">
         <div class="form-group">
           <label class="form-label">Round Title</label>
-          <input type="text" id="p-title" class="form-control" placeholder="e.g. Gold Ruby Pot" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Main Prize Title</label>
-          <input type="text" id="p-prize" class="form-control" placeholder="e.g. 10,000 Coins" required>
+          <input type="text" id="p-title" class="form-control" placeholder="e.g. Weekend Mega Ruby Pot" required>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Total Seats in Round</label>
-            <input type="number" id="p-seats" class="form-control" value="50" min="2" required>
+            <label class="form-label">Total Seats</label>
+            <input type="number" id="p-seats" class="form-control" value="100" min="2" required>
           </div>
           <div class="form-group">
-            <label class="form-label">Coin Price / Seat</label>
+            <label class="form-label">Ticket Price (Coins)</label>
             <input type="number" id="p-price" class="form-control" value="50" min="1" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Seat Limit / User (0 = Unltd)</label>
+            <input type="number" id="p-limit" class="form-control" value="0" min="0">
           </div>
         </div>
         <div class="form-row">
@@ -336,6 +352,21 @@
             <input type="datetime-local" id="p-end" class="form-control" required>
           </div>
         </div>
+
+        <!-- PRIZE DISTRIBUTION BUILDER -->
+        <div style="margin: 20px 0; border-top: 1px solid var(--border); padding-top: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div>
+              <span style="font-size: 14px; font-weight: 700; color: #fff;">🏆 Prize Distribution Tiers</span>
+              <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                Configure the prizes for each rank. The number of ranks determines the total number of winners.
+              </p>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="addPrizeTier()">+ Add Rank</button>
+          </div>
+          <div id="prize-distribution-container"></div>
+        </div>
+
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
           <button type="button" class="btn btn-outline" onclick="closeCreateModal()">Cancel</button>
           <button type="submit" class="btn btn-gold">Publish Round</button>
@@ -350,6 +381,7 @@
     let currentDrawLotteryId = null;
     let currentLotterySoldTickets = [];
     let rankCounter = 1;
+    let createPrizeRankCounter = 1;
 
     window.addEventListener('DOMContentLoaded', () => {
       if (adminToken) {
@@ -414,6 +446,7 @@
               <td>#${l.id}</td>
               <td style="font-weight: 700;">${l.title}</td>
               <td style="color: var(--gold);">${l.prize_title}</td>
+              <td><span class="badge" style="background:rgba(245,158,11,0.15); color:var(--gold);">${l.winner_count || 1} Winners</span></td>
               <td>${l.sold_seats} / ${l.total_seats}</td>
               <td>🪙 ${l.ticket_price}</td>
               <td><span class="badge badge-${l.status}">${l.status}</span></td>
@@ -435,7 +468,132 @@
     }
 
     // ==========================================
-    // MULTIPLE WINNERS MODAL LOGIC (FIXED)
+    // PRIZE DISTRIBUTION BUILDER (CREATE ROUND)
+    // ==========================================
+    function initCreatePrizeDefaults() {
+      const container = document.getElementById('prize-distribution-container');
+      container.innerHTML = '';
+      createPrizeRankCounter = 1;
+      addPrizeTier('1st Place 20,000 Coins', 'COINS', 20000);
+      addPrizeTier('2nd Place 10,000 Coins', 'COINS', 10000);
+      addPrizeTier('3rd Place 5,000 Coins', 'COINS', 5000);
+    }
+
+    function addPrizeTier(defaultTitle = '', defaultType = 'COINS', defaultAmount = 1000) {
+      const pos = createPrizeRankCounter;
+      const container = document.getElementById('prize-distribution-container');
+
+      const card = document.createElement('div');
+      card.className = 'prize-tier-card create-prize-row';
+      card.innerHTML = `
+        <span style="font-size: 12px; font-weight: 800; color: var(--gold); min-width: 65px;">Rank #${pos}</span>
+        <input type="text" class="form-control p-tier-title" value="${defaultTitle || 'Rank #' + pos + ' Prize'}" placeholder="Prize Label" style="flex: 2;" required>
+        <select class="form-control p-tier-type" style="flex: 1;" onchange="toggleCoinAmountField(this)">
+          <option value="COINS" ${defaultType === 'COINS' ? 'selected' : ''}>Coins</option>
+          <option value="CUSTOM" ${defaultType === 'CUSTOM' ? 'selected' : ''}>Physical / Custom</option>
+        </select>
+        <input type="number" class="form-control p-tier-amount" value="${defaultAmount}" placeholder="Coins" style="flex: 1; ${defaultType === 'COINS' ? '' : 'display:none;'}" min="0">
+        ${pos > 1 ? `<button type="button" class="btn btn-red btn-sm" onclick="this.closest('.create-prize-row').remove(); renumberPrizeTiers();">✕</button>` : `<span style="width:30px;"></span>`}
+      `;
+
+      container.appendChild(card);
+      createPrizeRankCounter++;
+    }
+
+    function toggleCoinAmountField(selectEl) {
+      const amountInput = selectEl.closest('.create-prize-row').querySelector('.p-tier-amount');
+      if (selectEl.value === 'COINS') {
+        amountInput.style.display = 'block';
+      } else {
+        amountInput.style.display = 'none';
+        amountInput.value = '0';
+      }
+    }
+
+    function renumberPrizeTiers() {
+      const rows = document.querySelectorAll('.create-prize-row');
+      createPrizeRankCounter = 1;
+      rows.forEach(r => {
+        const label = r.querySelector('span');
+        label.innerText = `Rank #${createPrizeRankCounter}`;
+        createPrizeRankCounter++;
+      });
+    }
+
+    function openCreateModal() {
+      const now = new Date();
+      const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      document.getElementById('p-start').value = now.toISOString().slice(0, 16);
+      document.getElementById('p-end').value = nextWeek.toISOString().slice(0, 16);
+      initCreatePrizeDefaults();
+      document.getElementById('modal-create').classList.add('active');
+    }
+
+    function closeCreateModal() {
+      document.getElementById('modal-create').classList.remove('active');
+    }
+
+    async function submitCreatePot(e) {
+      e.preventDefault();
+
+      const prizeRows = document.querySelectorAll('.create-prize-row');
+      const prizes = [];
+
+      prizeRows.forEach((row, idx) => {
+        const pos = idx + 1;
+        const title = row.querySelector('.p-tier-title').value.trim() || `Rank #${pos} Prize`;
+        const type = row.querySelector('.p-tier-type').value;
+        const amount = parseInt(row.querySelector('.p-tier-amount').value, 10) || 0;
+
+        prizes.push({
+          winner_position: pos,
+          prize_title: title,
+          prize_type: type,
+          prize_amount: amount
+        });
+      });
+
+      if (prizes.length === 0) {
+        alert('Please add at least one prize tier.');
+        return;
+      }
+
+      const mainTitle = prizes[0].prize_title;
+
+      const payload = {
+        title: document.getElementById('p-title').value,
+        prize_title: mainTitle,
+        total_seats: parseInt(document.getElementById('p-seats').value, 10),
+        ticket_price: parseInt(document.getElementById('p-price').value, 10),
+        user_ticket_limit: parseInt(document.getElementById('p-limit').value, 10) || 0,
+        start_time: new Date(document.getElementById('p-start').value).toISOString(),
+        end_time: new Date(document.getElementById('p-end').value).toISOString(),
+        winner_count: prizes.length,
+        prizes: prizes
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/admin/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          alert('🎉 Round created successfully with ' + prizes.length + ' prize ranks!');
+          closeCreateModal();
+          loadLotteries();
+        } else {
+          alert(data.error);
+        }
+      } catch (err) {
+        alert('Error creating round: ' + err.message);
+      }
+    }
+
+    // ==========================================
+    // MULTIPLE WINNERS MODAL LOGIC (DRAW WINNERS)
     // ==========================================
     async function openDrawModal(lotteryId) {
       try {
@@ -481,13 +639,14 @@
           });
         }
 
-        // 5. Populate winner input slots
+        // 5. Populate winner input slots from configured prizes
         const container = document.getElementById('winner-slots-container');
         container.innerHTML = '';
 
         if (prizes.length > 0) {
           prizes.forEach(p => {
-            addWinnerSlot(p.winner_position, p.prize_title);
+            const rewardLabel = p.prize_type === 'COINS' ? `🪙 ${p.prize_amount.toLocaleString()} Coins` : p.prize_title;
+            addWinnerSlot(p.winner_position, `${p.prize_title} (${rewardLabel})`);
           });
         } else {
           addWinnerSlot(1, lottery.prize_title || '1st Place Prize');
@@ -524,7 +683,7 @@
       div.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
           <span style="font-weight:700; color:var(--gold);">Rank #${pos} Winner</span>
-          ${prizeLabel ? `<span style="font-size:12px; color:var(--text-muted);">${prizeLabel}</span>` : ''}
+          ${prizeLabel ? `<span style="font-size:12px; color:var(--text-muted); font-weight:600;">${prizeLabel}</span>` : ''}
           ${pos > 1 ? `<button type="button" class="btn btn-outline btn-sm" style="padding:2px 8px;" onclick="this.closest('.winner-slot-row').remove()">Remove</button>` : ''}
         </div>
         <div style="display:flex; gap:8px;">
@@ -608,7 +767,7 @@
     }
 
     // ==========================================
-    // WINNERS LEDGER & CREATE MODAL
+    // WINNERS LEDGER
     // ==========================================
     async function loadWinnersLedger() {
       try {
@@ -632,55 +791,6 @@
         });
       } catch (e) {
         console.error('Failed to load winners ledger:', e);
-      }
-    }
-
-    function openCreateModal() {
-      const now = new Date();
-      const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      document.getElementById('p-start').value = now.toISOString().slice(0, 16);
-      document.getElementById('p-end').value = nextWeek.toISOString().slice(0, 16);
-      document.getElementById('modal-create').classList.add('active');
-    }
-
-    function closeCreateModal() {
-      document.getElementById('modal-create').classList.remove('active');
-    }
-
-    async function submitCreatePot(e) {
-      e.preventDefault();
-      const payload = {
-        title: document.getElementById('p-title').value,
-        prize_title: document.getElementById('p-prize').value,
-        total_seats: parseInt(document.getElementById('p-seats').value, 10),
-        ticket_price: parseInt(document.getElementById('p-price').value, 10),
-        start_time: new Date(document.getElementById('p-start').value).toISOString(),
-        end_time: new Date(document.getElementById('p-end').value).toISOString(),
-        winner_count: 3,
-        prizes: [
-          { winner_position: 1, prize_title: '1st Place: ' + document.getElementById('p-prize').value, prize_type: 'COINS', prize_amount: 10000 },
-          { winner_position: 2, prize_title: '2nd Place: 5,000 Coins', prize_type: 'COINS', prize_amount: 5000 },
-          { winner_position: 3, prize_title: '3rd Place: 2,500 Coins', prize_type: 'COINS', prize_amount: 2500 }
-        ]
-      };
-
-      try {
-        const res = await fetch(`${API_BASE}/admin/create`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
-          body: JSON.stringify(payload)
-        });
-
-        const data = await res.json();
-        if (data.success) {
-          alert('🎉 Round created successfully!');
-          closeCreateModal();
-          loadLotteries();
-        } else {
-          alert(data.error);
-        }
-      } catch (err) {
-        alert('Error creating round: ' + err.message);
       }
     }
   </script>
