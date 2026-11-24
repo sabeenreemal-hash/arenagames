@@ -2,45 +2,99 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Arena Games – Multiplayer Control Center</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arena Games – Multiplayer Admin Portal</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>body { background-color: #0b0f19; }</style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen p-6">
-  <div class="max-w-7xl mx-auto">
-    <header class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
+<body class="text-slate-100 min-h-screen p-4 md:p-8">
+  <div class="max-w-7xl mx-auto space-y-8">
+    
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800 pb-5 gap-4">
       <div>
-        <h1 class="text-3xl font-extrabold text-indigo-400">🎮 Arena Games Multiplayer Admin</h1>
-        <p class="text-slate-400 text-sm">Real-time HTTP Polling, Bot Orchestration & Ledgers</p>
+        <div class="flex items-center gap-3">
+          <span class="text-3xl">⚔️</span>
+          <h1 class="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
+            Multiplayer Master Administration
+          </h1>
+        </div>
+        <p class="text-slate-400 text-xs md:text-sm mt-1">Configure Entry Fees, Prize Pools, Timers & Custom Bot Profiles</p>
       </div>
-      <button onclick="refreshData()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded font-bold">Refresh Data</button>
+
+      <div class="flex items-center gap-3">
+        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1.5"></span> Live System
+        </span>
+        <button onclick="refreshAll()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg font-semibold text-sm transition">
+          Refresh Data
+        </button>
+      </div>
     </header>
 
-    <!-- Top Stats Row -->
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
-        <div class="text-slate-400 text-sm">Total Matches</div>
-        <div id="statTotalMatches" class="text-3xl font-bold text-white mt-1">--</div>
+    <!-- Top Metrics -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl">
+        <span class="text-slate-400 text-xs font-bold uppercase">Total Matches</span>
+        <div id="statTotalMatches" class="text-2xl md:text-3xl font-extrabold text-white mt-1">--</div>
       </div>
-      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
-        <div class="text-slate-400 text-sm">Active Matches</div>
-        <div id="statActiveMatches" class="text-3xl font-bold text-emerald-400 mt-1">--</div>
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl">
+        <span class="text-slate-400 text-xs font-bold uppercase">Active Live</span>
+        <div id="statActiveMatches" class="text-2xl md:text-3xl font-extrabold text-cyan-400 mt-1">--</div>
       </div>
-      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
-        <div class="text-slate-400 text-sm">Coins Collected</div>
-        <div id="statCoinsIn" class="text-3xl font-bold text-yellow-400 mt-1">--</div>
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl">
+        <span class="text-slate-400 text-xs font-bold uppercase">Coins Collected</span>
+        <div id="statCoinsIn" class="text-2xl md:text-3xl font-extrabold text-amber-400 mt-1">--</div>
       </div>
-      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
-        <div class="text-slate-400 text-sm">Coins Rewarded</div>
-        <div id="statCoinsOut" class="text-3xl font-bold text-indigo-400 mt-1">--</div>
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl">
+        <span class="text-slate-400 text-xs font-bold uppercase">Coins Rewarded</span>
+        <div id="statCoinsOut" class="text-2xl md:text-3xl font-extrabold text-indigo-400 mt-1">--</div>
       </div>
     </div>
 
-    <!-- Live Matches -->
-    <section class="bg-slate-800 p-6 rounded-lg border border-slate-700 mb-8">
-      <h2 class="text-xl font-bold mb-4 text-emerald-400">⚡ Active Live Matches</h2>
+    <!-- Game Configuration (Editable Cards) -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
+        <span>⚙️</span> Game Configurations & Economy
+      </h2>
+      <div id="configsGrid" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="p-4 text-center text-slate-500">Loading configurations...</div>
+      </div>
+    </section>
+
+    <!-- Bot Management Table with Edit Buttons -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+          <span>🤖</span> Manage Bot Profiles
+        </h2>
+      </div>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-sm text-slate-300">
-          <thead class="bg-slate-700 text-slate-200">
+          <thead class="bg-slate-800/60 text-slate-400 uppercase text-xs">
+            <tr>
+              <th class="p-3">Avatar</th>
+              <th class="p-3">Bot Username</th>
+              <th class="p-3">Difficulty</th>
+              <th class="p-3">Status</th>
+              <th class="p-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="botsTableBody" class="divide-y divide-slate-800">
+            <tr><td colspan="5" class="p-4 text-center text-slate-500">Loading bots...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Live Matches -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> Live Active Matches
+      </h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-slate-300">
+          <thead class="bg-slate-800/60 text-slate-400 uppercase text-xs">
             <tr>
               <th class="p-3">Match ID</th>
               <th class="p-3">Game</th>
@@ -50,63 +104,242 @@
               <th class="p-3">Type</th>
             </tr>
           </thead>
-          <tbody id="liveMatchesTable">
-            <tr><td colspan="6" class="p-4 text-center">Loading live matches...</td></tr>
+          <tbody id="liveTableBody" class="divide-y divide-slate-800">
+            <tr><td colspan="6" class="p-4 text-center text-slate-500">No active matches.</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
-    <!-- Game Config Management -->
-    <section class="bg-slate-800 p-6 rounded-lg border border-slate-700">
-      <h2 class="text-xl font-bold mb-4 text-indigo-400">⚙️ Game Configuration</h2>
-      <div id="configGrid" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
-    </section>
+  </div>
+
+  <!-- MODAL: EDIT GAME CONFIG -->
+  <div id="configModal" class="fixed inset-0 bg-black/75 hidden items-center justify-center p-4 z-50">
+    <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-md w-full space-y-4">
+      <h3 id="modalConfigTitle" class="text-xl font-bold text-white">Edit Game Config</h3>
+      <input type="hidden" id="editGameId">
+      
+      <div>
+        <label class="text-xs text-slate-400 uppercase font-semibold">Entry Fee (Coins)</label>
+        <input type="number" id="editEntryFee" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-400 uppercase font-semibold">Winner Reward (Coins)</label>
+        <input type="number" id="editWinnerReward" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-400 uppercase font-semibold">Turn / Selection Timer (Seconds)</label>
+        <input type="number" id="editTurnTimer" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-400 uppercase font-semibold">Default Bot Difficulty</label>
+        <select id="editBotDiff" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
+          <option value="EASY">EASY</option>
+          <option value="MEDIUM">MEDIUM</option>
+          <option value="HARD">HARD</option>
+          <option value="EXPERT">EXPERT</option>
+        </select>
+      </div>
+
+      <div class="flex items-center gap-2 pt-2">
+        <input type="checkbox" id="editIsEnabled" class="w-4 h-4 rounded text-indigo-600 bg-slate-900 border-slate-700">
+        <label for="editIsEnabled" class="text-sm font-semibold text-slate-200">Game Active / Available</label>
+      </div>
+
+      <div class="flex justify-end gap-3 pt-3 border-t border-slate-700">
+        <button onclick="closeModal('configModal')" class="px-4 py-2 text-slate-400 hover:text-white text-sm">Cancel</button>
+        <button onclick="saveGameConfig()" class="bg-indigo-600 hover:bg-indigo-500 px-5 py-2 rounded-lg text-sm font-bold text-white">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: EDIT BOT PROFILE -->
+  <div id="botModal" class="fixed inset-0 bg-black/75 hidden items-center justify-center p-4 z-50">
+    <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-md w-full space-y-4">
+      <h3 class="text-xl font-bold text-white">Edit Bot Profile</h3>
+      <input type="hidden" id="editBotId">
+      
+      <div>
+        <label class="text-xs text-slate-400 uppercase font-semibold">Bot Username</label>
+        <input type="text" id="editBotUsername" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-400 uppercase font-semibold">Avatar URL</label>
+        <input type="text" id="editBotAvatar" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
+      </div>
+
+      <div>
+        <label class="text-xs text-slate-400 uppercase font-semibold">Difficulty Level</label>
+        <select id="editBotDifficulty" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
+          <option value="EASY">EASY</option>
+          <option value="MEDIUM">MEDIUM</option>
+          <option value="HARD">HARD</option>
+          <option value="EXPERT">EXPERT</option>
+        </select>
+      </div>
+
+      <div class="flex justify-end gap-3 pt-3 border-t border-slate-700">
+        <button onclick="closeModal('botModal')" class="px-4 py-2 text-slate-400 hover:text-white text-sm">Cancel</button>
+        <button onclick="saveBotProfile()" class="bg-cyan-600 hover:bg-cyan-500 px-5 py-2 rounded-lg text-sm font-bold text-white">Update Bot</button>
+      </div>
+    </div>
   </div>
 
   <script>
-    async function refreshData() {
-      const statsRes = await fetch('/api/admin/multiplayer/dashboard-stats');
-      const stats = await statsRes.json();
-      document.getElementById('statTotalMatches').innerText = stats.totalMatches;
-      document.getElementById('statActiveMatches').innerText = stats.activeMatches;
-      document.getElementById('statCoinsIn').innerText = stats.totalCoinsCollected.toLocaleString() + ' 🪙';
-      document.getElementById('statCoinsOut').innerText = stats.totalCoinsPaidOut.toLocaleString() + ' 🪙';
+    let globalConfigs = [];
+    let globalBots = [];
 
-      const liveRes = await fetch('/api/admin/multiplayer/live-matches');
-      const live = await liveRes.json();
-      const liveTbody = document.getElementById('liveMatchesTable');
-      if (live.length === 0) {
-        liveTbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-500">No active matches at this moment.</td></tr>';
-      } else {
-        liveTbody.innerHTML = live.map(m => `
-          <tr class="border-b border-slate-700">
-            <td class="p-3 font-mono text-xs">${m.id.substring(0, 12)}...</td>
-            <td class="p-3 uppercase font-bold text-indigo-300">${m.game_id}</td>
-            <td class="p-3">${m.p1_name}</td>
-            <td class="p-3">${m.p2_name}</td>
-            <td class="p-3">${m.p1_score} - ${m.p2_score}</td>
-            <td class="p-3">${m.is_bot_match ? '<span class="bg-amber-900 text-amber-300 px-2 py-0.5 rounded text-xs">BOT</span>' : '<span class="bg-blue-900 text-blue-300 px-2 py-0.5 rounded text-xs">PVP</span>'}</td>
+    async function refreshAll() {
+      try {
+        // 1. Stats
+        const stats = await (await fetch('/api/admin/multiplayer/dashboard-stats')).json();
+        document.getElementById('statTotalMatches').innerText = stats.totalMatches || 0;
+        document.getElementById('statActiveMatches').innerText = stats.activeMatches || 0;
+        document.getElementById('statCoinsIn').innerText = (stats.totalCoinsCollected || 0).toLocaleString() + ' 🪙';
+        document.getElementById('statCoinsOut').innerText = (stats.totalCoinsPaidOut || 0).toLocaleString() + ' 🪙';
+
+        // 2. Configs
+        globalConfigs = await (await fetch('/api/admin/multiplayer/configs')).json();
+        document.getElementById('configsGrid').innerHTML = globalConfigs.map(c => `
+          <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl p-5 space-y-3">
+            <div class="flex justify-between items-center">
+              <h3 class="font-bold text-lg text-white">${c.name}</h3>
+              <span class="text-xs px-2 py-0.5 rounded font-semibold ${c.is_enabled ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}">
+                ${c.is_enabled ? 'Active' : 'Disabled'}
+              </span>
+            </div>
+            <div class="text-sm space-y-1.5 text-slate-300 pt-1">
+              <div class="flex justify-between"><span>Entry Fee:</span> <span class="font-bold text-amber-400">${c.entry_fee} Coins</span></div>
+              <div class="flex justify-between"><span>Winner Reward:</span> <span class="font-bold text-emerald-400">${c.winner_reward} Coins</span></div>
+              <div class="flex justify-between"><span>Timer:</span> <span class="font-bold text-white">${c.turn_timer}s</span></div>
+              <div class="flex justify-between"><span>Bot Difficulty:</span> <span class="font-bold text-cyan-400">${c.bot_difficulty}</span></div>
+            </div>
+            <button onclick="openConfigModal('${c.game_id}')" class="w-full mt-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 rounded-lg text-sm transition">
+              ✏️ Edit Configuration
+            </button>
+          </div>
+        `).join('');
+
+        // 3. Bots
+        globalBots = await (await fetch('/api/admin/multiplayer/bots')).json();
+        document.getElementById('botsTableBody').innerHTML = globalBots.map(b => `
+          <tr class="hover:bg-slate-800/40">
+            <td class="p-3"><img src="${b.avatar_url}" class="w-9 h-9 rounded-full bg-slate-800 border border-slate-700"></td>
+            <td class="p-3 font-bold text-white">${b.username}</td>
+            <td class="p-3"><span class="bg-indigo-950 text-indigo-400 border border-indigo-800 px-2.5 py-0.5 rounded text-xs font-semibold">${b.difficulty}</span></td>
+            <td class="p-3"><span class="text-xs text-emerald-400 font-semibold">Active</span></td>
+            <td class="p-3 text-right">
+              <button onclick="openBotModal(${b.id})" class="bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-800 px-3 py-1 rounded text-xs font-bold transition">
+                Edit Bot
+              </button>
+            </td>
           </tr>
         `).join('');
-      }
 
-      const confRes = await fetch('/api/admin/multiplayer/configs');
-      const confs = await confRes.json();
-      document.getElementById('configGrid').innerHTML = confs.map(c => `
-        <div class="bg-slate-700 p-4 rounded border border-slate-600">
-          <h3 class="font-bold text-lg mb-2">${c.name}</h3>
-          <div class="text-sm text-slate-300 space-y-1">
-            <div>Entry Fee: <span class="font-bold text-yellow-400">${c.entry_fee} Coins</span></div>
-            <div>Reward: <span class="font-bold text-emerald-400">${c.winner_reward} Coins</span></div>
-            <div>Turn Timer: <span class="font-bold">${c.turn_timer}s</span></div>
-            <div>Default Bot: <span class="font-bold">${c.bot_difficulty}</span></div>
-          </div>
-        </div>
-      `).join('');
+        // 4. Live Matches
+        const live = await (await fetch('/api/admin/multiplayer/live-matches')).json();
+        const tbody = document.getElementById('liveTableBody');
+        if (live.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-slate-500">No active matches at the moment.</td></tr>';
+        } else {
+          tbody.innerHTML = live.map(m => `
+            <tr>
+              <td class="p-3 font-mono text-xs text-slate-400">${m.id.substring(0, 10)}...</td>
+              <td class="p-3 uppercase font-bold text-indigo-400">${m.game_id}</td>
+              <td class="p-3 text-white">${m.p1_name}</td>
+              <td class="p-3 text-white">${m.p2_name}</td>
+              <td class="p-3 font-bold text-amber-400">${m.p1_score} - ${m.p2_score}</td>
+              <td class="p-3">${m.is_bot_match ? '<span class="bg-amber-950 text-amber-300 text-xs px-2 py-0.5 rounded">BOT</span>' : '<span class="bg-cyan-950 text-cyan-300 text-xs px-2 py-0.5 rounded">PVP</span>'}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (e) {
+        console.error(e);
+      }
     }
-    refreshData();
-    setInterval(refreshData, 3000);
+
+    function openConfigModal(gameId) {
+      const c = globalConfigs.find(x => x.game_id === gameId);
+      if (!c) return;
+      document.getElementById('editGameId').value = c.game_id;
+      document.getElementById('modalConfigTitle').innerText = `Edit: ${c.name}`;
+      document.getElementById('editEntryFee').value = c.entry_fee;
+      document.getElementById('editWinnerReward').value = c.winner_reward;
+      document.getElementById('editTurnTimer').value = c.turn_timer;
+      document.getElementById('editBotDiff').value = c.bot_difficulty;
+      document.getElementById('editIsEnabled').checked = !!c.is_enabled;
+      document.getElementById('configModal').classList.remove('hidden');
+      document.getElementById('configModal').classList.add('flex');
+    }
+
+    async function saveGameConfig() {
+      const payload = {
+        game_id: document.getElementById('editGameId').value,
+        entry_fee: document.getElementById('editEntryFee').value,
+        winner_reward: document.getElementById('editWinnerReward').value,
+        turn_timer: document.getElementById('editTurnTimer').value,
+        bot_difficulty: document.getElementById('editBotDiff').value,
+        is_enabled: document.getElementById('editIsEnabled').checked
+      };
+
+      const res = await fetch('/api/admin/multiplayer/configs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        closeModal('configModal');
+        refreshAll();
+      } else {
+        alert('Failed to update config.');
+      }
+    }
+
+    function openBotModal(botId) {
+      const b = globalBots.find(x => x.id === botId);
+      if (!b) return;
+      document.getElementById('editBotId').value = b.id;
+      document.getElementById('editBotUsername').value = b.username;
+      document.getElementById('editBotAvatar').value = b.avatar_url;
+      document.getElementById('editBotDifficulty').value = b.difficulty;
+      document.getElementById('botModal').classList.remove('hidden');
+      document.getElementById('botModal').classList.add('flex');
+    }
+
+    async function saveBotProfile() {
+      const payload = {
+        id: document.getElementById('editBotId').value,
+        username: document.getElementById('editBotUsername').value,
+        avatar_url: document.getElementById('editBotAvatar').value,
+        difficulty: document.getElementById('editBotDifficulty').value
+      };
+
+      const res = await fetch('/api/admin/multiplayer/bots/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        closeModal('botModal');
+        refreshAll();
+      } else {
+        alert('Failed to update bot.');
+      }
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+      document.getElementById(id).classList.remove('flex');
+    }
+
+    refreshAll();
+    setInterval(refreshAll, 3000);
   </script>
 </body>
 </html>
