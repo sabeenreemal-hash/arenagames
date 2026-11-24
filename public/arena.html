@@ -138,7 +138,7 @@
     .modal.active { display: flex; }
     .modal-content {
       background: var(--panel); border: 1px solid var(--border);
-      border-radius: 18px; width: 100%; max-width: 650px;
+      border-radius: 18px; width: 100%; max-width: 680px;
       max-height: 90vh; overflow-y: auto; padding: 26px;
     }
 
@@ -150,19 +150,17 @@
     }
     .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 
-    /* Sold Seats Pool Pills */
     .seat-badge {
       font-size: 11px;
       font-weight: 700;
       background: rgba(6, 182, 212, 0.15);
       border: 1px solid var(--cyan);
       color: var(--cyan);
-      padding: 3px 8px;
+      padding: 4px 8px;
       border-radius: 6px;
       font-family: var(--font-mono);
       display: inline-flex;
       align-items: center;
-      gap: 4px;
     }
   </style>
 </head>
@@ -213,7 +211,7 @@
     <div class="topbar">
       <div>
         <h1 class="page-title">Arena Pot Rounds</h1>
-        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Direct multiple winner selection for lottery rounds</p>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Manual multiple winner selection by seat numbers</p>
       </div>
       <button class="btn btn-gold" onclick="openCreateModal()">+ Create New Round</button>
     </div>
@@ -278,13 +276,13 @@
 
       <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
         <p style="font-size: 12px; color: var(--gold); line-height: 1.5;">
-          Select the winning seat number for each rank below. The players who own these seats will win their respective prizes.
+          Select or enter the winning seat numbers below. Each selected seat number will win the specified prize and receive coins immediately.
         </p>
       </div>
 
       <!-- SOLD SEATS OVERVIEW -->
       <div style="margin-bottom: 16px;">
-        <label class="form-label">Sold Seats in This Round (<span id="sold-count-badge">0</span> sold):</label>
+        <label class="form-label">Available Sold Seats (<span id="sold-count-badge">0</span> sold):</label>
         <div id="sold-seats-badges" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 90px; overflow-y: auto; padding: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 8px;"></div>
       </div>
 
@@ -315,7 +313,7 @@
           <input type="text" id="p-title" class="form-control" placeholder="e.g. Gold Ruby Pot" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Prize Description</label>
+          <label class="form-label">Main Prize Title</label>
           <input type="text" id="p-prize" class="form-control" placeholder="e.g. 10,000 Coins" required>
         </div>
         <div class="form-row">
@@ -402,89 +400,105 @@
     }
 
     async function loadLotteries() {
-      const res = await fetch(`${API_BASE}/admin/lotteries?status=ALL`, {
-        headers: { 'Authorization': `Bearer ${adminToken}` }
-      });
-      const json = await res.json();
-      const tbody = document.getElementById('lotteries-tbody');
-      tbody.innerHTML = '';
+      try {
+        const res = await fetch(`${API_BASE}/admin/lotteries?status=ALL`, {
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const json = await res.json();
+        const tbody = document.getElementById('lotteries-tbody');
+        tbody.innerHTML = '';
 
-      (json.lotteries || []).forEach(l => {
-        tbody.innerHTML += `
-          <tr>
-            <td>#${l.id}</td>
-            <td style="font-weight: 700;">${l.title}</td>
-            <td style="color: var(--gold);">${l.prize_title}</td>
-            <td>${l.sold_seats} / ${l.total_seats}</td>
-            <td>🪙 ${l.ticket_price}</td>
-            <td><span class="badge badge-${l.status}">${l.status}</span></td>
-            <td>
-              ${l.status !== 'RESULTS_PUBLISHED' && l.status !== 'COMPLETED' ? `
-                <button class="btn btn-gold btn-sm" onclick="openDrawModal(${l.id})">
-                  🏆 Pick Winners
-                </button>
-              ` : `
-                <span style="font-size:12px; color:var(--text-muted); font-weight:700;">Results Published</span>
-              `}
-            </td>
-          </tr>
-        `;
-      });
+        (json.lotteries || []).forEach(l => {
+          tbody.innerHTML += `
+            <tr>
+              <td>#${l.id}</td>
+              <td style="font-weight: 700;">${l.title}</td>
+              <td style="color: var(--gold);">${l.prize_title}</td>
+              <td>${l.sold_seats} / ${l.total_seats}</td>
+              <td>🪙 ${l.ticket_price}</td>
+              <td><span class="badge badge-${l.status}">${l.status}</span></td>
+              <td>
+                ${l.status !== 'RESULTS_PUBLISHED' && l.status !== 'COMPLETED' ? `
+                  <button class="btn btn-gold btn-sm" onclick="openDrawModal(${l.id})">
+                    🏆 Pick Winners
+                  </button>
+                ` : `
+                  <span style="font-size:12px; color:var(--text-muted); font-weight:700;">Results Published</span>
+                `}
+              </td>
+            </tr>
+          `;
+        });
+      } catch (e) {
+        console.error('Failed to load lotteries:', e);
+      }
     }
 
     // ==========================================
-    // MULTIPLE WINNERS MODAL LOGIC
+    // MULTIPLE WINNERS MODAL LOGIC (FIXED)
     // ==========================================
     async function openDrawModal(lotteryId) {
-      currentDrawLotteryId = lotteryId;
-      rankCounter = 1;
+      try {
+        currentDrawLotteryId = lotteryId;
+        rankCounter = 1;
 
-      // 1. Fetch tickets for this lottery
-      const tRes = await fetch(`${API_BASE}/admin/lottery/${lotteryId}/tickets`, {
-        headers: { 'Authorization': `Bearer ${adminToken}` }
-      });
-      const tData = await tRes.json();
-      currentLotterySoldTickets = tData.tickets || [];
-
-      if (currentLotterySoldTickets.length === 0) {
-        alert('Cannot pick winners: No seats have been purchased for this round yet.');
-        return;
-      }
-
-      // 2. Render Sold Seats Badges
-      document.getElementById('sold-count-badge').innerText = currentLotterySoldTickets.length;
-      const badgesDiv = document.getElementById('sold-seats-badges');
-      badgesDiv.innerHTML = '';
-      currentLotterySoldTickets.forEach(t => {
-        badgesDiv.innerHTML += `
-          <span class="seat-badge" title="Owned by @${t.username}">
-            #${t.ticket_number} (@${t.username})
-          </span>
-        `;
-      });
-
-      // 3. Fetch configured prizes to preset the ranks
-      const lRes = await fetch(`${API_BASE}/lottery/${lotteryId}`, {
-        headers: { 'Authorization': `Bearer ${adminToken}` }
-      });
-      const lData = await lRes.json();
-      const prizes = lData.prizes || [];
-
-      document.getElementById('draw-modal-title').innerText = `🏆 Pick Winners for Round #${lData.lottery.id}: ${lData.lottery.title}`;
-
-      const container = document.getElementById('winner-slots-container');
-      container.innerHTML = '';
-
-      if (prizes.length > 0) {
-        prizes.forEach(p => {
-          addWinnerSlot(p.winner_position, p.prize_title);
+        // 1. Fetch round details via dedicated admin endpoint
+        const lRes = await fetch(`${API_BASE}/admin/lottery/${lotteryId}`, {
+          headers: { 'Authorization': `Bearer ${adminToken}` }
         });
-      } else {
-        // Default to Rank 1 if no prize structure was saved
-        addWinnerSlot(1, lData.lottery.prize_title || '1st Place Prize');
-      }
+        const lData = await lRes.json();
+        if (!lData.success || !lData.lottery) {
+          alert(lData.error || 'Failed to load round details.');
+          return;
+        }
 
-      document.getElementById('modal-draw-winners').classList.add('active');
+        const lottery = lData.lottery;
+        const prizes = lData.prizes || [];
+
+        // 2. Fetch sold tickets for this lottery
+        const tRes = await fetch(`${API_BASE}/admin/lottery/${lotteryId}/tickets`, {
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const tData = await tRes.json();
+        currentLotterySoldTickets = tData.tickets || [];
+
+        // 3. Set modal header & badge
+        document.getElementById('draw-modal-title').innerText = `🏆 Pick Winners — Round #${lottery.id}: ${lottery.title}`;
+        document.getElementById('sold-count-badge').innerText = currentLotterySoldTickets.length;
+
+        // 4. Populate sold seats preview
+        const badgesDiv = document.getElementById('sold-seats-badges');
+        badgesDiv.innerHTML = '';
+        if (currentLotterySoldTickets.length === 0) {
+          badgesDiv.innerHTML = `<span style="font-size:12px; color:var(--text-muted); font-style:italic;">No seats purchased yet. Users must buy seats before you can select them as winners.</span>`;
+        } else {
+          currentLotterySoldTickets.forEach(t => {
+            badgesDiv.innerHTML += `
+              <span class="seat-badge" title="Owned by @${t.username}">
+                Seat #${t.ticket_number} (@${t.username})
+              </span>
+            `;
+          });
+        }
+
+        // 5. Populate winner input slots
+        const container = document.getElementById('winner-slots-container');
+        container.innerHTML = '';
+
+        if (prizes.length > 0) {
+          prizes.forEach(p => {
+            addWinnerSlot(p.winner_position, p.prize_title);
+          });
+        } else {
+          addWinnerSlot(1, lottery.prize_title || '1st Place Prize');
+        }
+
+        // 6. Open modal
+        document.getElementById('modal-draw-winners').classList.add('active');
+      } catch (err) {
+        console.error('Error opening draw modal:', err);
+        alert('Error loading winner picker: ' + err.message);
+      }
     }
 
     function closeDrawModal() {
@@ -495,10 +509,14 @@
       const pos = position || rankCounter;
       const container = document.getElementById('winner-slots-container');
 
-      let options = `<option value="">-- Choose Winning Seat Number --</option>`;
-      currentLotterySoldTickets.forEach(t => {
-        options += `<option value="${t.ticket_number}">Seat #${t.ticket_number} — Owned by @${t.username}</option>`;
-      });
+      let options = `<option value="">-- Select Sold Winning Seat --</option>`;
+      if (currentLotterySoldTickets.length > 0) {
+        currentLotterySoldTickets.forEach(t => {
+          options += `<option value="${t.ticket_number}">Seat #${t.ticket_number} — Owned by @${t.username}</option>`;
+        });
+      } else {
+        options += `<option value="" disabled>No seats purchased yet</option>`;
+      }
 
       const div = document.createElement('div');
       div.className = 'winner-slot-row';
@@ -509,36 +527,54 @@
           ${prizeLabel ? `<span style="font-size:12px; color:var(--text-muted);">${prizeLabel}</span>` : ''}
           ${pos > 1 ? `<button type="button" class="btn btn-outline btn-sm" style="padding:2px 8px;" onclick="this.closest('.winner-slot-row').remove()">Remove</button>` : ''}
         </div>
-        <select class="form-control winner-seat-select" data-pos="${pos}">
-          ${options}
-        </select>
+        <div style="display:flex; gap:8px;">
+          <select class="form-control winner-seat-select" data-pos="${pos}" style="flex:2;" onchange="syncFromSelect(this)">
+            ${options}
+          </select>
+          <input type="number" class="form-control winner-seat-input" data-pos="${pos}" placeholder="Or type Seat #" style="flex:1;" oninput="syncFromInput(this)">
+        </div>
       `;
 
       container.appendChild(div);
       rankCounter = Math.max(rankCounter, pos) + 1;
     }
 
+    function syncFromSelect(selectEl) {
+      const row = selectEl.closest('.winner-slot-row');
+      const input = row.querySelector('.winner-seat-input');
+      input.value = selectEl.value;
+    }
+
+    function syncFromInput(inputEl) {
+      const row = inputEl.closest('.winner-slot-row');
+      const select = row.querySelector('.winner-seat-select');
+      select.value = inputEl.value;
+    }
+
     async function confirmAndPublishWinners() {
-      const selects = document.querySelectorAll('.winner-seat-select');
+      const rows = document.querySelectorAll('.winner-slot-row');
       const manual_winners = [];
       const chosenSeats = new Set();
 
-      for (const sel of selects) {
-        const val = sel.value;
-        const pos = parseInt(sel.getAttribute('data-pos'), 10);
+      for (const row of rows) {
+        const select = row.querySelector('.winner-seat-select');
+        const input = row.querySelector('.winner-seat-input');
+        const pos = parseInt(select.getAttribute('data-pos'), 10);
+        const val = select.value || input.value;
 
         if (!val) {
-          alert(`Please select a winning seat number for Rank #${pos}.`);
+          alert(`Please select or enter a winning seat number for Rank #${pos}.`);
           return;
         }
 
-        if (chosenSeats.has(val)) {
-          alert(`Seat #${val} is selected more than once. Each winning rank must have a unique seat number.`);
+        const seatNum = parseInt(val, 10);
+        if (chosenSeats.has(seatNum)) {
+          alert(`Seat #${seatNum} is assigned to more than one rank. Each winning rank must have a unique seat number.`);
           return;
         }
 
-        chosenSeats.add(val);
-        manual_winners.push({ position: pos, winningSeat: parseInt(val, 10) });
+        chosenSeats.add(seatNum);
+        manual_winners.push({ position: pos, winningSeat: seatNum });
       }
 
       if (manual_winners.length === 0) {
@@ -551,19 +587,23 @@
         return;
       }
 
-      const res = await fetch(`${API_BASE}/admin/lottery/${currentDrawLotteryId}/draw`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
-        body: JSON.stringify({ manual_winners })
-      });
+      try {
+        const res = await fetch(`${API_BASE}/admin/lottery/${currentDrawLotteryId}/draw`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+          body: JSON.stringify({ manual_winners })
+        });
 
-      const data = await res.json();
-      if (data.success) {
-        alert(data.message);
-        closeDrawModal();
-        loadLotteries();
-      } else {
-        alert(data.error || 'Failed to publish winners');
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message);
+          closeDrawModal();
+          loadLotteries();
+        } else {
+          alert(data.error || 'Failed to publish winners');
+        }
+      } catch (e) {
+        alert('Error publishing winners: ' + e.message);
       }
     }
 
@@ -571,24 +611,28 @@
     // WINNERS LEDGER & CREATE MODAL
     // ==========================================
     async function loadWinnersLedger() {
-      const res = await fetch(`${API_BASE}/winners/all`);
-      const json = await res.json();
-      const tbody = document.getElementById('winners-tbody');
-      tbody.innerHTML = '';
+      try {
+        const res = await fetch(`${API_BASE}/winners/all`);
+        const json = await res.json();
+        const tbody = document.getElementById('winners-tbody');
+        tbody.innerHTML = '';
 
-      (json.winners || []).forEach(w => {
-        tbody.innerHTML += `
-          <tr>
-            <td>#${w.lottery_id}</td>
-            <td style="font-weight: 700;">${w.lottery_title}</td>
-            <td><span class="badge badge-ACTIVE">Rank #${w.winner_position}</span></td>
-            <td style="font-family: var(--font-mono); color: var(--gold); font-weight:800;">Seat #${w.winning_seat}</td>
-            <td>@${w.username}</td>
-            <td>${w.prize_title}</td>
-            <td style="font-size: 12px; color: var(--text-muted);">${new Date(w.published_at).toLocaleString()}</td>
-          </tr>
-        `;
-      });
+        (json.winners || []).forEach(w => {
+          tbody.innerHTML += `
+            <tr>
+              <td>#${w.lottery_id}</td>
+              <td style="font-weight: 700;">${w.lottery_title}</td>
+              <td><span class="badge badge-ACTIVE">Rank #${w.winner_position}</span></td>
+              <td style="font-family: var(--font-mono); color: var(--gold); font-weight:800;">Seat #${w.winning_seat}</td>
+              <td>@${w.username}</td>
+              <td>${w.prize_title}</td>
+              <td style="font-size: 12px; color: var(--text-muted);">${new Date(w.published_at).toLocaleString()}</td>
+            </tr>
+          `;
+        });
+      } catch (e) {
+        console.error('Failed to load winners ledger:', e);
+      }
     }
 
     function openCreateModal() {
@@ -612,7 +656,7 @@
         ticket_price: parseInt(document.getElementById('p-price').value, 10),
         start_time: new Date(document.getElementById('p-start').value).toISOString(),
         end_time: new Date(document.getElementById('p-end').value).toISOString(),
-        winner_count: 1,
+        winner_count: 3,
         prizes: [
           { winner_position: 1, prize_title: '1st Place: ' + document.getElementById('p-prize').value, prize_type: 'COINS', prize_amount: 10000 },
           { winner_position: 2, prize_title: '2nd Place: 5,000 Coins', prize_type: 'COINS', prize_amount: 5000 },
@@ -620,19 +664,23 @@
         ]
       };
 
-      const res = await fetch(`${API_BASE}/admin/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
-        body: JSON.stringify(payload)
-      });
+      try {
+        const res = await fetch(`${API_BASE}/admin/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+          body: JSON.stringify(payload)
+        });
 
-      const data = await res.json();
-      if (data.success) {
-        alert('🎉 Round created successfully!');
-        closeCreateModal();
-        loadLotteries();
-      } else {
-        alert(data.error);
+        const data = await res.json();
+        if (data.success) {
+          alert('🎉 Round created successfully!');
+          closeCreateModal();
+          loadLotteries();
+        } else {
+          alert(data.error);
+        }
+      } catch (err) {
+        alert('Error creating round: ' + err.message);
       }
     }
   </script>
