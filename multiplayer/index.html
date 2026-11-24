@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Arena Games – Multiplayer Control Center</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-6">
+  <div class="max-w-7xl mx-auto">
+    <header class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
+      <div>
+        <h1 class="text-3xl font-extrabold text-indigo-400">🎮 Arena Games Multiplayer Admin</h1>
+        <p class="text-slate-400 text-sm">Real-time HTTP Polling, Bot Orchestration & Ledgers</p>
+      </div>
+      <button onclick="refreshData()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded font-bold">Refresh Data</button>
+    </header>
+
+    <!-- Top Stats Row -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
+        <div class="text-slate-400 text-sm">Total Matches</div>
+        <div id="statTotalMatches" class="text-3xl font-bold text-white mt-1">--</div>
+      </div>
+      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
+        <div class="text-slate-400 text-sm">Active Matches</div>
+        <div id="statActiveMatches" class="text-3xl font-bold text-emerald-400 mt-1">--</div>
+      </div>
+      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
+        <div class="text-slate-400 text-sm">Coins Collected</div>
+        <div id="statCoinsIn" class="text-3xl font-bold text-yellow-400 mt-1">--</div>
+      </div>
+      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
+        <div class="text-slate-400 text-sm">Coins Rewarded</div>
+        <div id="statCoinsOut" class="text-3xl font-bold text-indigo-400 mt-1">--</div>
+      </div>
+    </div>
+
+    <!-- Live Matches -->
+    <section class="bg-slate-800 p-6 rounded-lg border border-slate-700 mb-8">
+      <h2 class="text-xl font-bold mb-4 text-emerald-400">⚡ Active Live Matches</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-slate-300">
+          <thead class="bg-slate-700 text-slate-200">
+            <tr>
+              <th class="p-3">Match ID</th>
+              <th class="p-3">Game</th>
+              <th class="p-3">Player 1</th>
+              <th class="p-3">Player 2</th>
+              <th class="p-3">Score</th>
+              <th class="p-3">Type</th>
+            </tr>
+          </thead>
+          <tbody id="liveMatchesTable">
+            <tr><td colspan="6" class="p-4 text-center">Loading live matches...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Game Config Management -->
+    <section class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+      <h2 class="text-xl font-bold mb-4 text-indigo-400">⚙️ Game Configuration</h2>
+      <div id="configGrid" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+    </section>
+  </div>
+
+  <script>
+    async function refreshData() {
+      const statsRes = await fetch('/api/admin/multiplayer/dashboard-stats');
+      const stats = await statsRes.json();
+      document.getElementById('statTotalMatches').innerText = stats.totalMatches;
+      document.getElementById('statActiveMatches').innerText = stats.activeMatches;
+      document.getElementById('statCoinsIn').innerText = stats.totalCoinsCollected.toLocaleString() + ' 🪙';
+      document.getElementById('statCoinsOut').innerText = stats.totalCoinsPaidOut.toLocaleString() + ' 🪙';
+
+      const liveRes = await fetch('/api/admin/multiplayer/live-matches');
+      const live = await liveRes.json();
+      const liveTbody = document.getElementById('liveMatchesTable');
+      if (live.length === 0) {
+        liveTbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-500">No active matches at this moment.</td></tr>';
+      } else {
+        liveTbody.innerHTML = live.map(m => `
+          <tr class="border-b border-slate-700">
+            <td class="p-3 font-mono text-xs">${m.id.substring(0, 12)}...</td>
+            <td class="p-3 uppercase font-bold text-indigo-300">${m.game_id}</td>
+            <td class="p-3">${m.p1_name}</td>
+            <td class="p-3">${m.p2_name}</td>
+            <td class="p-3">${m.p1_score} - ${m.p2_score}</td>
+            <td class="p-3">${m.is_bot_match ? '<span class="bg-amber-900 text-amber-300 px-2 py-0.5 rounded text-xs">BOT</span>' : '<span class="bg-blue-900 text-blue-300 px-2 py-0.5 rounded text-xs">PVP</span>'}</td>
+          </tr>
+        `).join('');
+      }
+
+      const confRes = await fetch('/api/admin/multiplayer/configs');
+      const confs = await confRes.json();
+      document.getElementById('configGrid').innerHTML = confs.map(c => `
+        <div class="bg-slate-700 p-4 rounded border border-slate-600">
+          <h3 class="font-bold text-lg mb-2">${c.name}</h3>
+          <div class="text-sm text-slate-300 space-y-1">
+            <div>Entry Fee: <span class="font-bold text-yellow-400">${c.entry_fee} Coins</span></div>
+            <div>Reward: <span class="font-bold text-emerald-400">${c.winner_reward} Coins</span></div>
+            <div>Turn Timer: <span class="font-bold">${c.turn_timer}s</span></div>
+            <div>Default Bot: <span class="font-bold">${c.bot_difficulty}</span></div>
+          </div>
+        </div>
+      `).join('');
+    }
+    refreshData();
+    setInterval(refreshData, 3000);
+  </script>
+</body>
+</html>
