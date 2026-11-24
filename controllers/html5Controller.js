@@ -10,8 +10,8 @@ const { getActiveGames, getActiveGameById } = require('../html5');
 const NORMAL_RATE_PER_MIN = 3;
 const BOOSTER_RATE_PER_MIN = 4;
 
-const CLAIM_INTERVAL_SEC = 2 * 60;       // 2 minutes = 120s
-const MAX_PLAY_SEC = 20 * 60;            // 20 minutes = 1200s
+const CLAIM_INTERVAL_SEC = 5 * 60;       // 5 minutes = 300s
+const MAX_PLAY_SEC = 50 * 60;            // 50 minutes = 3000s
 const REST_DURATION_MS = 60 * 60 * 1000; // 60 minutes rest
 
 const BOOSTER_ADS_REQUIRED = 3;
@@ -128,7 +128,7 @@ async function getOrCreateUserState(userId, nowMs) {
     state = await dbGet('SELECT * FROM html5_user_state WHERE user_id = ?', [userId]);
   }
 
-  // If mandatory 60-minute rest period has finished, reset the 20-min play cycle
+  // If mandatory 60-minute rest period has finished, reset the 50-min play cycle
   if (state.rest_until_ms > 0 && nowMs >= state.rest_until_ms) {
     await dbRun(
       `UPDATE html5_user_state
@@ -139,7 +139,6 @@ async function getOrCreateUserState(userId, nowMs) {
     state.cycle_play_seconds = 0;
     state.rest_until_ms = 0;
   } else if (state.cycle_play_seconds >= MAX_PLAY_SEC && state.rest_until_ms === 0) {
-    // Handles existing users whose cycle_play_seconds exceeded the new 20-min limit
     const restUntil = nowMs + REST_DURATION_MS;
     await dbRun(
       `UPDATE html5_user_state
@@ -430,7 +429,7 @@ exports.heartbeat = async (req, res) => {
       const newClaimCycleSeconds = state.claim_cycle_seconds + creditSeconds;
       const newUnclaimedUnits = state.unclaimed_units + addedUnits;
 
-      // Trigger mandatory 60-minute rest if 20-minute cap is reached
+      // Trigger mandatory 60-minute rest if 50-minute cap is reached
       let newRestUntilMs = state.rest_until_ms;
       if (newCyclePlaySeconds >= MAX_PLAY_SEC && newRestUntilMs === 0) {
         newRestUntilMs = nowMs + REST_DURATION_MS;
@@ -505,7 +504,7 @@ exports.claimCoins = async (req, res) => {
           status: 400,
           payload: {
             success: false,
-            error: 'Coins are only claimable after completing 2 minutes of active gameplay.',
+            error: 'Coins are only claimable after completing 5 minutes of active gameplay.',
             state: serializeState(state, nowMs),
           },
         };
