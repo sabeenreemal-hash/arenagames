@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Arena Games — Tic Tac Toe Admin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0B0E14;
+      --card-bg: #151A23;
+      --border: #262F40;
+      --primary: #00F0FF;
+      --secondary: #7000FF;
+      --accent: #FF0055;
+      --text: #F0F4FC;
+      --text-muted: #8E9BAE;
+      --green: #00E676;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background: #0E121B;
+      border-right: 1px solid var(--border);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar h2 {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 24px;
+      color: var(--primary);
+      margin-bottom: 30px;
+      letter-spacing: 1px;
+    }
+    .nav-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 12px 16px;
+      border-radius: 8px;
+      text-align: left;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      margin-bottom: 8px;
+      transition: all 0.2s;
+    }
+    .nav-btn.active, .nav-btn:hover {
+      background: #1C2331;
+      color: var(--primary);
+    }
+    .main {
+      flex: 1;
+      padding: 32px;
+      overflow-y: auto;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .header h1 {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 28px;
+    }
+    .grid-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .stat-card .label { color: var(--text-muted); font-size: 13px; margin-bottom: 6px; }
+    .stat-card .val { font-size: 26px; font-weight: 700; font-family: 'Rajdhani', sans-serif; color: var(--primary); }
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--text-muted); font-weight: 600; }
+    input, select, button {
+      background: #10141D;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 6px;
+      outline: none;
+    }
+    button.btn-primary {
+      background: var(--primary);
+      color: #000;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+    }
+    .tag { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .tag-bot { background: #331A47; color: #D67BFF; }
+    .tag-real { background: #13392D; color: var(--green); }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <h2>🎮 TTT CONTROL</h2>
+    <button class="nav-btn active" onclick="showTab('dashboard')">📊 Dashboard</button>
+    <button class="nav-btn" onclick="showTab('matches')">⚔️ Match History</button>
+    <button class="nav-btn" onclick="showTab('players')">👤 Player Search</button>
+    <button class="nav-btn" onclick="showTab('bots')">🤖 Bot Management</button>
+    <button class="nav-btn" onclick="showTab('settings')">⚙️ Game Settings</button>
+  </div>
+
+  <div class="main">
+    <!-- DASHBOARD TAB -->
+    <div id="tab-dashboard">
+      <div class="header"><h1>Live Dashboard</h1></div>
+      <div class="grid-stats">
+        <div class="stat-card"><div class="label">Total Matches</div><div class="val" id="st-total">0</div></div>
+        <div class="stat-card"><div class="label">Real Matches</div><div class="val" id="st-real">0</div></div>
+        <div class="stat-card"><div class="label">Bot Matches</div><div class="val" id="st-bot">0</div></div>
+        <div class="stat-card"><div class="label">Draw Rematches</div><div class="val" id="st-draws">0</div></div>
+        <div class="stat-card"><div class="label">Fees Collected</div><div class="val" id="st-fees">0</div></div>
+        <div class="stat-card"><div class="label">Rewards Paid</div><div class="val" id="st-rewards">0</div></div>
+      </div>
+    </div>
+
+    <!-- MATCH HISTORY TAB -->
+    <div id="tab-matches" style="display:none;">
+      <div class="header"><h1>Match History & Rounds</h1></div>
+      <div class="panel">
+        <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+          <input type="text" id="filter-user" placeholder="Filter by username..." />
+          <button class="btn-primary" onclick="loadMatches()">Filter</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Match ID</th>
+              <th>Player 1</th>
+              <th>Player 2</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Rounds</th>
+              <th>Winner</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="matches-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div id="tab-settings" style="display:none;">
+      <div class="header"><h1>Game Engine Settings</h1></div>
+      <div class="panel" style="max-width: 600px;">
+        <div style="margin-bottom: 16px;">
+          <label style="display:block; margin-bottom:6px;">Entry Fee (Coins)</label>
+          <input type="number" id="cfg-entry" style="width:100%" />
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label style="display:block; margin-bottom:6px;">Winner Reward (Coins)</label>
+          <input type="number" id="cfg-reward" style="width:100%" />
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label style="display:block; margin-bottom:6px;">Bot Fallback Countdown (Sec)</label>
+          <input type="number" id="cfg-bot-time" value="20" style="width:100%" />
+        </div>
+        <button class="btn-primary" onclick="saveSettings()">Save Configuration</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showTab(tab) {
+      ['dashboard', 'matches', 'settings'].forEach(t => {
+        const el = document.getElementById('tab-' + t);
+        if (el) el.style.display = t === tab ? 'block' : 'none';
+      });
+      if (tab === 'dashboard') loadDashboard();
+      if (tab === 'matches') loadMatches();
+      if (tab === 'settings') loadSettings();
+    }
+
+    async function loadDashboard() {
+      const res = await fetch('/api/admin/tictactoe/dashboard', {
+        headers: { 'Authorization': 'Bearer admin-token' }
+      });
+      const data = await res.json();
+      const s = data.stats;
+      document.getElementById('st-total').innerText = s.total_matches || 0;
+      document.getElementById('st-real').innerText = s.real_matches || 0;
+      document.getElementById('st-bot').innerText = s.bot_matches || 0;
+      document.getElementById('st-draws').innerText = s.draw_rounds || 0;
+      document.getElementById('st-fees').innerText = (s.total_fees_collected || 0).toLocaleString();
+      document.getElementById('st-rewards').innerText = (s.total_rewards_distributed || 0).toLocaleString();
+    }
+
+    async function loadMatches() {
+      const user = document.getElementById('filter-user').value;
+      const res = await fetch(`/api/admin/tictactoe/matches?username=${encodeURIComponent(user)}`, {
+        headers: { 'Authorization': 'Bearer admin-token' }
+      });
+      const matches = await res.json();
+      const tbody = document.getElementById('matches-body');
+      tbody.innerHTML = matches.map(m => `
+        <tr>
+          <td>${m.id.substring(0, 12)}...</td>
+          <td>${m.p1_username}</td>
+          <td>${m.p2_username}</td>
+          <td><span class="tag ${m.is_bot_match ? 'tag-bot':'tag-real'}">${m.is_bot_match ? 'BOT':'1v1 REAL'}</span></td>
+          <td>${m.status}</td>
+          <td>${m.total_rounds}</td>
+          <td style="color:var(--green)">${m.winner_username || (m.is_bot_match && m.winner_id === null ? 'BOT' : '-')}</td>
+          <td>${new Date(m.created_at).toLocaleTimeString()}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadSettings() {
+      const res = await fetch('/api/admin/tictactoe/settings', {
+        headers: { 'Authorization': 'Bearer admin-token' }
+      });
+      const data = await res.json();
+      document.getElementById('cfg-entry').value = data.entry_fee || 100;
+      document.getElementById('cfg-reward').value = data.winner_reward || 180;
+      document.getElementById('cfg-bot-time').value = data.bot_activation_time || 20;
+    }
+
+    async function saveSettings() {
+      await fetch('/api/admin/tictactoe/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer admin-token' },
+        body: JSON.stringify({
+          entry_fee: document.getElementById('cfg-entry').value,
+          winner_reward: document.getElementById('cfg-reward').value,
+          bot_activation_time: document.getElementById('cfg-bot-time').value
+        })
+      });
+      alert('Settings saved successfully!');
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>
