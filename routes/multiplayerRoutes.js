@@ -7,20 +7,19 @@ const authenticateToken = require('../middleware/auth');
 const botEngine = require('../services/multiplayerBotEngine');
 
 // Database Promise Helpers
-const dbGet = (sql, params) => new Promise((resolve, reject) => {
+const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
   db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
 });
-const dbAll = (sql, params) => new Promise((resolve, reject) => {
+const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
   db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
 });
-const dbRun = (sql, params) => new Promise((resolve, reject) => {
+const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
   db.run(sql, params, function (err) {
     if (err) return reject(err);
     resolve(this);
   });
 });
 
-// Helper: Standard ISO deadline & Remaining Seconds
 function getDeadlineIso(seconds) {
   return new Date(Date.now() + seconds * 1000).toISOString();
 }
@@ -31,264 +30,45 @@ function getRemainingSeconds(deadlineIso) {
   return Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
 }
 
-// -------------------------------------------------------------
-// 1. JOIN MATCHMAKING QUEUE (Deducts 100 Coins, Permits Real Search)
-// -------------------------------------------------------------
-router.post('/matchmake/join', authenticateToken, async (req, res) => {
-  const userId = req.user.id;
-  const { gameId } = req.body;
+// =============================================================
+// ROCK PAPER SCISSORS AUTHORITATIVE RULE MATRIX
+// =============================================================
+// Returns: 'P1' (p1 wins), 'P2' (p2 wins), 'DRAW'
+function calculateRpsWinner(choice1, choice2) {
+  if (!choice1 || !choice2) return 'DRAW';
+  const c1 = choice1.trim().toUpperCase();
+  const c2 = choice2.trim().toUpperCase();
 
-  if (!['tictactoe', 'rps', 'head_tail'].includes(gameId)) {
-    return res.status(400).json({ error: 'Invalid game selected.' });
+  if (c1 === c2) return 'DRAW';
+
+  if (
+    (c1 === 'ROCK' && c2 === 'SCISSORS') ||
+    (c1 === 'SCISSORS' && c2 === 'PAPER') ||
+    (c1 === 'PAPER' && c2 === 'ROCK')
+  ) {
+    return 'P1';
   }
 
-  try {
-    const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ? AND is_enabled = 1', [gameId]);
-    if (!config) return res.status(404).json({ error: 'Game is currently offline.' });
-    const entryFee = config.entry_fee || 100;
-
-    // Check user balance
-    const user = await dbGet('SELECT balance FROM users WHERE id = ?', [userId]);
-    if (!user || user.balance < entryFee) {
-      return res.status(400).json({ error: `Insufficient balance. ${entryFee} coins required to enter.` });
-    }
-
-    // Check if already in active queue
-    const existingQueue = await dbGet("SELECT id FROM multiplayer_queue WHERE user_id = ? AND status = 'WAITING'", [userId]);
-    if (existingQueue) {
-      return res.json({ success: true, queueId: existingQueue.id, message: 'Already in matchmaking queue.' });
-    }
-
-    const queueId = 'queue_' + crypto.randomUUID();
-
-    // Deduct entry fee and enter queue
-    await dbRun('BEGIN TRANSACTION');
-    await dbRun('UPDATE users SET balance = balance - ? WHERE id = ?', [entryFee, userId]);
-    await dbRun(
-      `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_ENTRY', ?, ?)`,
-      [userId, -entryFee, `MP_ENTRY_${gameId}_${queueId}`]
-    );
-    await dbRun(
-      `INSERT INTO multiplayer_queue (id, user_id, game_id, entry_fee, status) VALUES (?, ?, ?, ?, 'WAITING')`,
-      [queueId, userId, gameId, entryFee]
-    );
-    await dbRun('COMMIT');
-
-    res.json({
-      success: true,
-      queueId,
-      estimatedWaitSeconds: 30,
-      botEligibleAfterSeconds: 20
-    });
-  } catch (err) {
-    await dbRun('ROLLBACK').catch(() => {});
-    console.error('[MP Join Queue Error]:', err);
-    res.status(500).json({ error: 'Failed to join matchmaking.' });
+  if (
+    (c2 === 'ROCK' && c1 === 'SCISSORS') ||
+    (c2 === 'SCISSORS' && c1 === 'PAPER') ||
+    (c2 === 'PAPER' && c1 === 'ROCK')
+  ) {
+    return 'P2';
   }
-});
 
-// -------------------------------------------------------------
-// 2. POLL MATCHMAKING QUEUE (Priority: Real Players -> 3-Bot Threshold)
-// -------------------------------------------------------------
-router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
-  const userId = req.user.id;
-  const { queueId } = req.params;
-
-  try {
-    const queueRecord = await dbGet('SELECT * FROM multiplayer_queue WHERE id = ? AND user_id = ?', [queueId, userId]);
-    if (!queueRecord) return res.status(404).json({ error: 'Queue record not found.' });
-
-    if (queueRecord.status === 'MATCHED' && queueRecord.match_id) {
-      return res.json({ status: 'MATCHED', matchId: queueRecord.match_id });
-    }
-
-    if (queueRecord.status === 'CANCELLED' || queueRecord.status === 'TIMEOUT') {
-      return res.json({ status: queueRecord.status, message: 'Matchmaking session ended.' });
-    }
-
-    const elapsedSeconds = Math.floor((Date.now() - new Date(queueRecord.created_at).getTime()) / 1000);
-
-    // 1. TOP PRIORITY: Check for another real human in queue
-    const otherPlayer = await dbGet(
-      `SELECT * FROM multiplayer_queue 
-       WHERE game_id = ? AND status = 'WAITING' AND user_id != ? AND id != ?
-       ORDER BY created_at ASC LIMIT 1`,
-      [queueRecord.game_id, userId, queueId]
-    );
-
-    if (otherPlayer) {
-      const matchId = 'match_' + crypto.randomUUID();
-      const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ?', [queueRecord.game_id]);
-      const turnTimer = config ? config.turn_timer : 30;
-      const initialGameState = initGameState(queueRecord.game_id, userId, otherPlayer.user_id);
-      const deadline = getDeadlineIso(turnTimer);
-
-      await dbRun('BEGIN TRANSACTION');
-      await dbRun(
-        `INSERT INTO multiplayer_matches 
-          (id, game_id, player1_id, player2_id, is_bot_match, entry_fee, winner_reward, status, turn_user_id, turn_deadline, game_state) 
-         VALUES (?, ?, ?, ?, 0, ?, ?, 'ACTIVE', ?, ?, ?)`,
-        [matchId, queueRecord.game_id, userId, otherPlayer.user_id, queueRecord.entry_fee, queueRecord.entry_fee * 2, userId, deadline, JSON.stringify(initialGameState)]
-      );
-
-      await dbRun(`UPDATE multiplayer_queue SET status = 'MATCHED', match_id = ? WHERE id IN (?, ?)`, [matchId, queueId, otherPlayer.id]);
-
-      // A real player match resets the consecutive bot matches counter for both players
-      await dbRun(
-        `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until)
-         VALUES (?, 0, NULL)
-         ON CONFLICT(user_id) DO UPDATE SET consecutive_bot_matches = 0, cooldown_until = NULL`,
-        [userId]
-      );
-      await dbRun(
-        `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until)
-         VALUES (?, 0, NULL)
-         ON CONFLICT(user_id) DO UPDATE SET consecutive_bot_matches = 0, cooldown_until = NULL`,
-        [otherPlayer.user_id]
-      );
-
-      await dbRun('COMMIT');
-      return res.json({ status: 'MATCHED', matchId });
-    }
-
-    // 2. CHECK BOT RESTRICTION AT >= 20 SECONDS
-    if (elapsedSeconds >= 20) {
-      const cdRow = await dbGet('SELECT * FROM multiplayer_cooldowns WHERE user_id = ?', [userId]);
-      let isBotRestricted = false;
-      let remainingCooldownSec = 600;
-
-      if (cdRow) {
-        if (cdRow.cooldown_until) {
-          const cdEnd = new Date(cdRow.cooldown_until).getTime();
-          if (Date.now() < cdEnd) {
-            isBotRestricted = true;
-            remainingCooldownSec = Math.ceil((cdEnd - Date.now()) / 1000);
-          } else {
-            // Cooldown expired: Reset counter
-            await dbRun('UPDATE multiplayer_cooldowns SET consecutive_bot_matches = 0, cooldown_until = NULL WHERE user_id = ?', [userId]);
-          }
-        } else if (cdRow.consecutive_bot_matches >= 3) {
-          isBotRestricted = true;
-        }
-      }
-
-      // If user reached 3 bot matches, DO NOT assign a bot.
-      // Refund the 100 coins and return BOT_LIMIT_REACHED.
-      if (isBotRestricted) {
-        const cooldownDeadline = new Date(Date.now() + remainingCooldownSec * 1000).toISOString();
-
-        await dbRun('BEGIN TRANSACTION');
-        await dbRun(`UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE id = ?`, [queueId]);
-        await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [queueRecord.entry_fee, userId]);
-        await dbRun(
-          `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_REFUND', ?, ?)`,
-          [userId, queueRecord.entry_fee, `MP_BOT_LIMIT_REFUND_${queueId}`]
-        );
-        await dbRun(
-          `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until, updated_at)
-           VALUES (?, 3, ?, CURRENT_TIMESTAMP)
-           ON CONFLICT(user_id) DO UPDATE SET 
-             consecutive_bot_matches = 3, 
-             cooldown_until = COALESCE(cooldown_until, ?), 
-             updated_at = CURRENT_TIMESTAMP`,
-          [userId, cooldownDeadline, cooldownDeadline]
-        );
-        await dbRun('COMMIT');
-
-        return res.json({
-          status: 'BOT_LIMIT_REACHED',
-          message: 'Players are currently unavailable. Please try again after 10 minutes.',
-          cooldownRemainingSeconds: remainingCooldownSec
-        });
-      }
-
-      // If eligible for bot (< 3 bot matches), pair with an active bot
-      if (elapsedSeconds < 30) {
-        const bot = await dbGet('SELECT * FROM multiplayer_bots WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1');
-        if (bot) {
-          const matchId = 'match_' + crypto.randomUUID();
-          const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ?', [queueRecord.game_id]);
-          const turnTimer = config ? config.turn_timer : 30;
-          const initialGameState = initGameState(queueRecord.game_id, userId, -bot.id);
-          const deadline = getDeadlineIso(turnTimer);
-
-          await dbRun('BEGIN TRANSACTION');
-          await dbRun(
-            `INSERT INTO multiplayer_matches 
-              (id, game_id, player1_id, player2_id, is_bot_match, bot_id, entry_fee, winner_reward, status, turn_user_id, turn_deadline, game_state) 
-             VALUES (?, ?, ?, NULL, 1, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
-            [matchId, queueRecord.game_id, userId, bot.id, queueRecord.entry_fee, queueRecord.entry_fee * 2, userId, deadline, JSON.stringify(initialGameState)]
-          );
-          await dbRun(`UPDATE multiplayer_queue SET status = 'MATCHED', match_id = ? WHERE id = ?`, [matchId, queueId]);
-          await dbRun('COMMIT');
-
-          return res.json({ status: 'MATCHED', matchId });
-        }
-      }
-    }
-
-    // 3. Fallback: Timeout at 30 seconds
-    if (elapsedSeconds >= 30) {
-      await dbRun('BEGIN TRANSACTION');
-      await dbRun(`UPDATE multiplayer_queue SET status = 'TIMEOUT' WHERE id = ?`, [queueId]);
-      await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [queueRecord.entry_fee, userId]);
-      await dbRun(
-        `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_REFUND', ?, ?)`,
-        [userId, queueRecord.entry_fee, `MP_TIMEOUT_REFUND_${queueId}`]
-      );
-      await dbRun('COMMIT');
-      return res.json({ status: 'TIMEOUT', message: 'No opponents available. Entry fee refunded.' });
-    }
-
-    res.json({
-      status: 'WAITING',
-      elapsedSeconds,
-      remainingSearchTime: Math.max(0, 30 - elapsedSeconds)
-    });
-  } catch (err) {
-    await dbRun('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: 'Error polling matchmaking.' });
-  }
-});
-
-// -------------------------------------------------------------
-// 3. CANCEL MATCHMAKING QUEUE (Refund 100 Coins)
-// -------------------------------------------------------------
-router.post('/matchmake/cancel', authenticateToken, async (req, res) => {
-  const userId = req.user.id;
-  const { queueId } = req.body;
-
-  try {
-    const queueRecord = await dbGet("SELECT * FROM multiplayer_queue WHERE id = ? AND user_id = ? AND status = 'WAITING'", [queueId, userId]);
-    if (!queueRecord) {
-      return res.status(400).json({ error: 'Queue record cannot be cancelled or already matched.' });
-    }
-
-    await dbRun('BEGIN TRANSACTION');
-    await dbRun(`UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE id = ?`, [queueId]);
-    await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [queueRecord.entry_fee, userId]);
-    await dbRun(
-      `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_REFUND', ?, ?)`,
-      [userId, queueRecord.entry_fee, `MP_USER_CANCEL_${queueId}`]
-    );
-    await dbRun('COMMIT');
-
-    res.json({ success: true, message: 'Matchmaking cancelled. Coins refunded.' });
-  } catch (err) {
-    await dbRun('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: 'Failed to cancel queue.' });
-  }
-});
+  return 'DRAW';
+}
 
 function initGameState(gameId, p1Id, p2Id) {
   if (gameId === 'tictactoe') {
     return {
       board: Array(9).fill(null),
-      currentTurnSymbol: 'X',
       p1Symbol: 'X',
       p2Symbol: 'O',
       roundNumber: 1,
-      botActionScheduledAt: null
+      botActionScheduledAt: null,
+      history: []
     };
   } else if (gameId === 'rps') {
     return {
@@ -313,9 +93,311 @@ function initGameState(gameId, p1Id, p2Id) {
   return {};
 }
 
-// -------------------------------------------------------------
-// 4. POLL MATCH STATE (4–5s Natural Bot Delay + Failsafe Timer)
-// -------------------------------------------------------------
+// =============================================================
+// 1. MATCHMAKING: JOIN QUEUE (Atomic Wallet & Anti-Double Join)
+// =============================================================
+router.post('/matchmake/join', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const { gameId } = req.body;
+
+  if (!['tictactoe', 'rps', 'head_tail'].includes(gameId)) {
+    return res.status(400).json({ error: 'Invalid game selected.' });
+  }
+
+  try {
+    // 1. Prevent joining multiple active matches
+    const activeMatch = await dbGet(
+      `SELECT id FROM multiplayer_matches 
+       WHERE (player1_id = ? OR player2_id = ?) AND status = 'ACTIVE' LIMIT 1`,
+      [userId, userId]
+    );
+    if (activeMatch) {
+      return res.status(400).json({
+        error: 'You are already in an active match.',
+        matchId: activeMatch.id
+      });
+    }
+
+    // 2. Prevent duplicate queue entries
+    const existingQueue = await dbGet(
+      `SELECT id FROM multiplayer_queue WHERE user_id = ? AND status IN ('WAITING', 'PAIRING')`,
+      [userId]
+    );
+    if (existingQueue) {
+      return res.json({
+        success: true,
+        queueId: existingQueue.id,
+        message: 'Already in matchmaking queue.'
+      });
+    }
+
+    // 3. Game Config & Wallet Verification
+    const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ? AND is_enabled = 1', [gameId]);
+    if (!config) return res.status(404).json({ error: 'Game is currently offline.' });
+    const entryFee = config.entry_fee || 100;
+
+    const queueId = 'queue_' + crypto.randomUUID();
+
+    // 4. Atomic balance deduction with conditional balance guard
+    await dbRun('BEGIN IMMEDIATE');
+    const updateBalance = await dbRun(
+      'UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?',
+      [entryFee, userId, entryFee]
+    );
+
+    if (updateBalance.changes === 0) {
+      await dbRun('ROLLBACK');
+      return res.status(400).json({ error: `Insufficient balance. ${entryFee} coins required to enter.` });
+    }
+
+    await dbRun(
+      `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_ENTRY', ?, ?)`,
+      [userId, -entryFee, `MP_ENTRY_${gameId}_${queueId}`]
+    );
+
+    await dbRun(
+      `INSERT INTO multiplayer_queue (id, user_id, game_id, entry_fee, status) VALUES (?, ?, ?, ?, 'WAITING')`,
+      [queueId, userId, gameId, entryFee]
+    );
+    await dbRun('COMMIT');
+
+    return res.json({
+      success: true,
+      queueId,
+      estimatedWaitSeconds: 30,
+      botEligibleAfterSeconds: 20
+    });
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
+    console.error('[MP Join Queue Error]:', err);
+    return res.status(500).json({ error: 'Failed to join matchmaking.' });
+  }
+});
+
+// =============================================================
+// 2. MATCHMAKING: POLL QUEUE (Prevents Dual-Match Race Conditions)
+// =============================================================
+router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const { queueId } = req.params;
+
+  try {
+    const queueRecord = await dbGet('SELECT * FROM multiplayer_queue WHERE id = ? AND user_id = ?', [queueId, userId]);
+    if (!queueRecord) return res.status(404).json({ error: 'Queue record not found.' });
+
+    if (queueRecord.status === 'MATCHED' && queueRecord.match_id) {
+      return res.json({ status: 'MATCHED', matchId: queueRecord.match_id });
+    }
+
+    if (queueRecord.status === 'CANCELLED' || queueRecord.status === 'TIMEOUT') {
+      return res.json({ status: queueRecord.status, message: 'Matchmaking session ended.' });
+    }
+
+    const elapsedSeconds = Math.floor((Date.now() - new Date(queueRecord.created_at).getTime()) / 1000);
+
+    // 1. ATOMIC PAIRING LOCK: Lock Player 1 to prevent race conditions
+    const lockP1 = await dbRun(
+      `UPDATE multiplayer_queue SET status = 'PAIRING' WHERE id = ? AND status = 'WAITING'`,
+      [queueId]
+    );
+
+    if (lockP1.changes > 0) {
+      // Find candidate real opponents
+      const candidates = await dbAll(
+        `SELECT * FROM multiplayer_queue 
+         WHERE game_id = ? AND status = 'WAITING' AND user_id != ? AND id != ?
+         ORDER BY created_at ASC LIMIT 5`,
+        [queueRecord.game_id, userId, queueId]
+      );
+
+      let opponent = null;
+      for (const cand of candidates) {
+        // Attempt atomic lock on candidate
+        const lockOpponent = await dbRun(
+          `UPDATE multiplayer_queue SET status = 'PAIRING' WHERE id = ? AND status = 'WAITING'`,
+          [cand.id]
+        );
+        if (lockOpponent.changes > 0) {
+          opponent = cand;
+          break;
+        }
+      }
+
+      if (opponent) {
+        // Both players locked. Create synchronized match.
+        const matchId = 'match_' + crypto.randomUUID();
+        const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ?', [queueRecord.game_id]);
+        const turnTimer = config ? config.turn_timer : 30;
+        const initialGameState = initGameState(queueRecord.game_id, userId, opponent.user_id);
+        const deadline = getDeadlineIso(turnTimer);
+
+        await dbRun('BEGIN IMMEDIATE');
+        await dbRun(
+          `INSERT INTO multiplayer_matches 
+            (id, game_id, player1_id, player2_id, is_bot_match, entry_fee, winner_reward, status, turn_user_id, turn_deadline, game_state) 
+           VALUES (?, ?, ?, ?, 0, ?, ?, 'ACTIVE', ?, ?, ?)`,
+          [matchId, queueRecord.game_id, userId, opponent.user_id, queueRecord.entry_fee, queueRecord.entry_fee * 2, userId, deadline, JSON.stringify(initialGameState)]
+        );
+
+        await dbRun(`UPDATE multiplayer_queue SET status = 'MATCHED', match_id = ? WHERE id IN (?, ?)`, [matchId, queueId, opponent.id]);
+
+        // Real-player matches reset bot limits
+        await dbRun(
+          `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until) VALUES (?, 0, NULL)
+           ON CONFLICT(user_id) DO UPDATE SET consecutive_bot_matches = 0, cooldown_until = NULL`,
+          [userId]
+        );
+        await dbRun(
+          `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until) VALUES (?, 0, NULL)
+           ON CONFLICT(user_id) DO UPDATE SET consecutive_bot_matches = 0, cooldown_until = NULL`,
+          [opponent.user_id]
+        );
+        await dbRun('COMMIT');
+
+        return res.json({ status: 'MATCHED', matchId });
+      } else {
+        // Revert status to WAITING if no candidate could be locked
+        await dbRun(`UPDATE multiplayer_queue SET status = 'WAITING' WHERE id = ? AND status = 'PAIRING'`, [queueId]);
+      }
+    }
+
+    // 2. CHECK BOT FALLBACK AT >= 20 SECONDS
+    if (elapsedSeconds >= 20) {
+      const cdRow = await dbGet('SELECT * FROM multiplayer_cooldowns WHERE user_id = ?', [userId]);
+      let isBotRestricted = false;
+      let remainingCooldownSec = 600;
+
+      if (cdRow) {
+        if (cdRow.cooldown_until) {
+          const cdEnd = new Date(cdRow.cooldown_until).getTime();
+          if (Date.now() < cdEnd) {
+            isBotRestricted = true;
+            remainingCooldownSec = Math.ceil((cdEnd - Date.now()) / 1000);
+          } else {
+            await dbRun('UPDATE multiplayer_cooldowns SET consecutive_bot_matches = 0, cooldown_until = NULL WHERE user_id = ?', [userId]);
+          }
+        } else if (cdRow.consecutive_bot_matches >= 3) {
+          isBotRestricted = true;
+        }
+      }
+
+      // If restricted, refund entry fee
+      if (isBotRestricted) {
+        const cooldownDeadline = new Date(Date.now() + remainingCooldownSec * 1000).toISOString();
+        await dbRun('BEGIN IMMEDIATE');
+        await dbRun(`UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE id = ? AND status = 'WAITING'`, [queueId]);
+        await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [queueRecord.entry_fee, userId]);
+        await dbRun(
+          `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_REFUND', ?, ?)`,
+          [userId, queueRecord.entry_fee, `MP_BOT_LIMIT_REFUND_${queueId}`]
+        );
+        await dbRun(
+          `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until, updated_at)
+           VALUES (?, 3, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(user_id) DO UPDATE SET consecutive_bot_matches = 3, cooldown_until = COALESCE(cooldown_until, ?), updated_at = CURRENT_TIMESTAMP`,
+          [userId, cooldownDeadline, cooldownDeadline]
+        );
+        await dbRun('COMMIT');
+
+        return res.json({
+          status: 'BOT_LIMIT_REACHED',
+          message: 'Players are currently unavailable. Please try again after 10 minutes.',
+          cooldownRemainingSeconds: remainingCooldownSec
+        });
+      }
+
+      // If eligible for bot (< 3 bot matches)
+      if (elapsedSeconds < 30) {
+        const lockBotQueue = await dbRun(
+          `UPDATE multiplayer_queue SET status = 'PAIRING' WHERE id = ? AND status = 'WAITING'`,
+          [queueId]
+        );
+        if (lockBotQueue.changes > 0) {
+          const bot = await dbGet('SELECT * FROM multiplayer_bots WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1');
+          if (bot) {
+            const matchId = 'match_' + crypto.randomUUID();
+            const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ?', [queueRecord.game_id]);
+            const turnTimer = config ? config.turn_timer : 30;
+            const initialGameState = initGameState(queueRecord.game_id, userId, -bot.id);
+            const deadline = getDeadlineIso(turnTimer);
+
+            await dbRun('BEGIN IMMEDIATE');
+            await dbRun(
+              `INSERT INTO multiplayer_matches 
+                (id, game_id, player1_id, player2_id, is_bot_match, bot_id, entry_fee, winner_reward, status, turn_user_id, turn_deadline, game_state) 
+               VALUES (?, ?, ?, NULL, 1, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
+              [matchId, queueRecord.game_id, userId, bot.id, queueRecord.entry_fee, queueRecord.entry_fee * 2, userId, deadline, JSON.stringify(initialGameState)]
+            );
+            await dbRun(`UPDATE multiplayer_queue SET status = 'MATCHED', match_id = ? WHERE id = ?`, [matchId, queueId]);
+            await dbRun('COMMIT');
+
+            return res.json({ status: 'MATCHED', matchId });
+          } else {
+            await dbRun(`UPDATE multiplayer_queue SET status = 'WAITING' WHERE id = ? AND status = 'PAIRING'`, [queueId]);
+          }
+        }
+      }
+    }
+
+    // 3. Fallback: Timeout at 30 seconds
+    if (elapsedSeconds >= 30) {
+      await dbRun('BEGIN IMMEDIATE');
+      const cancelQ = await dbRun(`UPDATE multiplayer_queue SET status = 'TIMEOUT' WHERE id = ? AND status IN ('WAITING', 'PAIRING')`, [queueId]);
+      if (cancelQ.changes > 0) {
+        await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [queueRecord.entry_fee, userId]);
+        await dbRun(
+          `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_REFUND', ?, ?)`,
+          [userId, queueRecord.entry_fee, `MP_TIMEOUT_REFUND_${queueId}`]
+        );
+      }
+      await dbRun('COMMIT');
+      return res.json({ status: 'TIMEOUT', message: 'No opponents available. Entry fee refunded.' });
+    }
+
+    return res.json({
+      status: 'WAITING',
+      elapsedSeconds,
+      remainingSearchTime: Math.max(0, 30 - elapsedSeconds)
+    });
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
+    return res.status(500).json({ error: 'Error polling matchmaking.' });
+  }
+});
+
+// =============================================================
+// 3. CANCEL QUEUE & REFUND
+// =============================================================
+router.post('/matchmake/cancel', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const { queueId } = req.body;
+
+  try {
+    await dbRun('BEGIN IMMEDIATE');
+    const queueRecord = await dbGet("SELECT * FROM multiplayer_queue WHERE id = ? AND user_id = ? AND status = 'WAITING'", [queueId, userId]);
+    if (!queueRecord) {
+      await dbRun('ROLLBACK');
+      return res.status(400).json({ error: 'Queue record cannot be cancelled or already matched.' });
+    }
+
+    await dbRun(`UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE id = ?`, [queueId]);
+    await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [queueRecord.entry_fee, userId]);
+    await dbRun(
+      `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_REFUND', ?, ?)`,
+      [userId, queueRecord.entry_fee, `MP_USER_CANCEL_${queueId}`]
+    );
+    await dbRun('COMMIT');
+
+    return res.json({ success: true, message: 'Matchmaking cancelled. Coins refunded.' });
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
+    return res.status(500).json({ error: 'Failed to cancel queue.' });
+  }
+});
+
+// =============================================================
+// 4. POLL MATCH STATE (Authoritative Game State Engine)
+// =============================================================
 router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const { matchId } = req.params;
@@ -324,8 +406,8 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
     const match = await dbGet('SELECT * FROM multiplayer_matches WHERE id = ?', [matchId]);
     if (!match) return res.status(404).json({ error: 'Match not found.' });
 
-    const isPlayer1 = match.player1_id === userId;
-    const isPlayer2 = match.player2_id === userId;
+    const isPlayer1 = Number(match.player1_id) === Number(userId);
+    const isPlayer2 = Number(match.player2_id) === Number(userId);
     if (!isPlayer1 && !isPlayer2) {
       return res.status(403).json({ error: 'Unauthorized match access.' });
     }
@@ -333,46 +415,194 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
     let state = JSON.parse(match.game_state || '{}');
 
     // Fetch Player Profiles
-    const p1User = await dbGet('SELECT id, username FROM users WHERE id = ?', [match.player1_id]);
+    const p1User = await dbGet('SELECT id, username, balance FROM users WHERE id = ?', [match.player1_id]);
     let p2User = null;
     if (match.is_bot_match) {
-      p2User = await dbGet('SELECT id, username, avatar_url FROM multiplayer_bots WHERE id = ?', [match.bot_id]);
-      if (p2User) {
-        // Strip any residual (Bot) marker so it looks like a genuine real player
-        p2User.username = p2User.username.replace(/\s*\(Bot\)\s*/gi, '').trim();
+      const bot = await dbGet('SELECT id, username, avatar_url FROM multiplayer_bots WHERE id = ?', [match.bot_id]);
+      if (bot) {
+        p2User = {
+          id: -bot.id,
+          username: bot.username.replace(/\s*\(Bot\)\s*/gi, '').trim(),
+          avatar_url: bot.avatar_url,
+          balance: 0
+        };
       }
     } else if (match.player2_id) {
-      p2User = await dbGet('SELECT id, username FROM users WHERE id = ?', [match.player2_id]);
+      p2User = await dbGet('SELECT id, username, balance FROM users WHERE id = ?', [match.player2_id]);
     }
 
-    // Process Bot Delayed Move if scheduled time has arrived (4-5s delay)
+    // Process Bot Turn if scheduled delay has arrived
     if (match.status === 'ACTIVE' && match.is_bot_match && state.botActionScheduledAt) {
       if (Date.now() >= state.botActionScheduledAt) {
         state.botActionScheduledAt = null;
         await executeDelayedBotMove(match, state);
         const updatedMatch = await dbGet('SELECT * FROM multiplayer_matches WHERE id = ?', [matchId]);
-        return res.json(sanitizeMatchResponse(updatedMatch, userId, p1User, p2User));
+        const freshUser = await dbGet('SELECT balance FROM users WHERE id = ?', [userId]);
+        return res.json(buildSanitizedResponse(updatedMatch, userId, p1User, p2User, freshUser?.balance));
       }
     }
 
-    // Check Turn Deadline Expiry (Timeout Forfeit)
+    // Turn Deadline Expiry (Timeout Forfeit)
     if (match.status === 'ACTIVE' && match.turn_deadline) {
       const deadline = new Date(match.turn_deadline).getTime();
       if (Date.now() > deadline) {
         await handleTurnTimeout(match, state);
         const updatedMatch = await dbGet('SELECT * FROM multiplayer_matches WHERE id = ?', [matchId]);
-        return res.json(sanitizeMatchResponse(updatedMatch, userId, p1User, p2User));
+        const freshUser = await dbGet('SELECT balance FROM users WHERE id = ?', [userId]);
+        return res.json(buildSanitizedResponse(updatedMatch, userId, p1User, p2User, freshUser?.balance));
       }
     }
 
-    res.json(sanitizeMatchResponse(match, userId, p1User, p2User));
+    const freshUser = await dbGet('SELECT balance FROM users WHERE id = ?', [userId]);
+    return res.json(buildSanitizedResponse(match, userId, p1User, p2User, freshUser?.balance));
   } catch (err) {
     console.error('[MP Poll State Error]:', err);
-    res.status(500).json({ error: 'Error fetching match state.' });
+    return res.status(500).json({ error: 'Error fetching match state.' });
   }
 });
 
-// Helper: Execute Bot Move after 4-5s Thinking Delay
+// =============================================================
+// 5. SUBMIT PLAYER ACTION (Atomic Move Verification)
+// =============================================================
+router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const { matchId } = req.params;
+  const payload = req.body;
+
+  try {
+    const match = await dbGet('SELECT * FROM multiplayer_matches WHERE id = ?', [matchId]);
+    if (!match || match.status !== 'ACTIVE') {
+      return res.status(400).json({ error: 'Match is not active.' });
+    }
+
+    const isP1 = Number(match.player1_id) === Number(userId);
+    const isP2 = Number(match.player2_id) === Number(userId);
+    if (!isP1 && !isP2) return res.status(403).json({ error: 'Unauthorized.' });
+
+    let state = JSON.parse(match.game_state || '{}');
+    const config = await dbGet('SELECT turn_timer FROM multiplayer_game_configs WHERE game_id = ?', [match.game_id]);
+    const timer = config ? config.turn_timer : 30;
+
+    // --- TIC TAC TOE ENGINE ---
+    if (match.game_id === 'tictactoe') {
+      const { cellIndex } = payload;
+      if (cellIndex === undefined || cellIndex < 0 || cellIndex > 8) {
+        return res.status(400).json({ error: 'Invalid cell index.' });
+      }
+
+      // Turn Validation
+      if (Number(match.turn_user_id) !== Number(userId)) {
+        return res.status(400).json({ error: 'Not your turn. Please wait for opponent.' });
+      }
+
+      // Square Availability Validation
+      if (state.board[cellIndex] !== null) {
+        return res.status(400).json({ error: 'Cell is already occupied.' });
+      }
+
+      const playerSymbol = isP1 ? state.p1Symbol : state.p2Symbol;
+      state.board[cellIndex] = playerSymbol;
+
+      // 1. Check Win
+      if (botEngine.evaluateTttWin(state.board, playerSymbol)) {
+        await completeMatch(match, userId, 'Normal Win', state);
+        return res.json({ success: true, message: 'Game won!' });
+      }
+
+      // 2. Check Draw -> Restart Round
+      const isFull = state.board.every(c => c !== null);
+      if (isFull) {
+        state.board = Array(9).fill(null);
+        state.roundNumber = (state.roundNumber || 1) + 1;
+        state.p1Symbol = state.p1Symbol === 'X' ? 'O' : 'X';
+        state.p2Symbol = state.p2Symbol === 'X' ? 'O' : 'X';
+      }
+
+      // Switch Turn
+      const nextTurnUserId = isP1
+        ? (match.is_bot_match ? -match.bot_id : match.player2_id)
+        : match.player1_id;
+
+      // Schedule Bot Delay (4–5s) if opponent is bot
+      if (match.is_bot_match && Number(nextTurnUserId) === -Number(match.bot_id)) {
+        state.botActionScheduledAt = Date.now() + Math.floor(Math.random() * 1000) + 4000;
+      }
+
+      const newDeadline = getDeadlineIso(timer);
+      await dbRun(
+        `UPDATE multiplayer_matches 
+         SET game_state = ?, turn_user_id = ?, turn_deadline = ?, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ? AND status = 'ACTIVE'`,
+        [JSON.stringify(state), nextTurnUserId, newDeadline, matchId]
+      );
+
+      return res.json({ success: true, isMyTurn: false });
+    }
+
+    // --- ROCK PAPER SCISSORS & HEAD OR TAILS ENGINE ---
+    if (match.game_id === 'rps' || match.game_id === 'head_tail') {
+      const choice = String(payload.choice || '').trim().toUpperCase();
+      if (!choice) return res.status(400).json({ error: 'Selection required.' });
+
+      if (match.game_id === 'rps' && !['ROCK', 'PAPER', 'SCISSORS'].includes(choice)) {
+        return res.status(400).json({ error: 'Invalid Rock Paper Scissors move.' });
+      }
+      if (match.game_id === 'head_tail' && !['HEADS', 'TAILS'].includes(choice)) {
+        return res.status(400).json({ error: 'Invalid Coin choice.' });
+      }
+
+      // Lock player choice
+      if (isP1) state.p1Choice = choice;
+      if (isP2) state.p2Choice = choice;
+
+      // If Bot Match: Schedule Bot Choice (4-5s)
+      if (match.is_bot_match && !state.p2Choice) {
+        state.botActionScheduledAt = Date.now() + Math.floor(Math.random() * 1000) + 4000;
+        const newDeadline = getDeadlineIso(timer);
+        await dbRun(
+          `UPDATE multiplayer_matches SET game_state = ?, turn_deadline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'ACTIVE'`,
+          [JSON.stringify(state), newDeadline, matchId]
+        );
+        return res.json({ success: true, message: 'Choice locked. Waiting for opponent...' });
+      }
+
+      // Real Player vs Real Player: Both Locked
+      if (state.p1Choice && state.p2Choice) {
+        if (match.game_id === 'rps') {
+          evaluateRpsRound(match, state);
+        } else {
+          evaluateHeadTailRound(match, state);
+        }
+
+        // Best of 3 Evaluation (First to 2 Points)
+        if (match.p1_score >= 2) {
+          await completeMatch(match, match.player1_id, 'Best of 3 Win', state);
+          return res.json({ success: true, message: 'Match completed!' });
+        } else if (match.p2_score >= 2) {
+          await completeMatch(match, match.player2_id, 'Best of 3 Win', state);
+          return res.json({ success: true, message: 'Match completed!' });
+        }
+      }
+
+      const newDeadline = getDeadlineIso(timer);
+      await dbRun(
+        `UPDATE multiplayer_matches 
+         SET p1_score = ?, p2_score = ?, current_round = ?, game_state = ?, turn_deadline = ?, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ? AND status = 'ACTIVE'`,
+        [match.p1_score, match.p2_score, state.round || 1, JSON.stringify(state), newDeadline, matchId]
+      );
+
+      return res.json({ success: true });
+    }
+  } catch (err) {
+    console.error('[MP Action Error]:', err);
+    return res.status(500).json({ error: 'Failed to process move.' });
+  }
+});
+
+// =============================================================
+// BOT ENGINE INTEGRATION (Simulated Human Delay)
+// =============================================================
 async function executeDelayedBotMove(match, state) {
   const config = await dbGet('SELECT turn_timer FROM multiplayer_game_configs WHERE game_id = ?', [match.game_id]);
   const timer = config ? config.turn_timer : 30;
@@ -402,7 +632,7 @@ async function executeDelayedBotMove(match, state) {
     await dbRun(
       `UPDATE multiplayer_matches 
        SET game_state = ?, turn_user_id = ?, turn_deadline = ?, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = ?`,
+       WHERE id = ? AND status = 'ACTIVE'`,
       [JSON.stringify(state), match.player1_id, newDeadline, match.id]
     );
   } else if (match.game_id === 'rps' || match.game_id === 'head_tail') {
@@ -426,196 +656,20 @@ async function executeDelayedBotMove(match, state) {
     await dbRun(
       `UPDATE multiplayer_matches 
        SET p1_score = ?, p2_score = ?, current_round = ?, game_state = ?, turn_deadline = ?, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = ?`,
+       WHERE id = ? AND status = 'ACTIVE'`,
       [match.p1_score, match.p2_score, state.round, JSON.stringify(state), newDeadline, match.id]
     );
   }
 }
 
-function sanitizeMatchResponse(match, viewerUserId, p1User, p2User) {
-  const isP1 = match.player1_id === viewerUserId;
-  const state = JSON.parse(match.game_state || '{}');
-  const sanitized = { ...state };
-
-  // For RPS / Coin Flip: Conceal opponent choice until round results are published
-  if (match.game_id === 'rps' || match.game_id === 'head_tail') {
-    if (!state.lastRoundResult && !(sanitized.p1Choice && sanitized.p2Choice)) {
-      if (isP1) {
-        sanitized.p2Choice = sanitized.p2Choice ? 'LOCKED' : null;
-      } else {
-        sanitized.p1Choice = sanitized.p1Choice ? 'LOCKED' : null;
-      }
-    }
-  }
-
-  const remainingSeconds = getRemainingSeconds(match.turn_deadline);
-
-  return {
-    matchId: match.id,
-    gameId: match.game_id,
-    status: match.status,
-    currentRound: match.current_round,
-    p1Score: match.p1_score,
-    p2Score: match.p2_score,
-    winnerId: match.winner_id,
-    entryFee: match.entry_fee,
-    winnerReward: match.winner_reward,
-    turnUserId: match.turn_user_id,
-    turnDeadline: match.turn_deadline,
-    remainingSeconds,
-    isBotThinking: !!state.botActionScheduledAt,
-    gameState: sanitized,
-    player1: {
-      id: p1User.id,
-      username: p1User.username,
-      avatar: 'https://api.dicebear.com/7.x/bottts/png?seed=' + p1User.username
-    },
-    player2: p2User ? {
-      id: p2User.id,
-      username: p2User.username,
-      avatar: p2User.avatar_url || ('https://api.dicebear.com/7.x/bottts/png?seed=' + p2User.username),
-      isBot: false // Cleaned for realistic UI presentation
-    } : null
-  };
-}
-
-// -------------------------------------------------------------
-// 5. SUBMIT PLAYER ACTION (Move / Selection)
-// -------------------------------------------------------------
-router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
-  const userId = req.user.id;
-  const { matchId } = req.params;
-  const payload = req.body;
-
-  try {
-    const match = await dbGet('SELECT * FROM multiplayer_matches WHERE id = ?', [matchId]);
-    if (!match || match.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'Match is not active.' });
-    }
-
-    const isP1 = match.player1_id === userId;
-    const isP2 = match.player2_id === userId;
-    if (!isP1 && !isP2) return res.status(403).json({ error: 'Unauthorized.' });
-
-    let state = JSON.parse(match.game_state || '{}');
-    const config = await dbGet('SELECT turn_timer FROM multiplayer_game_configs WHERE game_id = ?', [match.game_id]);
-    const timer = config ? config.turn_timer : 30;
-
-    // --- TIC TAC TOE ---
-    if (match.game_id === 'tictactoe') {
-      const { cellIndex } = payload;
-      if (cellIndex === undefined || cellIndex < 0 || cellIndex > 8) {
-        return res.status(400).json({ error: 'Invalid cell index.' });
-      }
-      if (match.turn_user_id !== userId) {
-        return res.status(400).json({ error: 'Not your turn.' });
-      }
-      if (state.board[cellIndex] !== null) {
-        return res.status(400).json({ error: 'Cell is already occupied.' });
-      }
-
-      const playerSymbol = isP1 ? state.p1Symbol : state.p2Symbol;
-      state.board[cellIndex] = playerSymbol;
-
-      if (botEngine.evaluateTttWin(state.board, playerSymbol)) {
-        await completeMatch(match, userId, 'Player Win', state);
-        return res.json({ success: true, message: 'Game won!' });
-      }
-
-      const isFull = state.board.every(c => c !== null);
-      if (isFull) {
-        state.board = Array(9).fill(null);
-        state.roundNumber = (state.roundNumber || 1) + 1;
-        state.p1Symbol = state.p1Symbol === 'X' ? 'O' : 'X';
-        state.p2Symbol = state.p2Symbol === 'X' ? 'O' : 'X';
-      }
-
-      const nextTurnUserId = isP1 ? (match.is_bot_match ? -match.bot_id : match.player2_id) : match.player1_id;
-
-      // Natural Bot Delay: Schedule bot move in 4 to 5 seconds
-      if (match.is_bot_match && nextTurnUserId === -match.bot_id) {
-        const randomDelay = Math.floor(Math.random() * 1000) + 4000; // 4000ms - 5000ms
-        state.botActionScheduledAt = Date.now() + randomDelay;
-      }
-
-      const newDeadline = getDeadlineIso(timer);
-      await dbRun(
-        `UPDATE multiplayer_matches 
-         SET game_state = ?, turn_user_id = ?, turn_deadline = ?, updated_at = CURRENT_TIMESTAMP 
-         WHERE id = ?`,
-        [JSON.stringify(state), nextTurnUserId, newDeadline, matchId]
-      );
-
-      return res.json({ success: true });
-    }
-
-    // --- ROCK PAPER SCISSORS & HEAD OR TAILS ---
-    if (match.game_id === 'rps' || match.game_id === 'head_tail') {
-      const { choice } = payload;
-      if (!choice) return res.status(400).json({ error: 'Choice required.' });
-
-      if (isP1) state.p1Choice = choice;
-      if (isP2) state.p2Choice = choice;
-
-      // Natural Bot Delay: Schedule bot choice in 4 to 5 seconds
-      if (match.is_bot_match && !state.p2Choice) {
-        const randomDelay = Math.floor(Math.random() * 1000) + 4000; // 4000ms - 5000ms
-        state.botActionScheduledAt = Date.now() + randomDelay;
-        const newDeadline = getDeadlineIso(timer);
-
-        await dbRun(
-          `UPDATE multiplayer_matches SET game_state = ?, turn_deadline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          [JSON.stringify(state), newDeadline, matchId]
-        );
-        return res.json({ success: true, message: 'Choice locked. Waiting for opponent...' });
-      }
-
-      // If both real players submitted
-      if (state.p1Choice && state.p2Choice) {
-        if (match.game_id === 'rps') evaluateRpsRound(match, state);
-        else evaluateHeadTailRound(match, state);
-
-        if (match.p1_score >= 2) {
-          await completeMatch(match, match.player1_id, 'Best of 3 Win', state);
-          return res.json({ success: true, message: 'Match completed!' });
-        } else if (match.p2_score >= 2) {
-          await completeMatch(match, match.player2_id, 'Best of 3 Win', state);
-          return res.json({ success: true, message: 'Match completed!' });
-        }
-      }
-
-      const newDeadline = getDeadlineIso(timer);
-      await dbRun(
-        `UPDATE multiplayer_matches 
-         SET p1_score = ?, p2_score = ?, current_round = ?, game_state = ?, turn_deadline = ?, updated_at = CURRENT_TIMESTAMP 
-         WHERE id = ?`,
-        [match.p1_score, match.p2_score, state.round || 1, JSON.stringify(state), newDeadline, matchId]
-      );
-
-      return res.json({ success: true });
-    }
-  } catch (err) {
-    console.error('[MP Action Error]:', err);
-    res.status(500).json({ error: 'Failed to process move.' });
-  }
-});
-
 function evaluateRpsRound(match, state) {
   const c1 = state.p1Choice;
   const c2 = state.p2Choice;
-  let roundWinner = 'DRAW';
+  const outcome = calculateRpsWinner(c1, c2); // 'P1', 'P2', 'DRAW'
 
-  if (c1 === c2) {
-    roundWinner = 'DRAW';
-  } else if (
-    (c1 === 'ROCK' && c2 === 'SCISSORS') ||
-    (c1 === 'SCISSORS' && c2 === 'PAPER') ||
-    (c1 === 'PAPER' && c2 === 'ROCK')
-  ) {
-    roundWinner = 'P1';
+  if (outcome === 'P1') {
     match.p1_score += 1;
-  } else {
-    roundWinner = 'P2';
+  } else if (outcome === 'P2') {
     match.p2_score += 1;
   }
 
@@ -623,7 +677,7 @@ function evaluateRpsRound(match, state) {
     round: state.round,
     p1Choice: c1,
     p2Choice: c2,
-    winner: roundWinner
+    winner: outcome
   };
   state.history.push({ ...state.lastRoundResult });
   state.round += 1;
@@ -661,62 +715,151 @@ function evaluateHeadTailRound(match, state) {
 }
 
 async function handleTurnTimeout(match, state) {
-  if (match.turn_user_id === match.player1_id) {
+  if (Number(match.turn_user_id) === Number(match.player1_id)) {
     const winner = match.is_bot_match ? -match.bot_id : match.player2_id;
-    await completeMatch(match, winner, 'P1 Timeout', state);
+    await completeMatch(match, winner, 'P1 Timeout Forfeit', state);
   } else {
-    await completeMatch(match, match.player1_id, 'P2 Timeout', state);
+    await completeMatch(match, match.player1_id, 'P2 Timeout Forfeit', state);
   }
 }
 
-// Complete Match and Settle (Persists final game_state and round results)
+// =============================================================
+// 6. ATOMIC MATCH SETTLEMENT & 200 COIN WALLET PAYOUT
+// =============================================================
 async function completeMatch(match, winnerId, reason, state) {
-  const isHumanWinner = winnerId > 0;
-  const reward = match.winner_reward || 200;
+  const isHumanWinner = Number(winnerId) > 0;
+  const reward = Number(match.winner_reward) || 200;
   const finalStateJson = state ? JSON.stringify(state) : match.game_state;
 
-  await dbRun('BEGIN TRANSACTION');
-  await dbRun(
-    `UPDATE multiplayer_matches 
-     SET status = 'COMPLETED', winner_id = ?, p1_score = ?, p2_score = ?, game_state = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
-     WHERE id = ?`,
-    [winnerId, match.p1_score, match.p2_score, finalStateJson, match.id]
-  );
+  try {
+    await dbRun('BEGIN IMMEDIATE');
 
-  if (isHumanWinner) {
-    await dbRun('UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?', [reward, reward, winnerId]);
-    await dbRun(
-      `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_WIN', ?, ?)`,
-      [winnerId, reward, `MP_WIN_${match.game_id}_${match.id}`]
+    // Concurrency Guard: Only the first execution succeeds
+    const updateMatch = await dbRun(
+      `UPDATE multiplayer_matches 
+       SET status = 'COMPLETED', winner_id = ?, p1_score = ?, p2_score = ?, game_state = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ? AND status = 'ACTIVE'`,
+      [winnerId, match.p1_score, match.p2_score, finalStateJson, match.id]
     );
-  }
 
-  if (match.is_bot_match) {
-    const cd = await dbGet('SELECT consecutive_bot_matches FROM multiplayer_cooldowns WHERE user_id = ?', [match.player1_id]);
-    const currentCount = (cd ? cd.consecutive_bot_matches : 0) + 1;
-    let cooldownUntil = null;
-    if (currentCount >= 3) {
-      cooldownUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    if (updateMatch.changes === 0) {
+      await dbRun('ROLLBACK');
+      return; // Already finalized by another thread
     }
-    await dbRun(
-      `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until, updated_at)
-       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-       ON CONFLICT(user_id) DO UPDATE SET 
-         consecutive_bot_matches = ?, 
-         cooldown_until = ?, 
-         updated_at = CURRENT_TIMESTAMP`,
-      [match.player1_id, currentCount, cooldownUntil, currentCount, cooldownUntil]
-    );
-  } else {
-    // Human-to-human match resets both players' consecutive bot counters
-    await dbRun(`UPDATE multiplayer_cooldowns SET consecutive_bot_matches = 0, cooldown_until = NULL WHERE user_id IN (?, ?)`, [match.player1_id, match.player2_id]);
+
+    // 1. Credit 200 Coins to Human Winner
+    if (isHumanWinner) {
+      await dbRun(
+        'UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?',
+        [reward, reward, winnerId]
+      );
+      await dbRun(
+        `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_WIN', ?, ?)`,
+        [winnerId, reward, `MP_WIN_${match.game_id}_${match.id}`]
+      );
+    }
+
+    // 2. Consecutive Bot Counter & 10-Minute Cooldown Logic
+    if (match.is_bot_match) {
+      const cd = await dbGet('SELECT consecutive_bot_matches FROM multiplayer_cooldowns WHERE user_id = ?', [match.player1_id]);
+      const currentCount = (cd ? cd.consecutive_bot_matches : 0) + 1;
+      let cooldownUntil = null;
+      if (currentCount >= 3) {
+        cooldownUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      }
+      await dbRun(
+        `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until, updated_at)
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(user_id) DO UPDATE SET 
+           consecutive_bot_matches = ?, 
+           cooldown_until = ?, 
+           updated_at = CURRENT_TIMESTAMP`,
+        [match.player1_id, currentCount, cooldownUntil, currentCount, cooldownUntil]
+      );
+    } else {
+      // Real PvP matches reset consecutive bot counters
+      await dbRun(
+        `UPDATE multiplayer_cooldowns SET consecutive_bot_matches = 0, cooldown_until = NULL WHERE user_id IN (?, ?)`,
+        [match.player1_id, match.player2_id]
+      );
+    }
+
+    await dbRun('COMMIT');
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
+    console.error('[Complete Match Error]:', err);
+  }
+}
+
+// =============================================================
+// SANITIZED CLIENT RESPONSE BUILDER (Per-User Context)
+// =============================================================
+function buildSanitizedResponse(match, viewerUserId, p1User, p2User, userBalance) {
+  const isP1 = Number(match.player1_id) === Number(viewerUserId);
+  const state = JSON.parse(match.game_state || '{}');
+  const sanitizedState = { ...state };
+
+  // Conceal opponent choice in RPS / Coin Toss until round completes
+  if (match.game_id === 'rps' || match.game_id === 'head_tail') {
+    if (!state.lastRoundResult && !(sanitizedState.p1Choice && sanitizedState.p2Choice)) {
+      if (isP1) {
+        sanitizedState.p2Choice = sanitizedState.p2Choice ? 'LOCKED' : null;
+      } else {
+        sanitizedState.p1Choice = sanitizedState.p1Choice ? 'LOCKED' : null;
+      }
+    }
   }
 
-  await dbRun('COMMIT');
+  const isCompleted = match.status === 'COMPLETED';
+  const isWinner = isCompleted && Number(match.winner_id) === Number(viewerUserId);
+  const isLoser = isCompleted && match.winner_id !== null && Number(match.winner_id) !== Number(viewerUserId);
+  const isDraw = isCompleted && (match.winner_id === null || Number(match.winner_id) === 0);
+
+  const me = isP1 ? p1User : p2User;
+  const opponent = isP1 ? p2User : p1User;
+
+  return {
+    matchId: match.id,
+    gameId: match.game_id,
+    status: match.status,
+    currentRound: match.current_round,
+    entryFee: match.entry_fee,
+    winnerReward: match.winner_reward,
+    turnDeadline: match.turn_deadline,
+    remainingSeconds: getRemainingSeconds(match.turn_deadline),
+    isBotThinking: !!state.botActionScheduledAt,
+
+    // Relative per-player contextual fields
+    isPlayer1: isP1,
+    isMyTurn: match.status === 'ACTIVE' && Number(match.turn_user_id) === Number(viewerUserId),
+    mySymbol: match.game_id === 'tictactoe' ? (isP1 ? state.p1Symbol : state.p2Symbol) : null,
+    opponentSymbol: match.game_id === 'tictactoe' ? (isP1 ? state.p2Symbol : state.p1Symbol) : null,
+    myScore: isP1 ? match.p1_score : match.p2_score,
+    opponentScore: isP1 ? match.p2_score : match.p1_score,
+    myBalance: userBalance !== undefined ? userBalance : me?.balance,
+
+    // Authoritative match result
+    didIWin: isWinner,
+    didILose: isLoser,
+    isDraw: isDraw,
+
+    me: {
+      id: me?.id,
+      username: me?.username,
+      avatar: me?.avatar_url || ('https://api.dicebear.com/7.x/bottts/png?seed=' + me?.username)
+    },
+    opponent: opponent ? {
+      id: opponent.id,
+      username: opponent.username,
+      avatar: opponent.avatar_url || ('https://api.dicebear.com/7.x/bottts/png?seed=' + opponent.username)
+    } : null,
+
+    gameState: sanitizedState
+  };
 }
 
 // -------------------------------------------------------------
-// 6. MULTIPLAYER MATCH HISTORY
+// 7. USER MULTIPLAYER HISTORY
 // -------------------------------------------------------------
 router.get('/history', authenticateToken, async (req, res) => {
   const userId = req.user.id;
@@ -743,9 +886,9 @@ router.get('/history', authenticateToken, async (req, res) => {
     const rows = await dbAll(sql, params);
 
     const history = rows.map(r => {
-      const isP1 = r.player1_id === userId;
+      const isP1 = Number(r.player1_id) === Number(userId);
       let outcome = 'DRAW';
-      if (r.winner_id === userId) outcome = 'WIN';
+      if (Number(r.winner_id) === Number(userId)) outcome = 'WIN';
       else if (r.winner_id) outcome = 'LOSS';
 
       const cleanOpponentName = (isP1 ? r.p2_name : r.p1_name) || 'Opponent';
@@ -755,7 +898,6 @@ router.get('/history', authenticateToken, async (req, res) => {
         gameId: r.game_id,
         opponentName: cleanOpponentName.replace(/\s*\(Bot\)\s*/gi, '').trim(),
         opponentAvatar: isP1 ? r.p2_avatar : 'https://api.dicebear.com/7.x/bottts/png?seed=' + r.p1_name,
-        isBot: false,
         entryFee: r.entry_fee,
         reward: outcome === 'WIN' ? r.winner_reward : 0,
         result: outcome,
@@ -763,9 +905,9 @@ router.get('/history', authenticateToken, async (req, res) => {
       };
     });
 
-    res.json({ success: true, history });
+    return res.json({ success: true, history });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to retrieve match history.' });
+    return res.status(500).json({ error: 'Failed to retrieve match history.' });
   }
 });
 
