@@ -6,6 +6,9 @@ const crypto = require('crypto');
 const authenticateToken = require('../middleware/auth');
 const botEngine = require('../services/multiplayerBotEngine');
 
+// SERVER CAPACITY SETTING: Maximum concurrent matches allowed at any given time
+const MAX_CONCURRENT_MATCHES = 50;
+
 // Database Promise Helpers
 const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
   db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
@@ -44,33 +47,6 @@ function getRemainingSeconds(deadlineIso) {
   return Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
 }
 
-// Rock Paper Scissors Winner Calculator
-function calculateRpsWinner(choice1, choice2) {
-  if (!choice1 || !choice2) return 'DRAW';
-  const c1 = choice1.trim().toUpperCase();
-  const c2 = choice2.trim().toUpperCase();
-
-  if (c1 === c2) return 'DRAW';
-
-  if (
-    (c1 === 'ROCK' && c2 === 'SCISSORS') ||
-    (c1 === 'SCISSORS' && c2 === 'PAPER') ||
-    (c1 === 'PAPER' && c2 === 'ROCK')
-  ) {
-    return 'P1';
-  }
-
-  if (
-    (c2 === 'ROCK' && c1 === 'SCISSORS') ||
-    (c2 === 'SCISSORS' && c1 === 'PAPER') ||
-    (c2 === 'PAPER' && c1 === 'ROCK')
-  ) {
-    return 'P2';
-  }
-
-  return 'DRAW';
-}
-
 function initGameState(gameId, p1Id, p2Id) {
   if (gameId === 'tictactoe') {
     return {
@@ -78,15 +54,6 @@ function initGameState(gameId, p1Id, p2Id) {
       p1Symbol: 'X',
       p2Symbol: 'O',
       roundNumber: 1,
-      botActionScheduledAt: null,
-      history: []
-    };
-  } else if (gameId === 'rps') {
-    return {
-      round: 1,
-      p1Choice: null,
-      p2Choice: null,
-      lastRoundResult: null,
       botActionScheduledAt: null,
       history: []
     };
@@ -104,18 +71,20 @@ function initGameState(gameId, p1Id, p2Id) {
   return {};
 }
 
-// -------------------------------------------------------------
-// 1. JOIN MATCHMAKING QUEUE
-// -------------------------------------------------------------
+// =============================================================
+// 1. JOIN MATCHMAKING QUEUE (With Capacity & Stale Checks)
+// =============================================================
 router.post('/matchmake/join', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const { gameId } = req.body;
 
-  if (!['tictactoe', 'rps', 'head_tail'].includes(gameId)) {
-    return res.status(400).json({ error: 'Invalid game selected.' });
+  // ONLY TIC TAC TOE AND HEAD OR TAILS ALLOWED
+  if (!['tictactoe', 'head_tail'].includes(gameId)) {
+    return res.status(400).json({ error: 'Invalid game selected. Only Tic Tac Toe and Head or Tails are active.' });
   }
 
   try {
+    // 1. Auto-cleanup stale matches for this user
     const userMatches = await dbAll(
       `SELECT id, turn_deadline, created_at, updated_at FROM multiplayer_matches 
        WHERE (player1_id = ? OR player2_id = ?) AND status = 'ACTIVE'`,
@@ -128,18 +97,17 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
       const isDead = (deadline > 0 && Date.now() > deadline + 10000) || (Date.now() - lastActive > 60000);
 
       if (isDead) {
-        await dbRun(
-          `UPDATE multiplayer_matches SET status = 'CANCELLED', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          [m.id]
-        );
+        await cancelAndRefundMatch(m.id, 'MATCH_STALE_CLEANUP');
       }
     }
 
+    // 2. Clear hanging queues for this user
     await dbRun(
       `UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE user_id = ? AND status = 'WAITING'`,
       [userId]
     );
 
+    // 3. Prevent multiple truly active matches
     const trulyActive = await dbGet(
       `SELECT id, turn_deadline FROM multiplayer_matches 
        WHERE (player1_id = ? OR player2_id = ?) AND status = 'ACTIVE' LIMIT 1`,
@@ -149,7 +117,7 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
     if (trulyActive) {
       const remainingSec = getRemainingSeconds(trulyActive.turn_deadline);
       if (remainingSec <= 0) {
-        await dbRun(`UPDATE multiplayer_matches SET status = 'CANCELLED' WHERE id = ?`, [trulyActive.id]);
+        await cancelAndRefundMatch(trulyActive.id, 'EXPIRED_DEADLINE');
       } else {
         return res.status(400).json({
           error: 'You have an active match in progress.',
@@ -158,12 +126,14 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
       }
     }
 
+    // 4. Config & Wallet Verification
     const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ? AND is_enabled = 1', [gameId]);
     if (!config) return res.status(404).json({ error: 'Game is currently offline.' });
     const entryFee = config.entry_fee || 100;
 
     const queueId = 'queue_' + crypto.randomUUID();
 
+    // 5. Atomic balance deduction
     await dbRun('BEGIN IMMEDIATE');
     const updateBalance = await dbRun(
       'UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?',
@@ -199,9 +169,9 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
   }
 });
 
-// -------------------------------------------------------------
-// 2. POLL MATCHMAKING QUEUE (PVP & 20s Bot Fallback)
-// -------------------------------------------------------------
+// =============================================================
+// 2. POLL MATCHMAKING QUEUE (With 50-Match Capacity Throttle)
+// =============================================================
 router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const { queueId } = req.params;
@@ -219,6 +189,21 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
     }
 
     const elapsedSeconds = getQueueElapsedSeconds(queueRecord.created_at);
+
+    // SERVER CAPACITY CHECK: Maximum 50 matches allowed at once
+    const activeCountRow = await dbGet(`SELECT COUNT(*) as count FROM multiplayer_matches WHERE status = 'ACTIVE'`);
+    const activeMatchesCount = activeCountRow ? activeCountRow.count : 0;
+
+    if (activeMatchesCount >= MAX_CONCURRENT_MATCHES) {
+      return res.json({
+        status: 'SERVER_BUSY',
+        message: `All ${MAX_CONCURRENT_MATCHES} game arenas are currently full. Waiting for a match to finish...`,
+        activeMatches: activeMatchesCount,
+        maxCapacity: MAX_CONCURRENT_MATCHES,
+        elapsedSeconds,
+        remainingSearchTime: Math.max(0, 30 - elapsedSeconds)
+      });
+    }
 
     // 1. Search for Real Opponent (0s - 30s)
     const otherPlayer = await dbGet(
@@ -421,7 +406,7 @@ router.post('/matchmake/cancel', authenticateToken, async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// 4. POLL MATCH STATE
+// 4. POLL MATCH STATE (Includes Crash Refund Detection)
 // -------------------------------------------------------------
 router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
   const userId = req.user.id;
@@ -435,6 +420,18 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
     const isPlayer2 = Number(match.player2_id) === Number(userId);
     if (!isPlayer1 && !isPlayer2) {
       return res.status(403).json({ error: 'Unauthorized match access.' });
+    }
+
+    // CHECK FOR CANCELLED / SERVER CRASH REFUND
+    if (match.status === 'CANCELLED') {
+      const freshUser = await dbGet('SELECT balance FROM users WHERE id = ?', [userId]);
+      return res.json({
+        matchId: match.id,
+        status: 'CANCELLED',
+        isCrashRefund: true,
+        message: 'Server error or match interrupted. Your 100 coins have been refunded to your wallet.',
+        myBalance: freshUser?.balance
+      });
     }
 
     let state = JSON.parse(match.game_state || '{}');
@@ -454,11 +451,11 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
       p2User = await dbGet('SELECT id, username, balance FROM users WHERE id = ?', [match.player2_id]);
     }
 
-    // Process Bot Turn if delay arrived
+    // Process Bot Turn after natural delay
     if (match.status === 'ACTIVE' && match.is_bot_match && state.botActionScheduledAt) {
       if (Date.now() >= state.botActionScheduledAt) {
         state.botActionScheduledAt = null;
-        await executeDelayedBotMove(match, state);
+        await executeDelayedBotMove(match, state, p1User, p2User);
         const updatedMatch = await dbGet('SELECT * FROM multiplayer_matches WHERE id = ?', [matchId]);
         const freshUser = await dbGet('SELECT balance FROM users WHERE id = ?', [userId]);
         return res.json(buildSanitizedResponse(updatedMatch, userId, p1User, p2User, freshUser?.balance));
@@ -524,18 +521,13 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
       const playerSymbol = isP1 ? state.p1Symbol : state.p2Symbol;
       state.board[cellIndex] = playerSymbol;
 
-      // Check Win: Assign 1 point so final score reflects 1 - 0 instead of 0 - 0
       if (botEngine.evaluateTttWin(state.board, playerSymbol)) {
-        if (isP1) {
-          match.p1_score = 1;
-        } else {
-          match.p2_score = 1;
-        }
+        if (isP1) match.p1_score = 1;
+        else match.p2_score = 1;
         await completeMatch(match, userId, 'Normal Win', state);
         return res.json({ success: true, message: 'Game won!' });
       }
 
-      // Check Draw -> Restart Round
       const isFull = state.board.every(c => c !== null);
       if (isFull) {
         state.board = Array(9).fill(null);
@@ -544,7 +536,6 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
         state.p2Symbol = state.p2Symbol === 'X' ? 'O' : 'X';
       }
 
-      // Switch Turn
       const nextTurnUserId = isP1
         ? (match.is_bot_match ? -match.bot_id : match.player2_id)
         : match.player1_id;
@@ -564,16 +555,11 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
       return res.json({ success: true, isMyTurn: false });
     }
 
-    // --- ROCK PAPER SCISSORS & HEAD OR TAILS ENGINE ---
-    if (match.game_id === 'rps' || match.game_id === 'head_tail') {
+    // --- COIN HEAD OR TAILS ENGINE ---
+    if (match.game_id === 'head_tail') {
       const choice = String(payload.choice || '').trim().toUpperCase();
-      if (!choice) return res.status(400).json({ error: 'Selection required.' });
-
-      if (match.game_id === 'rps' && !['ROCK', 'PAPER', 'SCISSORS'].includes(choice)) {
-        return res.status(400).json({ error: 'Invalid Rock Paper Scissors move.' });
-      }
-      if (match.game_id === 'head_tail' && !['HEADS', 'TAILS'].includes(choice)) {
-        return res.status(400).json({ error: 'Invalid Coin choice.' });
+      if (!choice || !['HEADS', 'TAILS'].includes(choice)) {
+        return res.status(400).json({ error: 'Invalid Coin choice. Must be HEADS or TAILS.' });
       }
 
       if (isP1) state.p1Choice = choice;
@@ -589,12 +575,11 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
         return res.json({ success: true, message: 'Choice locked. Waiting for opponent...' });
       }
 
+      // Both locked in PvP
       if (state.p1Choice && state.p2Choice) {
-        if (match.game_id === 'rps') {
-          evaluateRpsRound(match, state);
-        } else {
-          evaluateHeadTailRound(match, state);
-        }
+        const p1User = await dbGet('SELECT username FROM users WHERE id = ?', [match.player1_id]);
+        const p2User = await dbGet('SELECT username FROM users WHERE id = ?', [match.player2_id]);
+        evaluateHeadTailRound(match, state, p1User?.username || 'Player 1', p2User?.username || 'Player 2');
 
         if (match.p1_score >= 2) {
           await completeMatch(match, match.player1_id, 'Best of 3 Win', state);
@@ -624,7 +609,7 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
 // =============================================================
 // BOT ENGINE MOVES
 // =============================================================
-async function executeDelayedBotMove(match, state) {
+async function executeDelayedBotMove(match, state, p1User, p2User) {
   const config = await dbGet('SELECT turn_timer FROM multiplayer_game_configs WHERE game_id = ?', [match.game_id]);
   const timer = config ? config.turn_timer : 30;
 
@@ -639,7 +624,7 @@ async function executeDelayedBotMove(match, state) {
       state.board[botMove] = botSymbol;
 
       if (botEngine.evaluateTttWin(state.board, botSymbol)) {
-        match.p2_score = 1; // Bot awarded 1 point on win
+        match.p2_score = 1;
         await completeMatch(match, -match.bot_id, 'Bot Win', state);
         return;
       }
@@ -657,14 +642,9 @@ async function executeDelayedBotMove(match, state) {
        WHERE id = ? AND status = 'ACTIVE'`,
       [JSON.stringify(state), match.player1_id, newDeadline, match.id]
     );
-  } else if (match.game_id === 'rps' || match.game_id === 'head_tail') {
-    state.p2Choice = match.game_id === 'rps' ? botEngine.getRpsMove() : botEngine.getBotCoinGuess();
-
-    if (match.game_id === 'rps') {
-      evaluateRpsRound(match, state);
-    } else {
-      evaluateHeadTailRound(match, state);
-    }
+  } else if (match.game_id === 'head_tail') {
+    state.p2Choice = botEngine.getBotCoinGuess();
+    evaluateHeadTailRound(match, state, p1User?.username || 'You', p2User?.username || 'Opponent');
 
     if (match.p1_score >= 2) {
       await completeMatch(match, match.player1_id, 'Best of 3 Win', state);
@@ -684,43 +664,27 @@ async function executeDelayedBotMove(match, state) {
   }
 }
 
-function evaluateRpsRound(match, state) {
-  const c1 = state.p1Choice;
-  const c2 = state.p2Choice;
-  const outcome = calculateRpsWinner(c1, c2);
-
-  if (outcome === 'P1') {
-    match.p1_score += 1;
-  } else if (outcome === 'P2') {
-    match.p2_score += 1;
-  }
-
-  state.lastRoundResult = {
-    round: state.round,
-    p1Choice: c1,
-    p2Choice: c2,
-    winner: outcome
-  };
-  state.history.push({ ...state.lastRoundResult });
-  state.round += 1;
-  state.p1Choice = null;
-  state.p2Choice = null;
-}
-
-function evaluateHeadTailRound(match, state) {
-  const fairFlip = botEngine.getFairCoinFlip();
+// EXACT ROUND STORY BREAKDOWN FOR HEAD OR TAILS
+function evaluateHeadTailRound(match, state, p1Name, p2Name) {
+  const fairFlip = botEngine.getFairCoinFlip(); // 'HEADS' or 'TAILS'
   state.coinResult = fairFlip;
 
   let roundWinner = 'DRAW';
   const p1Match = state.p1Choice === fairFlip;
   const p2Match = state.p2Choice === fairFlip;
 
+  let storyText = '';
+
   if (p1Match && !p2Match) {
     roundWinner = 'P1';
     match.p1_score += 1;
+    storyText = `${p1Name} chose ${state.p1Choice}, ${p2Name} chose ${state.p2Choice}. Coin came up ${fairFlip}! ${p1Name} wins this round! 🎉`;
   } else if (!p1Match && p2Match) {
     roundWinner = 'P2';
     match.p2_score += 1;
+    storyText = `${p1Name} chose ${state.p1Choice}, ${p2Name} chose ${state.p2Choice}. Coin came up ${fairFlip}! ${p2Name} wins this round! 💀`;
+  } else {
+    storyText = `${p1Name} chose ${state.p1Choice}, ${p2Name} chose ${state.p2Choice}. Coin came up ${fairFlip}. Draw round (both ${p1Match ? 'matched' : 'missed'})! Replaying round 🤝`;
   }
 
   state.lastRoundResult = {
@@ -728,8 +692,10 @@ function evaluateHeadTailRound(match, state) {
     p1Choice: state.p1Choice,
     p2Choice: state.p2Choice,
     coinResult: fairFlip,
-    winner: roundWinner
+    winner: roundWinner,
+    storyText: storyText
   };
+
   state.history.push({ ...state.lastRoundResult });
   state.round += 1;
   state.p1Choice = null;
@@ -809,13 +775,55 @@ async function completeMatch(match, winnerId, reason, state) {
   }
 }
 
+// CANCEL MATCH & AUTOMATICALLY REFUND BOTH PLAYERS (Server Crash Handler)
+async function cancelAndRefundMatch(matchId, reason = 'SERVER_CRASH') {
+  try {
+    const match = await dbGet('SELECT * FROM multiplayer_matches WHERE id = ? AND status = "ACTIVE"', [matchId]);
+    if (!match) return;
+
+    await dbRun('BEGIN IMMEDIATE');
+    await dbRun(
+      `UPDATE multiplayer_matches 
+       SET status = 'CANCELLED', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ?`,
+      [matchId]
+    );
+
+    const fee = Number(match.entry_fee) || 100;
+
+    // Refund Player 1
+    if (match.player1_id > 0) {
+      await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [fee, match.player1_id]);
+      await dbRun(
+        `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_REFUND', ?, ?)`,
+        [match.player1_id, fee, `MP_CRASH_REFUND_${matchId}`]
+      );
+    }
+
+    // Refund Player 2 if real player
+    if (match.player2_id && match.player2_id > 0) {
+      await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [fee, match.player2_id]);
+      await dbRun(
+        `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_REFUND', ?, ?)`,
+        [match.player2_id, fee, `MP_CRASH_REFUND_${matchId}`]
+      );
+    }
+
+    await dbRun('COMMIT');
+    console.log(`[REFUND PROCESSED] Match ${matchId} cancelled (${reason}). Entry fees refunded.`);
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
+    console.error('[Crash Refund Error]:', err);
+  }
+}
+
 // Builds Sanitized Response with viewer-relative fields
 function buildSanitizedResponse(match, viewerUserId, p1User, p2User, userBalance) {
   const isP1 = Number(match.player1_id) === Number(viewerUserId);
   const state = JSON.parse(match.game_state || '{}');
   const sanitizedState = { ...state };
 
-  if (match.game_id === 'rps' || match.game_id === 'head_tail') {
+  if (match.game_id === 'head_tail') {
     if (!state.lastRoundResult && !(sanitizedState.p1Choice && sanitizedState.p2Choice)) {
       if (isP1) {
         sanitizedState.p2Choice = sanitizedState.p2Choice ? 'LOCKED' : null;
@@ -825,7 +833,6 @@ function buildSanitizedResponse(match, viewerUserId, p1User, p2User, userBalance
     }
   }
 
-  // Pre-calculate viewer-relative round result for 100% transparency
   let relativeLastRound = null;
   if (state.lastRoundResult) {
     const lr = state.lastRoundResult;
@@ -841,7 +848,8 @@ function buildSanitizedResponse(match, viewerUserId, p1User, p2User, userBalance
       winner: lr.winner,
       didIWinRound: didIWin,
       isRoundDraw: isDraw,
-      coinResult: lr.coinResult || null
+      coinResult: lr.coinResult || null,
+      storyText: lr.storyText || ''
     };
     sanitizedState.lastRoundResult = relativeLastRound;
   }
@@ -947,13 +955,17 @@ router.get('/history', authenticateToken, async (req, res) => {
   }
 });
 
+// Automatic Background Cleaner: runs every 60 seconds and auto-refunds dead matches
 setInterval(async () => {
   try {
-    await dbRun(`
-      UPDATE multiplayer_matches 
-      SET status = 'CANCELLED', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+    const deadMatches = await dbAll(`
+      SELECT id FROM multiplayer_matches 
       WHERE status = 'ACTIVE' AND turn_deadline < datetime('now', '-1 minute')
     `);
+    for (const m of deadMatches) {
+      await cancelAndRefundMatch(m.id, 'DEADLINE_TIMEOUT');
+    }
+
     await dbRun(`
       UPDATE multiplayer_queue 
       SET status = 'TIMEOUT' 
