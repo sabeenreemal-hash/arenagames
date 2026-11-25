@@ -60,7 +60,34 @@ router.get('/live-matches', async (req, res) => {
   }
 });
 
-// 3. ALL MATCH HISTORY WITH WALLET LEDGER AUDIT
+// 3. RESET ALL STUCK ACTIVE MATCHES & QUEUES
+router.post('/reset-active-matches', async (req, res) => {
+  try {
+    await dbRun('BEGIN IMMEDIATE');
+    const resetMatches = await dbRun(
+      `UPDATE multiplayer_matches 
+       SET status = 'CANCELLED', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+       WHERE status = 'ACTIVE'`
+    );
+    const resetQueue = await dbRun(
+      `UPDATE multiplayer_queue 
+       SET status = 'CANCELLED' 
+       WHERE status IN ('WAITING', 'PAIRING')`
+    );
+    await dbRun('COMMIT');
+
+    res.json({
+      success: true,
+      message: `Successfully reset ${resetMatches.changes} stuck active matches and cleared all waiting queues.`,
+      resetCount: resetMatches.changes
+    });
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. ALL MATCH HISTORY WITH WALLET LEDGER AUDIT
 router.get('/matches', async (req, res) => {
   try {
     const { search, gameId, status, limit = 50, offset = 0 } = req.query;
@@ -87,7 +114,6 @@ router.get('/matches', async (req, res) => {
         COALESCE(u2.username, b.username) AS p2_name,
         u2.balance AS p2_balance,
         w.username AS winner_name,
-        -- Check if winner payout transaction exists in transactions table
         (
           SELECT t.id FROM transactions t 
           WHERE t.user_id = m.winner_id 
@@ -147,7 +173,7 @@ router.get('/matches', async (req, res) => {
   }
 });
 
-// 4. INSPECT SINGLE MATCH & COMPLETE LEDGER TIMELINE
+// 5. INSPECT SINGLE MATCH & COMPLETE LEDGER TIMELINE
 router.get('/match/:matchId/details', async (req, res) => {
   const { matchId } = req.params;
 
@@ -170,7 +196,6 @@ router.get('/match/:matchId/details', async (req, res) => {
 
     if (!match) return res.status(404).json({ error: 'Match not found.' });
 
-    // Fetch all wallet transactions associated with this match ID
     const transactions = await dbAll(`
       SELECT t.*, u.username 
       FROM transactions t
@@ -195,7 +220,7 @@ router.get('/match/:matchId/details', async (req, res) => {
   }
 });
 
-// 5. MANUAL COIN SETTLEMENT / RESOLVE MISSING PAYOUT
+// 6. MANUAL COIN SETTLEMENT
 router.post('/match/:matchId/manual-credit', async (req, res) => {
   const { matchId } = req.params;
 
@@ -212,7 +237,6 @@ router.post('/match/:matchId/manual-credit', async (req, res) => {
       return res.status(400).json({ error: 'No valid human winner found on this match.' });
     }
 
-    // Check if already credited
     const existingTx = await dbGet(`
       SELECT id FROM transactions 
       WHERE user_id = ? AND type = 'MULTIPLAYER_WIN' AND reference_id LIKE '%' || ? || '%'
@@ -249,7 +273,7 @@ router.post('/match/:matchId/manual-credit', async (req, res) => {
   }
 });
 
-// 6. Game Configurations
+// 7. Game Configurations
 router.get('/configs', async (req, res) => {
   try {
     const configs = await dbAll('SELECT * FROM multiplayer_game_configs ORDER BY game_id ASC');
@@ -274,7 +298,7 @@ router.post('/configs', async (req, res) => {
   }
 });
 
-// 7. Bot Management
+// 8. Bot Management
 router.get('/bots', async (req, res) => {
   try {
     const bots = await dbAll('SELECT * FROM multiplayer_bots ORDER BY id ASC');
