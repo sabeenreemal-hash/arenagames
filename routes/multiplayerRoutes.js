@@ -20,7 +20,6 @@ const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
   });
 });
 
-// Safe UTC Date Normalization (Eliminates Timezone Calculation Skew)
 function parseSqliteUtc(dateStr) {
   if (!dateStr) return Date.now();
   let s = String(dateStr).trim();
@@ -45,9 +44,7 @@ function getRemainingSeconds(deadlineIso) {
   return Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
 }
 
-// =============================================================
-// ROCK PAPER SCISSORS AUTHORITATIVE RULE MATRIX
-// =============================================================
+// Rock Paper Scissors Winner Calculator
 function calculateRpsWinner(choice1, choice2) {
   if (!choice1 || !choice2) return 'DRAW';
   const c1 = choice1.trim().toUpperCase();
@@ -107,9 +104,9 @@ function initGameState(gameId, p1Id, p2Id) {
   return {};
 }
 
-// =============================================================
+// -------------------------------------------------------------
 // 1. JOIN MATCHMAKING QUEUE
-// =============================================================
+// -------------------------------------------------------------
 router.post('/matchmake/join', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const { gameId } = req.body;
@@ -119,7 +116,6 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
   }
 
   try {
-    // 1. Auto-cleanup stale matches
     const userMatches = await dbAll(
       `SELECT id, turn_deadline, created_at, updated_at FROM multiplayer_matches 
        WHERE (player1_id = ? OR player2_id = ?) AND status = 'ACTIVE'`,
@@ -139,13 +135,11 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
       }
     }
 
-    // 2. Clear old hanging queues
     await dbRun(
       `UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE user_id = ? AND status = 'WAITING'`,
       [userId]
     );
 
-    // 3. Prevent multiple truly active matches
     const trulyActive = await dbGet(
       `SELECT id, turn_deadline FROM multiplayer_matches 
        WHERE (player1_id = ? OR player2_id = ?) AND status = 'ACTIVE' LIMIT 1`,
@@ -164,14 +158,12 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
       }
     }
 
-    // 4. Config & Wallet Verification
     const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ? AND is_enabled = 1', [gameId]);
     if (!config) return res.status(404).json({ error: 'Game is currently offline.' });
     const entryFee = config.entry_fee || 100;
 
     const queueId = 'queue_' + crypto.randomUUID();
 
-    // 5. Atomic balance deduction
     await dbRun('BEGIN IMMEDIATE');
     const updateBalance = await dbRun(
       'UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?',
@@ -207,9 +199,9 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
   }
 });
 
-// =============================================================
-// 2. POLL MATCHMAKING QUEUE (Fixes 20s Bot Matchmaking)
-// =============================================================
+// -------------------------------------------------------------
+// 2. POLL MATCHMAKING QUEUE (PVP & 20s Bot Fallback)
+// -------------------------------------------------------------
 router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const { queueId } = req.params;
@@ -228,7 +220,7 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
 
     const elapsedSeconds = getQueueElapsedSeconds(queueRecord.created_at);
 
-    // 1. TOP PRIORITY: Search for real human opponent (0s - 30s)
+    // 1. Search for Real Opponent (0s - 30s)
     const otherPlayer = await dbGet(
       `SELECT * FROM multiplayer_queue 
        WHERE game_id = ? AND status = 'WAITING' AND user_id != ? AND id != ?
@@ -263,7 +255,6 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
           [matchId, queueRecord.game_id, userId, otherPlayer.user_id, entryFee, winnerReward, userId, deadline, JSON.stringify(initialGameState)]
         );
 
-        // Reset bot limits for both players
         await dbRun(
           `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until) VALUES (?, 0, NULL)
            ON CONFLICT(user_id) DO UPDATE SET consecutive_bot_matches = 0, cooldown_until = NULL`,
@@ -282,7 +273,7 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
       }
     }
 
-    // 2. BOT MATCHING TRIGGER AT >= 20 SECONDS
+    // 2. Bot Matching at >= 20 Seconds
     if (elapsedSeconds >= 20 && elapsedSeconds < 30) {
       const cdRow = await dbGet('SELECT * FROM multiplayer_cooldowns WHERE user_id = ?', [userId]);
       let isBotRestricted = false;
@@ -302,7 +293,6 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
         }
       }
 
-      // If user played 3 consecutive bot matches, do not assign a bot. Cancel & refund.
       if (isBotRestricted) {
         const cooldownDeadline = new Date(Date.now() + remainingCooldownSec * 1000).toISOString();
 
@@ -330,7 +320,6 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
         });
       }
 
-      // Eligible for Bot Match -> Select or Fallback to Bot
       let bot = await dbGet('SELECT * FROM multiplayer_bots WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1');
       if (!bot) {
         bot = {
@@ -401,9 +390,9 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
   }
 });
 
-// =============================================================
+// -------------------------------------------------------------
 // 3. CANCEL QUEUE & REFUND
-// =============================================================
+// -------------------------------------------------------------
 router.post('/matchmake/cancel', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const { queueId } = req.body;
@@ -431,9 +420,9 @@ router.post('/matchmake/cancel', authenticateToken, async (req, res) => {
   }
 });
 
-// =============================================================
-// 4. POLL MATCH STATE (Smooth 2.2-3.0s Bot Delay)
-// =============================================================
+// -------------------------------------------------------------
+// 4. POLL MATCH STATE
+// -------------------------------------------------------------
 router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const { matchId } = req.params;
@@ -450,7 +439,7 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
 
     let state = JSON.parse(match.game_state || '{}');
 
-    // Fetch Player Profiles
+    // Fetch Profiles
     const p1User = await dbGet('SELECT id, username, balance FROM users WHERE id = ?', [match.player1_id]);
     let p2User = null;
     if (match.is_bot_match) {
@@ -465,7 +454,7 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
       p2User = await dbGet('SELECT id, username, balance FROM users WHERE id = ?', [match.player2_id]);
     }
 
-    // Process Bot Turn after natural delay
+    // Process Bot Turn if delay arrived
     if (match.status === 'ACTIVE' && match.is_bot_match && state.botActionScheduledAt) {
       if (Date.now() >= state.botActionScheduledAt) {
         state.botActionScheduledAt = null;
@@ -495,9 +484,9 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
   }
 });
 
-// =============================================================
+// -------------------------------------------------------------
 // 5. SUBMIT PLAYER ACTION (Move / Selection)
-// =============================================================
+// -------------------------------------------------------------
 router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const { matchId } = req.params;
@@ -535,13 +524,18 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
       const playerSymbol = isP1 ? state.p1Symbol : state.p2Symbol;
       state.board[cellIndex] = playerSymbol;
 
-      // 1. Check Win
+      // Check Win: Assign 1 point so final score reflects 1 - 0 instead of 0 - 0
       if (botEngine.evaluateTttWin(state.board, playerSymbol)) {
+        if (isP1) {
+          match.p1_score = 1;
+        } else {
+          match.p2_score = 1;
+        }
         await completeMatch(match, userId, 'Normal Win', state);
         return res.json({ success: true, message: 'Game won!' });
       }
 
-      // 2. Check Draw -> Restart Round
+      // Check Draw -> Restart Round
       const isFull = state.board.every(c => c !== null);
       if (isFull) {
         state.board = Array(9).fill(null);
@@ -555,9 +549,8 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
         ? (match.is_bot_match ? -match.bot_id : match.player2_id)
         : match.player1_id;
 
-      // Natural Human-Like Bot Delay (2.2s - 3.0s)
       if (match.is_bot_match && Number(nextTurnUserId) === -Number(match.bot_id)) {
-        state.botActionScheduledAt = Date.now() + Math.floor(Math.random() * 800) + 2200;
+        state.botActionScheduledAt = Date.now() + Math.floor(Math.random() * 800) + 2000;
       }
 
       const newDeadline = getDeadlineIso(timer);
@@ -586,9 +579,8 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
       if (isP1) state.p1Choice = choice;
       if (isP2) state.p2Choice = choice;
 
-      // If Bot Match: Schedule Bot Choice (2.2s - 3.0s)
       if (match.is_bot_match && !state.p2Choice) {
-        state.botActionScheduledAt = Date.now() + Math.floor(Math.random() * 800) + 2200;
+        state.botActionScheduledAt = Date.now() + Math.floor(Math.random() * 800) + 2000;
         const newDeadline = getDeadlineIso(timer);
         await dbRun(
           `UPDATE multiplayer_matches SET game_state = ?, turn_deadline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'ACTIVE'`,
@@ -597,7 +589,6 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
         return res.json({ success: true, message: 'Choice locked. Waiting for opponent...' });
       }
 
-      // Real Player vs Real Player: Both Choices Locked
       if (state.p1Choice && state.p2Choice) {
         if (match.game_id === 'rps') {
           evaluateRpsRound(match, state);
@@ -648,6 +639,7 @@ async function executeDelayedBotMove(match, state) {
       state.board[botMove] = botSymbol;
 
       if (botEngine.evaluateTttWin(state.board, botSymbol)) {
+        match.p2_score = 1; // Bot awarded 1 point on win
         await completeMatch(match, -match.bot_id, 'Bot Win', state);
         return;
       }
@@ -747,8 +739,10 @@ function evaluateHeadTailRound(match, state) {
 async function handleTurnTimeout(match, state) {
   if (Number(match.turn_user_id) === Number(match.player1_id)) {
     const winner = match.is_bot_match ? -match.bot_id : match.player2_id;
+    match.p2_score = 1;
     await completeMatch(match, winner, 'P1 Timeout Forfeit', state);
   } else {
+    match.p1_score = 1;
     await completeMatch(match, match.player1_id, 'P2 Timeout Forfeit', state);
   }
 }
@@ -815,6 +809,7 @@ async function completeMatch(match, winnerId, reason, state) {
   }
 }
 
+// Builds Sanitized Response with viewer-relative fields
 function buildSanitizedResponse(match, viewerUserId, p1User, p2User, userBalance) {
   const isP1 = Number(match.player1_id) === Number(viewerUserId);
   const state = JSON.parse(match.game_state || '{}');
@@ -828,6 +823,27 @@ function buildSanitizedResponse(match, viewerUserId, p1User, p2User, userBalance
         sanitizedState.p1Choice = sanitizedState.p1Choice ? 'LOCKED' : null;
       }
     }
+  }
+
+  // Pre-calculate viewer-relative round result for 100% transparency
+  let relativeLastRound = null;
+  if (state.lastRoundResult) {
+    const lr = state.lastRoundResult;
+    const myChoice = isP1 ? lr.p1Choice : lr.p2Choice;
+    const oppChoice = isP1 ? lr.p2Choice : lr.p1Choice;
+    const didIWin = (lr.winner === 'P1' && isP1) || (lr.winner === 'P2' && !isP1);
+    const isDraw = lr.winner === 'DRAW';
+
+    relativeLastRound = {
+      round: lr.round,
+      myChoice: myChoice,
+      opponentChoice: oppChoice,
+      winner: lr.winner,
+      didIWinRound: didIWin,
+      isRoundDraw: isDraw,
+      coinResult: lr.coinResult || null
+    };
+    sanitizedState.lastRoundResult = relativeLastRound;
   }
 
   const isCompleted = match.status === 'COMPLETED';
@@ -860,6 +876,8 @@ function buildSanitizedResponse(match, viewerUserId, p1User, p2User, userBalance
     didIWin: isWinner,
     didILose: isLoser,
     isDraw: isDraw,
+
+    lastRoundResult: relativeLastRound,
 
     me: {
       id: me?.id,
@@ -929,7 +947,6 @@ router.get('/history', authenticateToken, async (req, res) => {
   }
 });
 
-// Background Cleaner: Clears dead matches every 60 seconds
 setInterval(async () => {
   try {
     await dbRun(`
