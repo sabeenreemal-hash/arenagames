@@ -20,13 +20,28 @@ const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
   });
 });
 
+// Safe UTC Date Normalization (Eliminates Timezone Calculation Skew)
+function parseSqliteUtc(dateStr) {
+  if (!dateStr) return Date.now();
+  let s = String(dateStr).trim();
+  if (!s.includes('T')) s = s.replace(' ', 'T');
+  if (!s.endsWith('Z')) s += 'Z';
+  const parsed = new Date(s).getTime();
+  return isNaN(parsed) ? Date.now() : parsed;
+}
+
+function getQueueElapsedSeconds(dateStr) {
+  const createdMs = parseSqliteUtc(dateStr);
+  return Math.max(0, Math.floor((Date.now() - createdMs) / 1000));
+}
+
 function getDeadlineIso(seconds) {
   return new Date(Date.now() + seconds * 1000).toISOString();
 }
 
 function getRemainingSeconds(deadlineIso) {
   if (!deadlineIso) return 0;
-  const deadline = new Date(deadlineIso).getTime();
+  const deadline = parseSqliteUtc(deadlineIso);
   return Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
 }
 
@@ -93,7 +108,7 @@ function initGameState(gameId, p1Id, p2Id) {
 }
 
 // =============================================================
-// 1. JOIN MATCHMAKING QUEUE (With Auto-Cleanup of Dead Matches)
+// 1. JOIN MATCHMAKING QUEUE
 // =============================================================
 router.post('/matchmake/join', authenticateToken, async (req, res) => {
   const userId = req.user.id;
@@ -104,7 +119,7 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
   }
 
   try {
-    // 1. AUTO-CLEANUP: Cancel dead/stale active matches for this user
+    // 1. Auto-cleanup stale matches
     const userMatches = await dbAll(
       `SELECT id, turn_deadline, created_at, updated_at FROM multiplayer_matches 
        WHERE (player1_id = ? OR player2_id = ?) AND status = 'ACTIVE'`,
@@ -112,9 +127,9 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
     );
 
     for (const m of userMatches) {
-      const deadlineTime = m.turn_deadline ? new Date(m.turn_deadline).getTime() : 0;
-      const lastActive = new Date(m.updated_at || m.created_at).getTime();
-      const isDead = (deadlineTime > 0 && Date.now() > deadlineTime + 10000) || (Date.now() - lastActive > 60000);
+      const deadline = m.turn_deadline ? parseSqliteUtc(m.turn_deadline) : 0;
+      const lastActive = parseSqliteUtc(m.updated_at || m.created_at);
+      const isDead = (deadline > 0 && Date.now() > deadline + 10000) || (Date.now() - lastActive > 60000);
 
       if (isDead) {
         await dbRun(
@@ -124,13 +139,13 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
       }
     }
 
-    // 2. Clear old hanging queues for this user
+    // 2. Clear old hanging queues
     await dbRun(
-      `UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE user_id = ? AND status IN ('WAITING', 'PAIRING')`,
+      `UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE user_id = ? AND status = 'WAITING'`,
       [userId]
     );
 
-    // 3. Re-check if there is a genuinely live match
+    // 3. Prevent multiple truly active matches
     const trulyActive = await dbGet(
       `SELECT id, turn_deadline FROM multiplayer_matches 
        WHERE (player1_id = ? OR player2_id = ?) AND status = 'ACTIVE' LIMIT 1`,
@@ -193,7 +208,7 @@ router.post('/matchmake/join', authenticateToken, async (req, res) => {
 });
 
 // =============================================================
-// 2. POLL MATCHMAKING QUEUE (Atomic Locks & 3-Bot Threshold)
+// 2. POLL MATCHMAKING QUEUE (Fixes 20s Bot Matchmaking)
 // =============================================================
 router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
   const userId = req.user.id;
@@ -211,52 +226,44 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
       return res.json({ status: queueRecord.status, message: 'Matchmaking session ended.' });
     }
 
-    const elapsedSeconds = Math.floor((Date.now() - new Date(queueRecord.created_at).getTime()) / 1000);
+    const elapsedSeconds = getQueueElapsedSeconds(queueRecord.created_at);
 
-    // 1. ATOMIC PAIRING LOCK: Lock Player 1 to prevent race conditions
-    const lockP1 = await dbRun(
-      `UPDATE multiplayer_queue SET status = 'PAIRING' WHERE id = ? AND status = 'WAITING'`,
-      [queueId]
+    // 1. TOP PRIORITY: Search for real human opponent (0s - 30s)
+    const otherPlayer = await dbGet(
+      `SELECT * FROM multiplayer_queue 
+       WHERE game_id = ? AND status = 'WAITING' AND user_id != ? AND id != ?
+       ORDER BY created_at ASC LIMIT 1`,
+      [queueRecord.game_id, userId, queueId]
     );
 
-    if (lockP1.changes > 0) {
-      const candidates = await dbAll(
-        `SELECT * FROM multiplayer_queue 
-         WHERE game_id = ? AND status = 'WAITING' AND user_id != ? AND id != ?
-         ORDER BY created_at ASC LIMIT 5`,
-        [queueRecord.game_id, userId, queueId]
+    if (otherPlayer) {
+      const matchId = 'match_' + crypto.randomUUID();
+      const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ?', [queueRecord.game_id]);
+      const turnTimer = config ? config.turn_timer : 30;
+      const initialGameState = initGameState(queueRecord.game_id, userId, otherPlayer.user_id);
+      const deadline = getDeadlineIso(turnTimer);
+      const entryFee = Number(queueRecord.entry_fee) || 100;
+      const winnerReward = entryFee * 2;
+
+      await dbRun('BEGIN IMMEDIATE');
+      const matchP1 = await dbRun(
+        `UPDATE multiplayer_queue SET status = 'MATCHED', match_id = ? WHERE id = ? AND status = 'WAITING'`,
+        [matchId, queueId]
+      );
+      const matchP2 = await dbRun(
+        `UPDATE multiplayer_queue SET status = 'MATCHED', match_id = ? WHERE id = ? AND status = 'WAITING'`,
+        [matchId, otherPlayer.id]
       );
 
-      let opponent = null;
-      for (const cand of candidates) {
-        const lockOpponent = await dbRun(
-          `UPDATE multiplayer_queue SET status = 'PAIRING' WHERE id = ? AND status = 'WAITING'`,
-          [cand.id]
-        );
-        if (lockOpponent.changes > 0) {
-          opponent = cand;
-          break;
-        }
-      }
-
-      if (opponent) {
-        const matchId = 'match_' + crypto.randomUUID();
-        const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ?', [queueRecord.game_id]);
-        const turnTimer = config ? config.turn_timer : 30;
-        const initialGameState = initGameState(queueRecord.game_id, userId, opponent.user_id);
-        const deadline = getDeadlineIso(turnTimer);
-
-        await dbRun('BEGIN IMMEDIATE');
+      if (matchP1.changes > 0 && matchP2.changes > 0) {
         await dbRun(
           `INSERT INTO multiplayer_matches 
             (id, game_id, player1_id, player2_id, is_bot_match, entry_fee, winner_reward, status, turn_user_id, turn_deadline, game_state) 
            VALUES (?, ?, ?, ?, 0, ?, ?, 'ACTIVE', ?, ?, ?)`,
-          [matchId, queueRecord.game_id, userId, opponent.user_id, queueRecord.entry_fee, queueRecord.entry_fee * 2, userId, deadline, JSON.stringify(initialGameState)]
+          [matchId, queueRecord.game_id, userId, otherPlayer.user_id, entryFee, winnerReward, userId, deadline, JSON.stringify(initialGameState)]
         );
 
-        await dbRun(`UPDATE multiplayer_queue SET status = 'MATCHED', match_id = ? WHERE id IN (?, ?)`, [matchId, queueId, opponent.id]);
-
-        // Real-player matches reset bot limits
+        // Reset bot limits for both players
         await dbRun(
           `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until) VALUES (?, 0, NULL)
            ON CONFLICT(user_id) DO UPDATE SET consecutive_bot_matches = 0, cooldown_until = NULL`,
@@ -265,25 +272,25 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
         await dbRun(
           `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until) VALUES (?, 0, NULL)
            ON CONFLICT(user_id) DO UPDATE SET consecutive_bot_matches = 0, cooldown_until = NULL`,
-          [opponent.user_id]
+          [otherPlayer.user_id]
         );
         await dbRun('COMMIT');
 
         return res.json({ status: 'MATCHED', matchId });
       } else {
-        await dbRun(`UPDATE multiplayer_queue SET status = 'WAITING' WHERE id = ? AND status = 'PAIRING'`, [queueId]);
+        await dbRun('ROLLBACK');
       }
     }
 
-    // 2. CHECK BOT FALLBACK AT >= 20 SECONDS
-    if (elapsedSeconds >= 20) {
+    // 2. BOT MATCHING TRIGGER AT >= 20 SECONDS
+    if (elapsedSeconds >= 20 && elapsedSeconds < 30) {
       const cdRow = await dbGet('SELECT * FROM multiplayer_cooldowns WHERE user_id = ?', [userId]);
       let isBotRestricted = false;
       let remainingCooldownSec = 600;
 
       if (cdRow) {
         if (cdRow.cooldown_until) {
-          const cdEnd = new Date(cdRow.cooldown_until).getTime();
+          const cdEnd = parseSqliteUtc(cdRow.cooldown_until);
           if (Date.now() < cdEnd) {
             isBotRestricted = true;
             remainingCooldownSec = Math.ceil((cdEnd - Date.now()) / 1000);
@@ -295,22 +302,25 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
         }
       }
 
-      // If restricted, refund entry fee
+      // If user played 3 consecutive bot matches, do not assign a bot. Cancel & refund.
       if (isBotRestricted) {
         const cooldownDeadline = new Date(Date.now() + remainingCooldownSec * 1000).toISOString();
+
         await dbRun('BEGIN IMMEDIATE');
-        await dbRun(`UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE id = ? AND status = 'WAITING'`, [queueId]);
-        await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [queueRecord.entry_fee, userId]);
-        await dbRun(
-          `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_REFUND', ?, ?)`,
-          [userId, queueRecord.entry_fee, `MP_BOT_LIMIT_REFUND_${queueId}`]
-        );
-        await dbRun(
-          `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until, updated_at)
-           VALUES (?, 3, ?, CURRENT_TIMESTAMP)
-           ON CONFLICT(user_id) DO UPDATE SET consecutive_bot_matches = 3, cooldown_until = COALESCE(cooldown_until, ?), updated_at = CURRENT_TIMESTAMP`,
-          [userId, cooldownDeadline, cooldownDeadline]
-        );
+        const cancelQ = await dbRun(`UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE id = ? AND status = 'WAITING'`, [queueId]);
+        if (cancelQ.changes > 0) {
+          await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [queueRecord.entry_fee, userId]);
+          await dbRun(
+            `INSERT INTO transactions (user_id, type, amount, reference_id) VALUES (?, 'MULTIPLAYER_REFUND', ?, ?)`,
+            [userId, queueRecord.entry_fee, `MP_BOT_LIMIT_REFUND_${queueId}`]
+          );
+          await dbRun(
+            `INSERT INTO multiplayer_cooldowns (user_id, consecutive_bot_matches, cooldown_until, updated_at)
+             VALUES (?, 3, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(user_id) DO UPDATE SET consecutive_bot_matches = 3, cooldown_until = COALESCE(cooldown_until, ?), updated_at = CURRENT_TIMESTAMP`,
+            [userId, cooldownDeadline, cooldownDeadline]
+          );
+        }
         await dbRun('COMMIT');
 
         return res.json({
@@ -320,43 +330,54 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
         });
       }
 
-      // If eligible for bot (< 3 bot matches)
-      if (elapsedSeconds < 30) {
-        const lockBotQueue = await dbRun(
-          `UPDATE multiplayer_queue SET status = 'PAIRING' WHERE id = ? AND status = 'WAITING'`,
-          [queueId]
+      // Eligible for Bot Match -> Select or Fallback to Bot
+      let bot = await dbGet('SELECT * FROM multiplayer_bots WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1');
+      if (!bot) {
+        bot = {
+          id: 1,
+          username: 'ShadowMaster',
+          avatar_url: 'https://api.dicebear.com/7.x/bottts/png?seed=ShadowMaster',
+          difficulty: 'HARD'
+        };
+        await dbRun(
+          `INSERT OR IGNORE INTO multiplayer_bots (id, username, avatar_url, difficulty, is_active)
+           VALUES (1, 'ShadowMaster', 'https://api.dicebear.com/7.x/bottts/png?seed=ShadowMaster', 'HARD', 1)`
+        ).catch(() => {});
+      }
+
+      const matchId = 'match_' + crypto.randomUUID();
+      const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ?', [queueRecord.game_id]);
+      const turnTimer = config ? config.turn_timer : 30;
+      const initialGameState = initGameState(queueRecord.game_id, userId, -bot.id);
+      const deadline = getDeadlineIso(turnTimer);
+      const entryFee = Number(queueRecord.entry_fee) || 100;
+      const winnerReward = entryFee * 2;
+
+      await dbRun('BEGIN IMMEDIATE');
+      const updateQ = await dbRun(
+        `UPDATE multiplayer_queue SET status = 'MATCHED', match_id = ? WHERE id = ? AND status = 'WAITING'`,
+        [matchId, queueId]
+      );
+
+      if (updateQ.changes > 0) {
+        await dbRun(
+          `INSERT INTO multiplayer_matches 
+            (id, game_id, player1_id, player2_id, is_bot_match, bot_id, entry_fee, winner_reward, status, turn_user_id, turn_deadline, game_state) 
+           VALUES (?, ?, ?, NULL, 1, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
+          [matchId, queueRecord.game_id, userId, bot.id, entryFee, winnerReward, userId, deadline, JSON.stringify(initialGameState)]
         );
-        if (lockBotQueue.changes > 0) {
-          const bot = await dbGet('SELECT * FROM multiplayer_bots WHERE is_active = 1 ORDER BY RANDOM() LIMIT 1');
-          if (bot) {
-            const matchId = 'match_' + crypto.randomUUID();
-            const config = await dbGet('SELECT * FROM multiplayer_game_configs WHERE game_id = ?', [queueRecord.game_id]);
-            const turnTimer = config ? config.turn_timer : 30;
-            const initialGameState = initGameState(queueRecord.game_id, userId, -bot.id);
-            const deadline = getDeadlineIso(turnTimer);
+        await dbRun('COMMIT');
 
-            await dbRun('BEGIN IMMEDIATE');
-            await dbRun(
-              `INSERT INTO multiplayer_matches 
-                (id, game_id, player1_id, player2_id, is_bot_match, bot_id, entry_fee, winner_reward, status, turn_user_id, turn_deadline, game_state) 
-               VALUES (?, ?, ?, NULL, 1, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
-              [matchId, queueRecord.game_id, userId, bot.id, queueRecord.entry_fee, queueRecord.entry_fee * 2, userId, deadline, JSON.stringify(initialGameState)]
-            );
-            await dbRun(`UPDATE multiplayer_queue SET status = 'MATCHED', match_id = ? WHERE id = ?`, [matchId, queueId]);
-            await dbRun('COMMIT');
-
-            return res.json({ status: 'MATCHED', matchId });
-          } else {
-            await dbRun(`UPDATE multiplayer_queue SET status = 'WAITING' WHERE id = ? AND status = 'PAIRING'`, [queueId]);
-          }
-        }
+        return res.json({ status: 'MATCHED', matchId });
+      } else {
+        await dbRun('ROLLBACK');
       }
     }
 
-    // 3. Fallback: Timeout at 30 seconds
+    // 3. Matchmaking Timeout at 30 seconds
     if (elapsedSeconds >= 30) {
       await dbRun('BEGIN IMMEDIATE');
-      const cancelQ = await dbRun(`UPDATE multiplayer_queue SET status = 'TIMEOUT' WHERE id = ? AND status IN ('WAITING', 'PAIRING')`, [queueId]);
+      const cancelQ = await dbRun(`UPDATE multiplayer_queue SET status = 'TIMEOUT' WHERE id = ? AND status = 'WAITING'`, [queueId]);
       if (cancelQ.changes > 0) {
         await dbRun('UPDATE users SET balance = balance + ? WHERE id = ?', [queueRecord.entry_fee, userId]);
         await dbRun(
@@ -365,7 +386,7 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
         );
       }
       await dbRun('COMMIT');
-      return res.json({ status: 'TIMEOUT', message: 'No opponents available. Entry fee refunded.' });
+      return res.json({ status: 'TIMEOUT', message: 'No opponents found. 100 coins refunded.' });
     }
 
     return res.json({
@@ -375,6 +396,7 @@ router.get('/matchmake/poll/:queueId', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     await dbRun('ROLLBACK').catch(() => {});
+    console.error('[MP Poll Error]:', err);
     return res.status(500).json({ error: 'Error polling matchmaking.' });
   }
 });
@@ -391,7 +413,7 @@ router.post('/matchmake/cancel', authenticateToken, async (req, res) => {
     const queueRecord = await dbGet("SELECT * FROM multiplayer_queue WHERE id = ? AND user_id = ? AND status = 'WAITING'", [queueId, userId]);
     if (!queueRecord) {
       await dbRun('ROLLBACK');
-      return res.status(400).json({ error: 'Queue record cannot be cancelled or already matched.' });
+      return res.status(400).json({ error: 'Queue cannot be cancelled or is already matched.' });
     }
 
     await dbRun(`UPDATE multiplayer_queue SET status = 'CANCELLED' WHERE id = ?`, [queueId]);
@@ -410,7 +432,7 @@ router.post('/matchmake/cancel', authenticateToken, async (req, res) => {
 });
 
 // =============================================================
-// 4. POLL MATCH STATE (Authoritative Game State Engine)
+// 4. POLL MATCH STATE (Smooth 2.2-3.0s Bot Delay)
 // =============================================================
 router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
   const userId = req.user.id;
@@ -433,19 +455,17 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
     let p2User = null;
     if (match.is_bot_match) {
       const bot = await dbGet('SELECT id, username, avatar_url FROM multiplayer_bots WHERE id = ?', [match.bot_id]);
-      if (bot) {
-        p2User = {
-          id: -bot.id,
-          username: bot.username.replace(/\s*\(Bot\)\s*/gi, '').trim(),
-          avatar_url: bot.avatar_url,
-          balance: 0
-        };
-      }
+      p2User = {
+        id: bot ? -bot.id : -1,
+        username: (bot?.username || 'ShadowMaster').replace(/\s*\(Bot\)\s*/gi, '').trim(),
+        avatar_url: bot?.avatar_url || 'https://api.dicebear.com/7.x/bottts/png?seed=ShadowMaster',
+        balance: 0
+      };
     } else if (match.player2_id) {
       p2User = await dbGet('SELECT id, username, balance FROM users WHERE id = ?', [match.player2_id]);
     }
 
-    // Process Bot Turn if delay arrived
+    // Process Bot Turn after natural delay
     if (match.status === 'ACTIVE' && match.is_bot_match && state.botActionScheduledAt) {
       if (Date.now() >= state.botActionScheduledAt) {
         state.botActionScheduledAt = null;
@@ -456,9 +476,9 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
       }
     }
 
-    // Turn Deadline Expiry (Timeout Forfeit)
+    // Turn Deadline Expiry
     if (match.status === 'ACTIVE' && match.turn_deadline) {
-      const deadline = new Date(match.turn_deadline).getTime();
+      const deadline = parseSqliteUtc(match.turn_deadline);
       if (Date.now() > deadline) {
         await handleTurnTimeout(match, state);
         const updatedMatch = await dbGet('SELECT * FROM multiplayer_matches WHERE id = ?', [matchId]);
@@ -476,7 +496,7 @@ router.get('/match/:matchId/state', authenticateToken, async (req, res) => {
 });
 
 // =============================================================
-// 5. SUBMIT PLAYER ACTION (Atomic Move Verification)
+// 5. SUBMIT PLAYER ACTION (Move / Selection)
 // =============================================================
 router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
   const userId = req.user.id;
@@ -504,12 +524,10 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
         return res.status(400).json({ error: 'Invalid cell index.' });
       }
 
-      // Turn Validation
       if (Number(match.turn_user_id) !== Number(userId)) {
         return res.status(400).json({ error: 'Not your turn. Please wait for opponent.' });
       }
 
-      // Cell Availability Validation
       if (state.board[cellIndex] !== null) {
         return res.status(400).json({ error: 'Cell is already occupied.' });
       }
@@ -537,9 +555,9 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
         ? (match.is_bot_match ? -match.bot_id : match.player2_id)
         : match.player1_id;
 
-      // Schedule Bot Delay (4–5s) if opponent is bot
+      // Natural Human-Like Bot Delay (2.2s - 3.0s)
       if (match.is_bot_match && Number(nextTurnUserId) === -Number(match.bot_id)) {
-        state.botActionScheduledAt = Date.now() + Math.floor(Math.random() * 1000) + 4000;
+        state.botActionScheduledAt = Date.now() + Math.floor(Math.random() * 800) + 2200;
       }
 
       const newDeadline = getDeadlineIso(timer);
@@ -568,9 +586,9 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
       if (isP1) state.p1Choice = choice;
       if (isP2) state.p2Choice = choice;
 
-      // Bot Match: Schedule Bot Choice (4-5s)
+      // If Bot Match: Schedule Bot Choice (2.2s - 3.0s)
       if (match.is_bot_match && !state.p2Choice) {
-        state.botActionScheduledAt = Date.now() + Math.floor(Math.random() * 1000) + 4000;
+        state.botActionScheduledAt = Date.now() + Math.floor(Math.random() * 800) + 2200;
         const newDeadline = getDeadlineIso(timer);
         await dbRun(
           `UPDATE multiplayer_matches SET game_state = ?, turn_deadline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'ACTIVE'`,
@@ -579,7 +597,7 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
         return res.json({ success: true, message: 'Choice locked. Waiting for opponent...' });
       }
 
-      // Real Player vs Real Player: Both Locked
+      // Real Player vs Real Player: Both Choices Locked
       if (state.p1Choice && state.p2Choice) {
         if (match.game_id === 'rps') {
           evaluateRpsRound(match, state);
@@ -613,7 +631,7 @@ router.post('/match/:matchId/action', authenticateToken, async (req, res) => {
 });
 
 // =============================================================
-// BOT ENGINE INTEGRATION
+// BOT ENGINE MOVES
 // =============================================================
 async function executeDelayedBotMove(match, state) {
   const config = await dbGet('SELECT turn_timer FROM multiplayer_game_configs WHERE game_id = ?', [match.game_id]);
@@ -735,9 +753,7 @@ async function handleTurnTimeout(match, state) {
   }
 }
 
-// =============================================================
-// 6. ATOMIC MATCH SETTLEMENT & 200 COIN WALLET PAYOUT
-// =============================================================
+// Complete Match and Settle Coins
 async function completeMatch(match, winnerId, reason, state) {
   const isHumanWinner = Number(winnerId) > 0;
   const reward = Number(match.winner_reward) || 200;
@@ -758,7 +774,6 @@ async function completeMatch(match, winnerId, reason, state) {
       return;
     }
 
-    // Credit 200 Coins to Human Winner
     if (isHumanWinner) {
       await dbRun(
         'UPDATE users SET balance = balance + ?, total_coins_earned = total_coins_earned + ? WHERE id = ?',
@@ -770,7 +785,6 @@ async function completeMatch(match, winnerId, reason, state) {
       );
     }
 
-    // Bot Cooldown Tracking
     if (match.is_bot_match) {
       const cd = await dbGet('SELECT consecutive_bot_matches FROM multiplayer_cooldowns WHERE user_id = ?', [match.player1_id]);
       const currentCount = (cd ? cd.consecutive_bot_matches : 0) + 1;
@@ -801,9 +815,6 @@ async function completeMatch(match, winnerId, reason, state) {
   }
 }
 
-// =============================================================
-// SANITIZED CLIENT RESPONSE BUILDER
-// =============================================================
 function buildSanitizedResponse(match, viewerUserId, p1User, p2User, userBalance) {
   const isP1 = Number(match.player1_id) === Number(viewerUserId);
   const state = JSON.parse(match.game_state || '{}');
@@ -866,7 +877,7 @@ function buildSanitizedResponse(match, viewerUserId, p1User, p2User, userBalance
 }
 
 // -------------------------------------------------------------
-// 7. USER MULTIPLAYER HISTORY
+// 6. MULTIPLAYER MATCH HISTORY
 // -------------------------------------------------------------
 router.get('/history', authenticateToken, async (req, res) => {
   const userId = req.user.id;
@@ -918,7 +929,7 @@ router.get('/history', authenticateToken, async (req, res) => {
   }
 });
 
-// Automatic Background Cleaner: runs every 60 seconds
+// Background Cleaner: Clears dead matches every 60 seconds
 setInterval(async () => {
   try {
     await dbRun(`
@@ -929,7 +940,7 @@ setInterval(async () => {
     await dbRun(`
       UPDATE multiplayer_queue 
       SET status = 'TIMEOUT' 
-      WHERE status IN ('WAITING', 'PAIRING') AND created_at < datetime('now', '-2 minutes')
+      WHERE status = 'WAITING' AND created_at < datetime('now', '-2 minutes')
     `);
   } catch (_) {}
 }, 60000);
