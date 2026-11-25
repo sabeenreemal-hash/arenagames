@@ -10,7 +10,7 @@
 <body class="text-slate-100 min-h-screen p-4 md:p-8">
   <div class="max-w-7xl mx-auto space-y-8">
     
-    <!-- Top Header -->
+    <!-- Top Header with Reset Button -->
     <header class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800 pb-5 gap-4">
       <div>
         <div class="flex items-center gap-3">
@@ -23,9 +23,9 @@
       </div>
 
       <div class="flex items-center gap-3">
-        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1.5"></span> Live Server
-        </span>
+        <button onclick="resetAllStuckMatches()" class="bg-red-700 hover:bg-red-600 px-3 py-2 rounded-lg font-bold text-xs text-white shadow-lg shadow-red-700/30 flex items-center gap-1.5 transition">
+          <span>🗑️</span> Reset Active Matches
+        </button>
         <button onclick="refreshAll()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg font-semibold text-sm transition">
           Refresh Data
         </button>
@@ -52,9 +52,7 @@
       </div>
     </div>
 
-    <!-- ======================================================== -->
-    <!-- MATCH HISTORY & COIN LEDGER AUDIT (SUPPORT LOOKUP) -->
-    <!-- ======================================================== -->
+    <!-- Match History & Coin Ledger Audit -->
     <section class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
       <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
@@ -64,7 +62,6 @@
           <p class="text-xs text-slate-400 mt-0.5">Search by Username, User ID, or Match ID to verify wallet coin additions.</p>
         </div>
 
-        <!-- Search & Filter Controls -->
         <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <input 
             type="text" 
@@ -94,7 +91,6 @@
         </div>
       </div>
 
-      <!-- History Table -->
       <div class="overflow-x-auto">
         <table class="w-full text-left text-sm text-slate-300">
           <thead class="bg-slate-800/70 text-slate-400 uppercase text-xs">
@@ -152,9 +148,7 @@
 
   </div>
 
-  <!-- ======================================================== -->
-  <!-- MODAL: MATCH DETAILS & TRANSACTION LEDGER AUDIT -->
-  <!-- ======================================================== -->
+  <!-- MODAL: MATCH AUDIT & TRANSACTION LEDGER -->
   <div id="matchAuditModal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-50 overflow-y-auto">
     <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-2xl w-full space-y-5 my-8">
       <div class="flex justify-between items-start border-b border-slate-700 pb-3">
@@ -167,7 +161,6 @@
         <button onclick="closeModal('matchAuditModal')" class="text-slate-400 hover:text-white text-lg">✕</button>
       </div>
 
-      <!-- Match Players Summary -->
       <div class="grid grid-cols-2 gap-4">
         <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-700">
           <div class="text-xs text-cyan-400 font-bold uppercase">Player 1</div>
@@ -184,7 +177,6 @@
         </div>
       </div>
 
-      <!-- Match Result & Winner Info -->
       <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/80 space-y-2">
         <div class="flex justify-between text-sm">
           <span class="text-slate-400">Game:</span>
@@ -204,7 +196,6 @@
         </div>
       </div>
 
-      <!-- Wallet Transaction Ledger Records -->
       <div>
         <h4 class="text-sm font-bold text-white mb-2 flex items-center gap-1.5">
           <span>💳</span> Associated Wallet Ledger Transactions
@@ -228,7 +219,6 @@
         </div>
       </div>
 
-      <!-- Actions -->
       <div class="flex flex-col sm:flex-row justify-between items-center gap-3 pt-3 border-t border-slate-700">
         <div id="manualCreditNotice" class="text-xs text-slate-400"></div>
         <div class="flex items-center gap-2">
@@ -318,6 +308,24 @@
       ]);
     }
 
+    async function resetAllStuckMatches() {
+      if (!confirm("Are you sure you want to FORCE RESET all stuck active matches? This will set their status to CANCELLED and free all trapped players.")) {
+        return;
+      }
+      try {
+        const res = await fetch('/api/admin/multiplayer/reset-active-matches', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message);
+          refreshAll();
+        } else {
+          alert(data.error || 'Failed to reset matches.');
+        }
+      } catch (e) {
+        alert('Error connecting to server.');
+      }
+    }
+
     async function loadStats() {
       try {
         const stats = await (await fetch('/api/admin/multiplayer/dashboard-stats')).json();
@@ -330,9 +338,6 @@
       }
     }
 
-    // =========================================================
-    // LOAD MATCH HISTORY & COIN LEDGER STATUS
-    // =========================================================
     async function loadMatchHistory() {
       const search = document.getElementById('historySearch').value.trim();
       const gameId = document.getElementById('filterGame').value;
@@ -352,7 +357,6 @@
         }
 
         tbody.innerHTML = data.matches.map(m => {
-          // Determine payout status
           let payoutHtml = '';
           if (m.status === 'COMPLETED') {
             if (m.winner_id && Number(m.winner_id) > 0) {
@@ -402,16 +406,12 @@
             </tr>
           `;
         }).join('');
-
       } catch (err) {
         console.error('Failed to load match history:', err);
         tbody.innerHTML = '<tr><td colspan="9" class="p-6 text-center text-red-400">Failed to load match history from server.</td></tr>';
       }
     }
 
-    // =========================================================
-    // INSPECT MATCH & AUDIT TRANSACTION LEDGER
-    // =========================================================
     async function inspectMatchDetails(matchId) {
       currentSelectedMatchId = matchId;
       document.getElementById('matchAuditModal').classList.remove('hidden');
@@ -444,7 +444,6 @@
         document.getElementById('auditWinner').innerText = m.winner_name || (m.is_bot_match && m.winner_id < 0 ? m.p2_name : 'Draw / In Progress');
         document.getElementById('auditReward').innerText = `${m.winner_reward} Coins`;
 
-        // Render Ledger Transactions
         const txTbody = document.getElementById('auditTxTableBody');
         let hasPayoutTx = false;
 
@@ -466,7 +465,6 @@
           }).join('');
         }
 
-        // Configure Manual Settle Button
         const btnCredit = document.getElementById('btnManualCredit');
         const notice = document.getElementById('manualCreditNotice');
 
@@ -482,15 +480,11 @@
           btnCredit.classList.add('hidden');
           notice.innerHTML = `<span class="text-slate-500">No human payout applicable for this match outcome.</span>`;
         }
-
       } catch (err) {
         console.error(err);
       }
     }
 
-    // =========================================================
-    // MANUAL SETTLE / RESOLVE COIN ISSUE
-    // =========================================================
     async function manualCreditWinner() {
       if (!currentSelectedMatchId) return;
       if (!confirm("Are you sure you want to manually credit +200 coins to the winner?")) return;
@@ -516,7 +510,6 @@
 
     async function loadConfigsAndBots() {
       try {
-        // Configs
         const configs = await (await fetch('/api/admin/multiplayer/configs')).json();
         document.getElementById('configsGrid').innerHTML = configs.map(c => `
           <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl p-5 space-y-3">
@@ -538,7 +531,6 @@
           </div>
         `).join('');
 
-        // Bots
         const bots = await (await fetch('/api/admin/multiplayer/bots')).json();
         document.getElementById('botsTableBody').innerHTML = bots.map(b => `
           <tr class="hover:bg-slate-800/40">
