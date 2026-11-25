@@ -10,21 +10,21 @@
 <body class="text-slate-100 min-h-screen p-4 md:p-8">
   <div class="max-w-7xl mx-auto space-y-8">
     
-    <!-- Header -->
+    <!-- Top Header -->
     <header class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800 pb-5 gap-4">
       <div>
         <div class="flex items-center gap-3">
           <span class="text-3xl">⚔️</span>
           <h1 class="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
-            Multiplayer Master Administration
+            Multiplayer Admin & Coin Ledger
           </h1>
         </div>
-        <p class="text-slate-400 text-xs md:text-sm mt-1">Configure Entry Fees, Prize Pools, Timers & Custom Bot Profiles</p>
+        <p class="text-slate-400 text-xs md:text-sm mt-1">Audit Matches, Verify Coin Rewards & Resolve Wallet Support Tickets</p>
       </div>
 
       <div class="flex items-center gap-3">
         <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1.5"></span> Live System
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1.5"></span> Live Server
         </span>
         <button onclick="refreshAll()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg font-semibold text-sm transition">
           Refresh Data
@@ -32,7 +32,7 @@
       </div>
     </header>
 
-    <!-- Top Metrics -->
+    <!-- Top Metrics Overview -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl">
         <span class="text-slate-400 text-xs font-bold uppercase">Total Matches</span>
@@ -43,14 +43,79 @@
         <div id="statActiveMatches" class="text-2xl md:text-3xl font-extrabold text-cyan-400 mt-1">--</div>
       </div>
       <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-        <span class="text-slate-400 text-xs font-bold uppercase">Coins Collected</span>
+        <span class="text-slate-400 text-xs font-bold uppercase">Coins In (Entry)</span>
         <div id="statCoinsIn" class="text-2xl md:text-3xl font-extrabold text-amber-400 mt-1">--</div>
       </div>
       <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-        <span class="text-slate-400 text-xs font-bold uppercase">Coins Rewarded</span>
+        <span class="text-slate-400 text-xs font-bold uppercase">Coins Out (Rewards)</span>
         <div id="statCoinsOut" class="text-2xl md:text-3xl font-extrabold text-indigo-400 mt-1">--</div>
       </div>
     </div>
+
+    <!-- ======================================================== -->
+    <!-- MATCH HISTORY & COIN LEDGER AUDIT (SUPPORT LOOKUP) -->
+    <!-- ======================================================== -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+        <div>
+          <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <span>📜</span> All Match History & Coin Audit
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Search by Username, User ID, or Match ID to verify wallet coin additions.</p>
+        </div>
+
+        <!-- Search & Filter Controls -->
+        <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <input 
+            type="text" 
+            id="historySearch" 
+            placeholder="Search Username / User ID / Match ID..." 
+            onkeydown="if(event.key==='Enter') loadMatchHistory()"
+            class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 w-full md:w-64 focus:outline-none focus:border-indigo-500"
+          />
+
+          <select id="filterGame" onchange="loadMatchHistory()" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
+            <option value="all">All Games</option>
+            <option value="tictactoe">Tic Tac Toe</option>
+            <option value="rps">Rock Paper Scissors</option>
+            <option value="head_tail">Coin Head or Tails</option>
+          </select>
+
+          <select id="filterStatus" onchange="loadMatchHistory()" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
+            <option value="all">All Statuses</option>
+            <option value="COMPLETED">COMPLETED</option>
+            <option value="ACTIVE">ACTIVE</option>
+            <option value="CANCELLED">CANCELLED</option>
+          </select>
+
+          <button onclick="loadMatchHistory()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg text-sm font-bold text-white">
+            Search
+          </button>
+        </div>
+      </div>
+
+      <!-- History Table -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-slate-300">
+          <thead class="bg-slate-800/70 text-slate-400 uppercase text-xs">
+            <tr>
+              <th class="p-3">Match ID</th>
+              <th class="p-3">Game</th>
+              <th class="p-3">Player 1 (Score)</th>
+              <th class="p-3">Player 2 (Score)</th>
+              <th class="p-3">Winner</th>
+              <th class="p-3">Coin Payout Audit</th>
+              <th class="p-3">Status</th>
+              <th class="p-3">Date</th>
+              <th class="p-3 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="matchHistoryTableBody" class="divide-y divide-slate-800">
+            <tr><td colspan="9" class="p-6 text-center text-slate-500">Loading match history...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <!-- Game Configuration (Editable Cards) -->
     <section class="bg-slate-900 border border-slate-800 rounded-xl p-6">
@@ -62,13 +127,11 @@
       </div>
     </section>
 
-    <!-- Bot Management Table with Edit Buttons -->
+    <!-- Bot Management Table -->
     <section class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-      <div class="flex justify-between items-center mb-4">
-        <h2 class="text-xl font-bold text-white flex items-center gap-2">
-          <span>🤖</span> Manage Bot Profiles
-        </h2>
-      </div>
+      <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
+        <span>🤖</span> Manage Bot Profiles
+      </h2>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-sm text-slate-300">
           <thead class="bg-slate-800/60 text-slate-400 uppercase text-xs">
@@ -87,30 +150,95 @@
       </div>
     </section>
 
-    <!-- Live Matches -->
-    <section class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-      <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
-        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> Live Active Matches
-      </h2>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm text-slate-300">
-          <thead class="bg-slate-800/60 text-slate-400 uppercase text-xs">
-            <tr>
-              <th class="p-3">Match ID</th>
-              <th class="p-3">Game</th>
-              <th class="p-3">Player 1</th>
-              <th class="p-3">Player 2</th>
-              <th class="p-3">Score</th>
-              <th class="p-3">Type</th>
-            </tr>
-          </thead>
-          <tbody id="liveTableBody" class="divide-y divide-slate-800">
-            <tr><td colspan="6" class="p-4 text-center text-slate-500">No active matches.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+  </div>
 
+  <!-- ======================================================== -->
+  <!-- MODAL: MATCH DETAILS & TRANSACTION LEDGER AUDIT -->
+  <!-- ======================================================== -->
+  <div id="matchAuditModal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-50 overflow-y-auto">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-2xl w-full space-y-5 my-8">
+      <div class="flex justify-between items-start border-b border-slate-700 pb-3">
+        <div>
+          <h3 class="text-xl font-bold text-white flex items-center gap-2">
+            <span>🔍</span> Match Audit & Wallet Ledger
+          </h3>
+          <p id="auditMatchId" class="font-mono text-xs text-indigo-400 mt-1">--</p>
+        </div>
+        <button onclick="closeModal('matchAuditModal')" class="text-slate-400 hover:text-white text-lg">✕</button>
+      </div>
+
+      <!-- Match Players Summary -->
+      <div class="grid grid-cols-2 gap-4">
+        <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-700">
+          <div class="text-xs text-cyan-400 font-bold uppercase">Player 1</div>
+          <div id="auditP1Name" class="text-base font-bold text-white mt-1">--</div>
+          <div class="text-xs text-slate-400 mt-1">User ID: <span id="auditP1Id" class="text-white">--</span></div>
+          <div class="text-xs text-slate-400">Current Balance: <span id="auditP1Balance" class="text-amber-400 font-bold">--</span> Coins</div>
+        </div>
+
+        <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-700">
+          <div class="text-xs text-orange-400 font-bold uppercase">Player 2</div>
+          <div id="auditP2Name" class="text-base font-bold text-white mt-1">--</div>
+          <div class="text-xs text-slate-400">User ID: <span id="auditP2Id" class="text-white">--</span></div>
+          <div class="text-xs text-slate-400">Current Balance: <span id="auditP2Balance" class="text-amber-400 font-bold">--</span> Coins</div>
+        </div>
+      </div>
+
+      <!-- Match Result & Winner Info -->
+      <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/80 space-y-2">
+        <div class="flex justify-between text-sm">
+          <span class="text-slate-400">Game:</span>
+          <span id="auditGame" class="font-bold uppercase text-indigo-300">--</span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-slate-400">Final Score:</span>
+          <span id="auditScore" class="font-bold text-white">--</span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-slate-400">Declared Winner:</span>
+          <span id="auditWinner" class="font-bold text-emerald-400">--</span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-slate-400">Winner Reward:</span>
+          <span id="auditReward" class="font-bold text-amber-400">-- Coins</span>
+        </div>
+      </div>
+
+      <!-- Wallet Transaction Ledger Records -->
+      <div>
+        <h4 class="text-sm font-bold text-white mb-2 flex items-center gap-1.5">
+          <span>💳</span> Associated Wallet Ledger Transactions
+        </h4>
+        <div class="overflow-x-auto bg-slate-900 rounded-xl border border-slate-700">
+          <table class="w-full text-left text-xs text-slate-300">
+            <thead class="bg-slate-800 text-slate-400 uppercase">
+              <tr>
+                <th class="p-2.5">Tx ID</th>
+                <th class="p-2.5">User</th>
+                <th class="p-2.5">Type</th>
+                <th class="p-2.5">Amount</th>
+                <th class="p-2.5">Reference ID</th>
+                <th class="p-2.5">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody id="auditTxTableBody" class="divide-y divide-slate-800">
+              <tr><td colspan="6" class="p-3 text-center text-slate-500">Checking transactions...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex flex-col sm:flex-row justify-between items-center gap-3 pt-3 border-t border-slate-700">
+        <div id="manualCreditNotice" class="text-xs text-slate-400"></div>
+        <div class="flex items-center gap-2">
+          <button onclick="closeModal('matchAuditModal')" class="px-4 py-2 text-slate-400 hover:text-white text-sm">Close</button>
+          <button id="btnManualCredit" onclick="manualCreditWinner()" class="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-lg text-sm font-bold text-white shadow-lg shadow-emerald-600/30">
+            Manual Credit +200 Coins
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- MODAL: EDIT GAME CONFIG -->
@@ -118,22 +246,18 @@
     <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-md w-full space-y-4">
       <h3 id="modalConfigTitle" class="text-xl font-bold text-white">Edit Game Config</h3>
       <input type="hidden" id="editGameId">
-      
       <div>
         <label class="text-xs text-slate-400 uppercase font-semibold">Entry Fee (Coins)</label>
         <input type="number" id="editEntryFee" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
       </div>
-
       <div>
         <label class="text-xs text-slate-400 uppercase font-semibold">Winner Reward (Coins)</label>
         <input type="number" id="editWinnerReward" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
       </div>
-
       <div>
         <label class="text-xs text-slate-400 uppercase font-semibold">Turn / Selection Timer (Seconds)</label>
         <input type="number" id="editTurnTimer" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
       </div>
-
       <div>
         <label class="text-xs text-slate-400 uppercase font-semibold">Default Bot Difficulty</label>
         <select id="editBotDiff" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
@@ -143,12 +267,10 @@
           <option value="EXPERT">EXPERT</option>
         </select>
       </div>
-
       <div class="flex items-center gap-2 pt-2">
         <input type="checkbox" id="editIsEnabled" class="w-4 h-4 rounded text-indigo-600 bg-slate-900 border-slate-700">
         <label for="editIsEnabled" class="text-sm font-semibold text-slate-200">Game Active / Available</label>
       </div>
-
       <div class="flex justify-end gap-3 pt-3 border-t border-slate-700">
         <button onclick="closeModal('configModal')" class="px-4 py-2 text-slate-400 hover:text-white text-sm">Cancel</button>
         <button onclick="saveGameConfig()" class="bg-indigo-600 hover:bg-indigo-500 px-5 py-2 rounded-lg text-sm font-bold text-white">Save Changes</button>
@@ -161,17 +283,14 @@
     <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-md w-full space-y-4">
       <h3 class="text-xl font-bold text-white">Edit Bot Profile</h3>
       <input type="hidden" id="editBotId">
-      
       <div>
         <label class="text-xs text-slate-400 uppercase font-semibold">Bot Username</label>
         <input type="text" id="editBotUsername" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
       </div>
-
       <div>
         <label class="text-xs text-slate-400 uppercase font-semibold">Avatar URL</label>
         <input type="text" id="editBotAvatar" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
       </div>
-
       <div>
         <label class="text-xs text-slate-400 uppercase font-semibold">Difficulty Level</label>
         <select id="editBotDifficulty" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-white mt-1">
@@ -181,7 +300,6 @@
           <option value="EXPERT">EXPERT</option>
         </select>
       </div>
-
       <div class="flex justify-end gap-3 pt-3 border-t border-slate-700">
         <button onclick="closeModal('botModal')" class="px-4 py-2 text-slate-400 hover:text-white text-sm">Cancel</button>
         <button onclick="saveBotProfile()" class="bg-cyan-600 hover:bg-cyan-500 px-5 py-2 rounded-lg text-sm font-bold text-white">Update Bot</button>
@@ -190,21 +308,217 @@
   </div>
 
   <script>
-    let globalConfigs = [];
-    let globalBots = [];
+    let currentSelectedMatchId = null;
 
     async function refreshAll() {
+      await Promise.all([
+        loadStats(),
+        loadConfigsAndBots(),
+        loadMatchHistory()
+      ]);
+    }
+
+    async function loadStats() {
       try {
-        // 1. Stats
         const stats = await (await fetch('/api/admin/multiplayer/dashboard-stats')).json();
         document.getElementById('statTotalMatches').innerText = stats.totalMatches || 0;
         document.getElementById('statActiveMatches').innerText = stats.activeMatches || 0;
         document.getElementById('statCoinsIn').innerText = (stats.totalCoinsCollected || 0).toLocaleString() + ' 🪙';
         document.getElementById('statCoinsOut').innerText = (stats.totalCoinsPaidOut || 0).toLocaleString() + ' 🪙';
+      } catch (e) {
+        console.error(e);
+      }
+    }
 
-        // 2. Configs
-        globalConfigs = await (await fetch('/api/admin/multiplayer/configs')).json();
-        document.getElementById('configsGrid').innerHTML = globalConfigs.map(c => `
+    // =========================================================
+    // LOAD MATCH HISTORY & COIN LEDGER STATUS
+    // =========================================================
+    async function loadMatchHistory() {
+      const search = document.getElementById('historySearch').value.trim();
+      const gameId = document.getElementById('filterGame').value;
+      const status = document.getElementById('filterStatus').value;
+
+      const tbody = document.getElementById('matchHistoryTableBody');
+      tbody.innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-500">Searching match records...</td></tr>';
+
+      try {
+        const url = `/api/admin/multiplayer/matches?search=${encodeURIComponent(search)}&gameId=${gameId}&status=${status}&limit=50`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.matches || data.matches.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-500">No match records found matching your query.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.matches.map(m => {
+          // Determine payout status
+          let payoutHtml = '';
+          if (m.status === 'COMPLETED') {
+            if (m.winner_id && Number(m.winner_id) > 0) {
+              if (m.payout_tx_id) {
+                payoutHtml = `<span class="bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded text-xs font-bold">🟢 Paid (+${m.winner_reward}) Tx #${m.payout_tx_id}</span>`;
+              } else {
+                payoutHtml = `<span class="bg-red-950 text-red-400 border border-red-800 px-2 py-0.5 rounded text-xs font-bold animate-pulse">⚠️ Uncredited</span>`;
+              }
+            } else if (m.is_bot_match && m.winner_id < 0) {
+              payoutHtml = `<span class="text-xs text-slate-400">🤖 Bot Won (No Payout)</span>`;
+            } else {
+              payoutHtml = `<span class="text-xs text-amber-400">🤝 Draw (No Payout)</span>`;
+            }
+          } else if (m.status === 'ACTIVE') {
+            payoutHtml = `<span class="text-xs text-cyan-400">⏳ Match In Progress</span>`;
+          } else {
+            payoutHtml = `<span class="text-xs text-slate-500">Cancelled / Refunded</span>`;
+          }
+
+          const winnerText = m.winner_name 
+            ? `<span class="font-bold text-emerald-400">${m.winner_name}</span>` 
+            : (m.is_bot_match && m.winner_id < 0 ? `<span class="text-amber-400 font-bold">${m.p2_name}</span>` : '<span class="text-slate-500">Draw / None</span>');
+
+          return `
+            <tr class="hover:bg-slate-800/40 transition">
+              <td class="p-3 font-mono text-xs text-slate-400">${m.id.substring(0, 10)}...</td>
+              <td class="p-3 uppercase font-bold text-indigo-400 text-xs">${m.game_id}</td>
+              <td class="p-3 text-xs">
+                <span class="font-bold text-white">${m.p1_name || 'User #' + m.player1_id}</span>
+                <span class="text-slate-400">(${m.p1_score} pts)</span>
+              </td>
+              <td class="p-3 text-xs">
+                <span class="font-bold text-white">${m.p2_name || (m.is_bot_match ? 'Bot' : 'User #' + m.player2_id)}</span>
+                <span class="text-slate-400">(${m.p2_score} pts)</span>
+              </td>
+              <td class="p-3 text-xs">${winnerText}</td>
+              <td class="p-3">${payoutHtml}</td>
+              <td class="p-3">
+                <span class="px-2 py-0.5 rounded text-xs font-semibold ${m.status === 'COMPLETED' ? 'bg-slate-800 text-slate-300' : 'bg-cyan-950 text-cyan-400'}">${m.status}</span>
+              </td>
+              <td class="p-3 text-xs text-slate-500">${new Date(m.created_at).toLocaleString()}</td>
+              <td class="p-3 text-right">
+                <button onclick="inspectMatchDetails('${m.id}')" class="bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-800 px-3 py-1 rounded text-xs font-bold transition">
+                  Audit / Details
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+      } catch (err) {
+        console.error('Failed to load match history:', err);
+        tbody.innerHTML = '<tr><td colspan="9" class="p-6 text-center text-red-400">Failed to load match history from server.</td></tr>';
+      }
+    }
+
+    // =========================================================
+    // INSPECT MATCH & AUDIT TRANSACTION LEDGER
+    // =========================================================
+    async function inspectMatchDetails(matchId) {
+      currentSelectedMatchId = matchId;
+      document.getElementById('matchAuditModal').classList.remove('hidden');
+      document.getElementById('matchAuditModal').classList.add('flex');
+
+      document.getElementById('auditMatchId').innerText = matchId;
+      document.getElementById('auditP1Name').innerText = 'Loading...';
+      document.getElementById('auditP2Name').innerText = 'Loading...';
+      document.getElementById('auditTxTableBody').innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-500">Fetching wallet ledger...</td></tr>';
+
+      try {
+        const res = await fetch(`/api/admin/multiplayer/match/${matchId}/details`);
+        const data = await res.json();
+        if (!data.success) {
+          alert(data.error || 'Failed to load details.');
+          return;
+        }
+
+        const m = data.match;
+        document.getElementById('auditP1Name').innerText = m.p1_name || 'User #' + m.player1_id;
+        document.getElementById('auditP1Id').innerText = m.player1_id;
+        document.getElementById('auditP1Balance').innerText = (m.p1_balance || 0).toLocaleString();
+
+        document.getElementById('auditP2Name').innerText = m.p2_name || (m.is_bot_match ? 'Bot' : 'User #' + m.player2_id);
+        document.getElementById('auditP2Id').innerText = m.player2_id || 'BOT';
+        document.getElementById('auditP2Balance').innerText = m.is_bot_match ? 'N/A' : (m.p2_balance || 0).toLocaleString();
+
+        document.getElementById('auditGame').innerText = m.game_id;
+        document.getElementById('auditScore').innerText = `${m.p1_score} - ${m.p2_score} (Round ${m.current_round})`;
+        document.getElementById('auditWinner').innerText = m.winner_name || (m.is_bot_match && m.winner_id < 0 ? m.p2_name : 'Draw / In Progress');
+        document.getElementById('auditReward').innerText = `${m.winner_reward} Coins`;
+
+        // Render Ledger Transactions
+        const txTbody = document.getElementById('auditTxTableBody');
+        let hasPayoutTx = false;
+
+        if (!data.transactions || data.transactions.length === 0) {
+          txTbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-amber-400">No transaction records found matching this match reference ID.</td></tr>';
+        } else {
+          txTbody.innerHTML = data.transactions.map(t => {
+            if (t.type === 'MULTIPLAYER_WIN') hasPayoutTx = true;
+            return `
+              <tr>
+                <td class="p-2.5 font-mono text-indigo-400 font-bold">#${t.id}</td>
+                <td class="p-2.5 text-white">${t.username || 'ID: ' + t.user_id}</td>
+                <td class="p-2.5"><span class="px-2 py-0.5 rounded text-xs font-bold ${t.type.includes('WIN') ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-300'}">${t.type}</span></td>
+                <td class="p-2.5 font-bold ${t.amount >= 0 ? 'text-emerald-400' : 'text-red-400'}">${t.amount >= 0 ? '+' : ''}${t.amount}</td>
+                <td class="p-2.5 font-mono text-slate-400 text-[10px]">${t.reference_id}</td>
+                <td class="p-2.5 text-slate-500">${new Date(t.created_at).toLocaleTimeString()}</td>
+              </tr>
+            `;
+          }).join('');
+        }
+
+        // Configure Manual Settle Button
+        const btnCredit = document.getElementById('btnManualCredit');
+        const notice = document.getElementById('manualCreditNotice');
+
+        if (m.status === 'COMPLETED' && m.winner_id && Number(m.winner_id) > 0) {
+          if (hasPayoutTx) {
+            btnCredit.classList.add('hidden');
+            notice.innerHTML = `<span class="text-emerald-400 font-bold">✓ Payout Verified: Winner already received +${m.winner_reward} coins.</span>`;
+          } else {
+            btnCredit.classList.remove('hidden');
+            notice.innerHTML = `<span class="text-red-400 font-bold animate-pulse">⚠️ Payout Missing: Winner has not received coins yet.</span>`;
+          }
+        } else {
+          btnCredit.classList.add('hidden');
+          notice.innerHTML = `<span class="text-slate-500">No human payout applicable for this match outcome.</span>`;
+        }
+
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    // =========================================================
+    // MANUAL SETTLE / RESOLVE COIN ISSUE
+    // =========================================================
+    async function manualCreditWinner() {
+      if (!currentSelectedMatchId) return;
+      if (!confirm("Are you sure you want to manually credit +200 coins to the winner?")) return;
+
+      try {
+        const res = await fetch(`/api/admin/multiplayer/match/${currentSelectedMatchId}/manual-credit`, {
+          method: 'POST'
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          alert(data.message);
+          inspectMatchDetails(currentSelectedMatchId);
+          loadMatchHistory();
+          loadStats();
+        } else {
+          alert(data.error || 'Failed to credit coins.');
+        }
+      } catch (err) {
+        alert('Server error while processing manual credit.');
+      }
+    }
+
+    async function loadConfigsAndBots() {
+      try {
+        // Configs
+        const configs = await (await fetch('/api/admin/multiplayer/configs')).json();
+        document.getElementById('configsGrid').innerHTML = configs.map(c => `
           <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl p-5 space-y-3">
             <div class="flex justify-between items-center">
               <h3 class="font-bold text-lg text-white">${c.name}</h3>
@@ -224,9 +538,9 @@
           </div>
         `).join('');
 
-        // 3. Bots
-        globalBots = await (await fetch('/api/admin/multiplayer/bots')).json();
-        document.getElementById('botsTableBody').innerHTML = globalBots.map(b => `
+        // Bots
+        const bots = await (await fetch('/api/admin/multiplayer/bots')).json();
+        document.getElementById('botsTableBody').innerHTML = bots.map(b => `
           <tr class="hover:bg-slate-800/40">
             <td class="p-3"><img src="${b.avatar_url}" class="w-9 h-9 rounded-full bg-slate-800 border border-slate-700"></td>
             <td class="p-3 font-bold text-white">${b.username}</td>
@@ -239,41 +553,25 @@
             </td>
           </tr>
         `).join('');
-
-        // 4. Live Matches
-        const live = await (await fetch('/api/admin/multiplayer/live-matches')).json();
-        const tbody = document.getElementById('liveTableBody');
-        if (live.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-slate-500">No active matches at the moment.</td></tr>';
-        } else {
-          tbody.innerHTML = live.map(m => `
-            <tr>
-              <td class="p-3 font-mono text-xs text-slate-400">${m.id.substring(0, 10)}...</td>
-              <td class="p-3 uppercase font-bold text-indigo-400">${m.game_id}</td>
-              <td class="p-3 text-white">${m.p1_name}</td>
-              <td class="p-3 text-white">${m.p2_name}</td>
-              <td class="p-3 font-bold text-amber-400">${m.p1_score} - ${m.p2_score}</td>
-              <td class="p-3">${m.is_bot_match ? '<span class="bg-amber-950 text-amber-300 text-xs px-2 py-0.5 rounded">BOT</span>' : '<span class="bg-cyan-950 text-cyan-300 text-xs px-2 py-0.5 rounded">PVP</span>'}</td>
-            </tr>
-          `).join('');
-        }
       } catch (e) {
         console.error(e);
       }
     }
 
     function openConfigModal(gameId) {
-      const c = globalConfigs.find(x => x.game_id === gameId);
-      if (!c) return;
-      document.getElementById('editGameId').value = c.game_id;
-      document.getElementById('modalConfigTitle').innerText = `Edit: ${c.name}`;
-      document.getElementById('editEntryFee').value = c.entry_fee;
-      document.getElementById('editWinnerReward').value = c.winner_reward;
-      document.getElementById('editTurnTimer').value = c.turn_timer;
-      document.getElementById('editBotDiff').value = c.bot_difficulty;
-      document.getElementById('editIsEnabled').checked = !!c.is_enabled;
-      document.getElementById('configModal').classList.remove('hidden');
-      document.getElementById('configModal').classList.add('flex');
+      fetch('/api/admin/multiplayer/configs').then(r => r.json()).then(confs => {
+        const c = confs.find(x => x.game_id === gameId);
+        if (!c) return;
+        document.getElementById('editGameId').value = c.game_id;
+        document.getElementById('modalConfigTitle').innerText = `Edit: ${c.name}`;
+        document.getElementById('editEntryFee').value = c.entry_fee;
+        document.getElementById('editWinnerReward').value = c.winner_reward;
+        document.getElementById('editTurnTimer').value = c.turn_timer;
+        document.getElementById('editBotDiff').value = c.bot_difficulty;
+        document.getElementById('editIsEnabled').checked = !!c.is_enabled;
+        document.getElementById('configModal').classList.remove('hidden');
+        document.getElementById('configModal').classList.add('flex');
+      });
     }
 
     async function saveGameConfig() {
@@ -294,21 +592,23 @@
 
       if (res.ok) {
         closeModal('configModal');
-        refreshAll();
+        loadConfigsAndBots();
       } else {
         alert('Failed to update config.');
       }
     }
 
     function openBotModal(botId) {
-      const b = globalBots.find(x => x.id === botId);
-      if (!b) return;
-      document.getElementById('editBotId').value = b.id;
-      document.getElementById('editBotUsername').value = b.username;
-      document.getElementById('editBotAvatar').value = b.avatar_url;
-      document.getElementById('editBotDifficulty').value = b.difficulty;
-      document.getElementById('botModal').classList.remove('hidden');
-      document.getElementById('botModal').classList.add('flex');
+      fetch('/api/admin/multiplayer/bots').then(r => r.json()).then(bots => {
+        const b = bots.find(x => x.id === botId);
+        if (!b) return;
+        document.getElementById('editBotId').value = b.id;
+        document.getElementById('editBotUsername').value = b.username;
+        document.getElementById('editBotAvatar').value = b.avatar_url;
+        document.getElementById('editBotDifficulty').value = b.difficulty;
+        document.getElementById('botModal').classList.remove('hidden');
+        document.getElementById('botModal').classList.add('flex');
+      });
     }
 
     async function saveBotProfile() {
@@ -327,7 +627,7 @@
 
       if (res.ok) {
         closeModal('botModal');
-        refreshAll();
+        loadConfigsAndBots();
       } else {
         alert('Failed to update bot.');
       }
@@ -339,7 +639,6 @@
     }
 
     refreshAll();
-    setInterval(refreshAll, 3000);
   </script>
 </body>
 </html>
